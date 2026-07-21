@@ -45,6 +45,14 @@ uvicorn app.main:app --reload
 - API 文档：`http://localhost:8000/docs`
 - 健康检查：`GET http://localhost:8000/api/v1/health`
 
+## 项目文档
+
+- [Capstone Project Proposal](Docs/Capstone_Project_Proposal.pdf)：AI-driven Intelligent V2X Communication Optimization for Autonomous Driving in 6G Networks。
+- [ARCHITECT_CODEX_BRIDGE.md](ARCHITECT_CODEX_BRIDGE.md)：架构师与 Codex 的当前任务、决策和阻塞沟通入口。
+- [ARCHITECTURE.md](ARCHITECTURE.md)：软件系统架构说明。
+- [task_memory.md](task_memory.md)：按时间追加的任务交接记录。
+- [TODO.md](TODO.md)：当前计划与后续事项。
+
 ## 工作交接
 
 每次任务完成后必须同步维护：
