@@ -1,0 +1,53 @@
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #172033;
+  background: #f4f7fb;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.card {
+  width: min(100%, 680px);
+  padding: 48px;
+  border: 1px solid #dce3ee;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgb(23 32 51 / 10%);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #3867d6;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+h1 {
+  margin: 0;
+  font-size: clamp(32px, 6vw, 56px);
+  line-height: 1.08;
+}
+
+.status {
+  margin: 28px 0 0;
+  color: #62708a;
+  font-size: 16px;
+}

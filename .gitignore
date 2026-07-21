@@ -1,0 +1,28 @@
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Environment files
+.env
+.env.local
+!.env.example
+
+# Frontend
+FrontEnd/node_modules/
+FrontEnd/dist/
+FrontEnd/coverage/
+FrontEnd/*.tsbuildinfo
+
+# Backend
+BackEnd/.venv/
+BackEnd/.pytest_cache/
+BackEnd/.ruff_cache/
+BackEnd/.coverage
+BackEnd/htmlcov/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Logs
+*.log
