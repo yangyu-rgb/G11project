@@ -162,7 +162,20 @@ G11project/
 ---
 
 ### 已完成任务
-*暂无*
+
+#### 任务002：初始化 CI/CD 流水线与 push 检查规范
+**状态**：🟢 已完成
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] GitHub Actions 在 push、pull request、merge queue 和手动触发时运行
+- [x] 前端执行依赖锁定安装、ESLint 和生产构建
+- [x] 后端执行 Ruff 和 pytest
+- [x] 根目录提供 `./start.sh`，统一初始化并启动前后端服务
+- [x] 启动脚本通过语法检查，并在退出时统一清理两个服务进程
+- [x] 补充本地检查、pull request 合并与 `main` 分支保护规范
+- [x] 未确定部署目标前不注入部署凭据或执行自动部署
+- 修改的文件：`.github/workflows/ci.yml`、`start.sh`、`Docs/CI_CD.md`、`README.md`
 
 ### 被阻塞任务
 *暂无*

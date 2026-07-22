@@ -28,3 +28,12 @@
 - 关键决策：桥接文档负责当前任务与待决策事项；`TODO.md` 负责简明路线图；`task_memory.md` 只追加历史；`ARCHITECTURE.md` 只记录已确认且生效的架构；尚未正式确认的 proposal 内容不自动成为架构决策。
 - 验证结果：检查根目录业务文件夹仍仅有四个；全文检查旧目录树和“单一真相来源”表述已被替换；`git diff --check` 通过。
 - 后续事项：项目方向和仿真方案等待正式确认，不提前执行相关架构决策。
+
+## 2026-07-22 09:29｜初始化 CI/CD 流水线与 push 检查规范
+
+- 状态：已完成
+- 目标：在业务开发开始前建立 push 和 pull request 的自动质量门禁。
+- 完成内容：新增 GitHub Actions 工作流；前端执行锁定依赖安装、ESLint 和生产构建，后端执行开发依赖安装、Ruff 和 pytest；新增根目录 `./start.sh`，按需初始化依赖、同时启动前后端并统一处理退出；补充本地检查、pull request 合并与 `main` 分支保护规范。
+- 关键决策：所有分支的 push 和 pull request 均触发检查；两个检查并行运行并取消同分支的过期任务；部署目标和环境未确定前仅建立 CI，不配置部署凭据或自动发布。
+- 验证结果：前端 lint 与生产构建通过；后端 Ruff lint/格式检查和 pytest 通过；一键启动脚本语法与前后端健康状态验证通过；工作流 YAML 与文档完成静态检查；`git diff --check` 通过。
+- 后续事项：工作流首次在 GitHub 运行成功后，将 `Frontend checks`、`Backend checks` 和 `Project checks` 配置为 `main` 的必需状态检查；确定部署平台后新增 CD job。
