@@ -20,9 +20,20 @@ BackEnd/.pytest_cache/
 BackEnd/.ruff_cache/
 BackEnd/.coverage
 BackEnd/htmlcov/
+BackEnd/experiments/
 __pycache__/
 *.py[cod]
 *.egg-info/
+
+# Python / ML
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
 
 # Logs
 *.log
