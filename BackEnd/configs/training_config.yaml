@@ -1,0 +1,26 @@
+seed: 42
+
+scenario:
+  directory: experiments/test_scenario
+  config: configs/scenarios/highway_emergency.yaml
+  generate_if_missing: true
+
+environment:
+  episode_steps: 10
+  max_vehicles: 50
+  max_events: 2
+  critical_radius_m: 300
+  delay_normalization_ms: 100
+
+ppo:
+  learning_rate: 0.0003
+  clip_epsilon: 0.2
+  entropy_coef: 0.01
+  batch_size: 64
+  n_epochs: 10
+  n_steps: 64
+  gamma: 0.99
+  device: auto
+  verbose: 1
+
+evaluation_episodes: 5

@@ -33,7 +33,7 @@
 ┌──────────────────────────┴───────────────────────────────┐
 │ 核心算法层（BackEnd/src）                                 │
 │ Transformer Encoder（M1已实现）                           │
-│ PPO Agent、Environment Wrapper、Reward（待实现）          │
+│ PPO Agent、Environment Wrapper、Reward（M1已实现）        │
 └──────────────────────────┬───────────────────────────────┘
                            │
 ┌──────────────────────────┴───────────────────────────────┐
@@ -57,7 +57,7 @@
 输出车辆轨迹XML与事件JSON
 ```
 
-#### 计划中的离线训练流
+#### M1已实现的离线训练流
 
 ```text
 轨迹XML + 事件JSON
@@ -152,9 +152,9 @@ React前端展示仿真、注意力、决策和指标
 
 ### 2.3 PPO通信调度器
 
-**计划路径**: `BackEnd/src/models/ppo_agent.py`
+**路径**: `BackEnd/src/models/ppo_agent.py`
 
-**状态**: 未实现
+**状态**: 已实现M1基础版
 
 **状态空间**:
 
@@ -169,7 +169,7 @@ React前端展示仿真、注意力、决策和指标
 - 低、中、高三级优先级。
 - 十档带宽份额。
 
-**确认的目标结构**:
+**当前结构**:
 
 - Actor: `state_dim → 512 → 256 → action_logits`。
 - Critic: `state_dim → 512 → 256 → 1`。
@@ -179,9 +179,9 @@ React前端展示仿真、注意力、决策和指标
 
 ### 2.4 Environment Wrapper
 
-**计划路径**: `BackEnd/src/environment/v2x_env.py`
+**路径**: `BackEnd/src/environment/v2x_env.py`
 
-**状态**: 未实现
+**状态**: 已实现M1离线版
 
 **接口**: 遵循Gymnasium API。
 
@@ -265,20 +265,21 @@ calculate_transmission(
 
 **路径**: `FrontEnd/src/`
 
-**状态**: M0基础骨架已实现
+**状态**: M1 mock可视化已实现
 
-- `App.tsx`: 展示WebSocket连接状态和最新测试消息。
+- `App.tsx`: 展示连接状态、mock指标和高速公路通信态势。
 - `hooks/useWebSocket.ts`: 管理连接、消息解析、断开状态和2秒自动重连。
-- `styles.css`: 当前基础界面样式。
+- `components/MapView/`: 三车道、车辆、急刹事件和消息传播动画。
+- `components/MetricsPanel/`: 实时时延、覆盖率和通信开销卡片。
+- `data/mockSimulation.ts`: 本轮5车、1事件和3条消息的本地演示数据。
 
-### 3.2 计划组件
+### 3.2 后续计划组件
 
 ```text
 components/
-├── MapView/             # Leaflet车辆、事件和消息传播图层
 ├── AttentionViz/        # 注意力热力图及关联线
 ├── DecisionPanel/       # 候选车辆和资源分配
-├── MetricsPanel/        # 实时指标、时序图和事件统计
+├── MetricsPanel/        # 时序图和事件统计
 ├── ComparisonView/      # AI与基线同步对比
 └── Scene3D/             # Three.js可选增强
 ```
@@ -301,13 +302,13 @@ G11project/
 │   │   ├── models/
 │   │   │   ├── transformer.py       # 已实现
 │   │   │   ├── utils.py             # 已实现
-│   │   │   └── ppo_agent.py         # 计划
+│   │   │   └── ppo_agent.py         # M1基础版已实现
 │   │   ├── environment/
 │   │   │   ├── network_model.py     # M1简化版已实现
-│   │   │   ├── v2x_env.py           # 计划
-│   │   │   └── reward_calculator.py # 计划
-│   │   ├── training/                 # 训练流程
-│   │   ├── evaluation/               # 基线、指标与评估
+│   │   │   ├── v2x_env.py           # M1离线版已实现
+│   │   │   └── reward_calculator.py # M1简化版已实现
+│   │   ├── training/                 # PPO训练脚本已实现
+│   │   ├── evaluation/               # 两种基线与评估器已实现
 │   │   └── deployment/               # 模型导出
 │   ├── configs/scenarios/
 │   │   └── highway_emergency.yaml   # 已实现
@@ -315,7 +316,7 @@ G11project/
 │   │   ├── verify_sumo.py            # 已实现
 │   │   └── generate_highway_scenario.py # 已实现
 │   └── experiments/                  # 生成数据、模型和实验产物
-├── FrontEnd/src/                     # React应用与WebSocket hook
+├── FrontEnd/src/                     # React、Leaflet、mock地图与WebSocket hook
 ├── Test/
 │   ├── unit/                         # 场景、Transformer和网络模型测试
 │   ├── integration/                  # SUMO与WebSocket集成测试
@@ -348,9 +349,16 @@ python BackEnd/scripts/generate_highway_scenario.py \
 
 该命令依赖本机SUMO运行时，输出目录位于 `BackEnd/experiments/test_scenario/`。
 
-### 5.3 训练和演示
+### 5.3 PPO训练
 
-训练脚本、实验运行器、预训练模型加载和完整演示模式尚未实现。对应命令应在实际接口完成后写入本文档，避免把计划命令误写成可用命令。
+```bash
+python BackEnd/src/training/train_ppo.py \
+  --config configs/training_config.yaml \
+  --episodes 10 \
+  --output experiments/test_ppo
+```
+
+训练输出包含最佳模型、最终检查点、训练摘要和TensorBoard日志。完整后端状态推送和真实数据前端演示仍属于后续任务。
 
 ---
 
@@ -359,16 +367,16 @@ python BackEnd/scripts/generate_highway_scenario.py \
 | 层级 | 技术 | 当前状态 |
 |------|------|----------|
 | 前端框架 | React + TypeScript + Vite | ✅ 已搭建 |
-| 地图可视化 | Leaflet | 待集成 |
+| 地图可视化 | Leaflet | ✅ M1 mock地图已实现 |
 | 图表可视化 | D3.js | 待集成 |
 | 3D可视化 | Three.js | 可选，待实现 |
 | 后端框架 | FastAPI | ✅ 基础骨架已实现 |
 | 通信协议 | WebSocket | ✅ M0基础通信已实现 |
 | 环境编码 | PyTorch Transformer | ✅ M1基础版已实现 |
-| RL调度 | Stable-Baselines3 PPO | 依赖已安装，Agent待实现 |
+| RL调度 | Stable-Baselines3 PPO | ✅ M1基础版已实现 |
 | 交通仿真 | SUMO + TraCI | ✅ 场景生成与验证已实现 |
 | 网络抽象 | Python简化模型 | ✅ M1版本已实现 |
-| 环境接口 | Gymnasium | 依赖已安装，Wrapper待实现 |
+| 环境接口 | Gymnasium | ✅ M1离线Wrapper已实现 |
 | 后端测试 | Pytest | ✅ 已配置 |
 | 前端测试 | 尚未选定 | 待配置 |
 | 代码检查 | Ruff + ESLint | ✅ 已配置 |
