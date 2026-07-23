@@ -51,7 +51,10 @@ class UrbanScenarioConfig:
     speed_max_kmh: float
     minimum_spacing_m: float
     event_times_s: tuple[float, ...]
+    event_types: tuple[str, ...]
     event_severities: tuple[float, ...]
+    traffic_light_type: str
+    traffic_light_green_time_s: float
     simulation_duration_s: float
     step_length_s: float
 
@@ -116,7 +119,12 @@ def load_urban_scenario_config(path: Path) -> UrbanScenarioConfig:
             speed_max_kmh=float(vehicles["speed_max_kmh"]),
             minimum_spacing_m=float(vehicles["minimum_spacing_m"]),
             event_times_s=tuple(float(value) for value in events["times_s"]),
+            event_types=tuple(str(value) for value in events.get("types", EVENT_TYPES)),
             event_severities=tuple(float(value) for value in events["severities"]),
+            traffic_light_type=str(raw_data.get("traffic_lights", {}).get("type", "static")),
+            traffic_light_green_time_s=float(
+                raw_data.get("traffic_lights", {}).get("green_time_s", 30)
+            ),
             simulation_duration_s=float(simulation["duration_s"]),
             step_length_s=float(simulation["step_length_s"]),
         )
@@ -141,12 +149,18 @@ def _validate_config(config: UrbanScenarioConfig) -> None:
         raise UrbanScenarioGenerationError(
             "Urban roads require 500m branches and two lanes per direction."
         )
-    if config.vehicle_count != 100:
-        raise UrbanScenarioGenerationError("The M2 urban scenario requires exactly 100 vehicles.")
+    if not 80 <= config.vehicle_count <= 100:
+        raise UrbanScenarioGenerationError("M2 urban scenarios require 80-100 vehicles.")
     if not 30 <= config.speed_min_kmh <= config.speed_max_kmh <= 60:
         raise UrbanScenarioGenerationError("Vehicle speeds must stay within 30-60 km/h.")
-    if len(config.event_times_s) != 3 or len(config.event_severities) != 3:
-        raise UrbanScenarioGenerationError("Exactly three event times and severities are required.")
+    if not 1 <= len(config.event_times_s) <= 3:
+        raise UrbanScenarioGenerationError("Urban scenarios require one to three events.")
+    if not (len(config.event_times_s) == len(config.event_types) == len(config.event_severities)):
+        raise UrbanScenarioGenerationError(
+            "Event types, times and severities must have equal length."
+        )
+    if any(event_type not in EVENT_TYPES for event_type in config.event_types):
+        raise UrbanScenarioGenerationError("Urban event type is unsupported.")
     if not all(10 <= timestamp <= 30 for timestamp in config.event_times_s):
         raise UrbanScenarioGenerationError("Event times must stay within 10-30 seconds.")
     if not all(0 <= severity <= 1 for severity in config.event_severities):
@@ -155,6 +169,10 @@ def _validate_config(config: UrbanScenarioConfig) -> None:
         raise UrbanScenarioGenerationError("Simulation must continue beyond the final event.")
     if config.minimum_spacing_m <= 0 or config.step_length_s <= 0:
         raise UrbanScenarioGenerationError("Spacing and simulation step length must be positive.")
+    if config.traffic_light_type not in {"static", "actuated", "delay_based"}:
+        raise UrbanScenarioGenerationError("Unsupported traffic light type.")
+    if config.traffic_light_green_time_s <= 0:
+        raise UrbanScenarioGenerationError("Traffic light green time must be positive.")
 
 
 def resolve_output_directory(output: str | Path) -> Path:
@@ -238,15 +256,15 @@ def build_event_schedule(
     corridor_vehicles = [
         vehicle for vehicle in vehicles if vehicle.route_id in {"west_to_east", "east_to_west"}
     ]
-    if len(corridor_vehicles) < len(EVENT_TYPES):
+    if len(corridor_vehicles) < len(config.event_types):
         raise UrbanScenarioGenerationError(
-            "At least three corridor vehicles are required for events."
+            "Not enough corridor vehicles are available for configured events."
         )
-    selected = rng.sample(corridor_vehicles, len(EVENT_TYPES))
+    selected = rng.sample(corridor_vehicles, len(config.event_types))
     return [
         UrbanScheduledEvent(event_type, timestamp, vehicle.vehicle_id, severity)
         for event_type, timestamp, vehicle, severity in zip(
-            EVENT_TYPES,
+            config.event_types,
             config.event_times_s,
             selected,
             config.event_severities,
@@ -358,6 +376,10 @@ def _write_network(config: UrbanScenarioConfig, artifacts: UrbanScenarioArtifact
                 str(artifacts.network),
                 "--no-turnarounds",
                 "true",
+                "--tls.default-type",
+                config.traffic_light_type,
+                "--tls.green.time",
+                f"{config.traffic_light_green_time_s:g}",
             ],
             check=True,
             capture_output=True,

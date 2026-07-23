@@ -114,7 +114,9 @@ def test_environment_runs_exactly_ten_steps(scenario_directory: Path) -> None:
         environment.step(action)
 
 
-def test_environment_accepts_3gpp_network_configuration(scenario_directory: Path) -> None:
+def test_environment_accepts_3gpp_network_configuration(
+    scenario_directory: Path,
+) -> None:
     environment = V2XEnv(
         scenario_directory,
         network_mode="3gpp",
@@ -143,6 +145,45 @@ def test_reward_calculator_clips_delay_and_counts_only_critical_successes() -> N
     assert breakdown.delivery_success_rate == 0.5
     assert breakdown.avg_delay_penalty == 1.0
     assert breakdown.reward == -0.5
+
+
+def test_complete_reward_reports_all_five_normalized_components() -> None:
+    breakdown = calculate_reward(
+        critical_receiver_ids={"a", "b"},
+        successful_receiver_ids={"a", "irrelevant"},
+        timely_successful_receiver_ids={"a"},
+        latencies_ms=[20, 80],
+        selected_receiver_count=2,
+        active_receiver_count=4,
+        mode="full",
+        weights={
+            "effective_delivery": 0.2,
+            "coverage": 0.35,
+            "latency": 0.15,
+            "overhead": 0.1,
+            "missed": 0.2,
+        },
+    )
+
+    assert breakdown.effective_delivery_rate == 0.5
+    assert breakdown.coverage_rate == 0.5
+    assert breakdown.avg_delay_penalty == 0.5
+    assert breakdown.overhead_penalty == 0.5
+    assert breakdown.miss_rate == 0.5
+    assert breakdown.reward == pytest.approx(0.05)
+
+
+def test_complete_reward_penalizes_unnecessary_no_event_transmissions() -> None:
+    breakdown = calculate_reward(
+        critical_receiver_ids=set(),
+        successful_receiver_ids=set(),
+        latencies_ms=[],
+        selected_receiver_count=3,
+        active_receiver_count=6,
+        mode="full",
+    )
+
+    assert breakdown.reward < 0
 
 
 def test_urban_coordinates_and_event_types_have_distinct_features(

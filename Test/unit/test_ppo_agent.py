@@ -10,7 +10,7 @@ import numpy as np
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
-from src.models.ppo_agent import PPOAgent  # noqa: E402
+from src.models.ppo_agent import HandcraftedFeatureExtractor, PPOAgent  # noqa: E402
 
 
 class TinyV2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
@@ -86,3 +86,20 @@ def test_ppo_agent_predicts_trains_and_round_trips_model(tmp_path: Path) -> None
     loaded_action = loaded.predict(observation)
     assert 0 <= loaded_action.priority < 3
     assert 0 <= loaded_action.bandwidth_level < 10
+
+
+def test_rl_only_agent_uses_handcrafted_relative_features() -> None:
+    environment = TinyV2XEnv()
+    agent = PPOAgent(
+        environment,
+        n_steps=4,
+        batch_size=4,
+        n_epochs=1,
+        seed=9,
+        device="cpu",
+        feature_extractor="handcrafted",
+    )
+
+    assert isinstance(agent.model.policy.features_extractor, HandcraftedFeatureExtractor)
+    observation, _ = environment.reset()
+    assert environment.action_space.contains(agent.predict_raw(observation))

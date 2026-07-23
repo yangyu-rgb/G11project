@@ -95,11 +95,35 @@ def _make_environment(config: dict[str, Any], scenario_directory: Path) -> Monit
             road_length_m=float(environment.get("road_length_m", 5000)),
             lateral_extent_m=float(environment.get("lateral_extent_m", 10)),
             delay_normalization_ms=float(environment["delay_normalization_ms"]),
+            reward_mode=str(environment.get("reward_mode", "simple")),
+            reward_weights=config.get("reward", {}).get("weights"),
+            safety_window_ms=float(config.get("evaluation", {}).get("safety_window_ms", 100)),
             network_mode=str(network.get("mode", "simple")),
             network_scenario=str(network.get("scenario", "highway")),
             network_options=network_options,
             seed=int(config.get("seed", 42)),
         )
+    )
+
+
+def create_agent(config: dict[str, Any], environment: Monitor) -> PPOAgent:
+    """Create the configured agent while keeping batch and single-run training aligned."""
+    ppo = config["ppo"]
+    output = config.get("tensorboard_log")
+    return PPOAgent(
+        environment,
+        learning_rate=float(ppo["learning_rate"]),
+        clip_epsilon=float(ppo["clip_epsilon"]),
+        entropy_coef=float(ppo["entropy_coef"]),
+        batch_size=int(ppo["batch_size"]),
+        n_epochs=int(ppo["n_epochs"]),
+        n_steps=int(ppo["n_steps"]),
+        gamma=float(ppo["gamma"]),
+        seed=int(config.get("seed", 42)),
+        tensorboard_log=output,
+        device=str(ppo.get("device", "auto")),
+        verbose=int(ppo.get("verbose", 1)),
+        feature_extractor=str(ppo.get("feature_extractor", "transformer")),
     )
 
 
@@ -112,20 +136,8 @@ def train(config: dict[str, Any], episodes: int, output: str | Path) -> dict[str
     scenario_directory = _ensure_scenario(config)
     environment = _make_environment(config, scenario_directory)
     ppo = config["ppo"]
-    agent = PPOAgent(
-        environment,
-        learning_rate=float(ppo["learning_rate"]),
-        clip_epsilon=float(ppo["clip_epsilon"]),
-        entropy_coef=float(ppo["entropy_coef"]),
-        batch_size=int(ppo["batch_size"]),
-        n_epochs=int(ppo["n_epochs"]),
-        n_steps=int(ppo["n_steps"]),
-        gamma=float(ppo["gamma"]),
-        seed=int(config.get("seed", 42)),
-        tensorboard_log=tensorboard_directory,
-        device=str(ppo.get("device", "auto")),
-        verbose=int(ppo.get("verbose", 1)),
-    )
+    config = {**config, "tensorboard_log": tensorboard_directory}
+    agent = create_agent(config, environment)
     evaluation_episodes = int(config.get("evaluation_episodes", 5))
     initial_mean, _ = evaluate_policy(
         agent.model, environment, n_eval_episodes=evaluation_episodes, deterministic=True

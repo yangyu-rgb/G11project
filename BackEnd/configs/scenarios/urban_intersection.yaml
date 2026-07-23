@@ -14,8 +14,13 @@ vehicles:
   minimum_spacing_m: 20
 
 events:
+  types: [emergency_braking, obstacle, intersection_collision_warning]
   times_s: [12, 20, 28]
   severities: [0.9, 0.6, 0.8]
+
+traffic_lights:
+  type: static
+  green_time_s: 30
 
 simulation:
   duration_s: 40

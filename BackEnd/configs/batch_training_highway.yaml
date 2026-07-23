@@ -1,0 +1,52 @@
+run_mode: formal
+domain: highway
+base_training_config: configs/training_config.yaml
+base_scenario_config: configs/scenarios/highway_emergency.yaml
+safety_window_ms: 100
+
+dataset:
+  train_configs: 50
+  validation_configs: 7
+  test_configs: 10
+
+training_seeds: [101, 211, 307, 401, 503, 601, 701, 809, 907, 1009]
+training:
+  episodes_per_config: 100
+  validation_interval_episodes: 10
+  early_stopping_patience_episodes: 20
+  evaluation_episodes: 3
+
+champion_selection:
+  enabled: true
+  shortlist_size: 10
+  evaluation_episodes: 1
+
+reward_profile: auto
+reward_profile_selection:
+  train_configs: 5
+  seed_count: 3
+  episodes_per_config: 20
+  shortlist_size: 5
+reward_profiles:
+  safety:
+    effective_delivery: 0.20
+    coverage: 0.35
+    latency: 0.15
+    overhead: 0.10
+    missed: 0.20
+  balanced:
+    effective_delivery: 0.25
+    coverage: 0.30
+    latency: 0.20
+    overhead: 0.15
+    missed: 0.10
+  efficiency:
+    effective_delivery: 0.25
+    coverage: 0.25
+    latency: 0.15
+    overhead: 0.25
+    missed: 0.10
+
+success:
+  reward_threshold: 0.6
+  convergence_rate: 0.8

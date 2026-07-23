@@ -1,0 +1,15 @@
+run_mode: formal
+variant: transformer_only
+domain: highway
+base_training_config: configs/training_config.yaml
+base_scenario_config: configs/scenarios/highway_emergency.yaml
+safety_window_ms: 100
+dataset: {train_configs: 20, validation_configs: 7, test_configs: 10}
+training_seeds: [101, 211, 307, 401, 503]
+test_seeds: [1701, 1801, 1901]
+top_k_candidates: [5, 10, 20]
+training: {epochs: 5, learning_rate: 0.0003}
+environment: {episode_steps: 10, max_vehicles: 100, max_events: 3, critical_radius_m: 300}
+network: {highway_mode: simple, urban_mode: 3gpp}
+reward_weights: {effective_delivery: 0.25, coverage: 0.30, latency: 0.20, overhead: 0.15, missed: 0.10}
+

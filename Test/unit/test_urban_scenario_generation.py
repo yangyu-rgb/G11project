@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+import yaml
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
@@ -60,3 +61,22 @@ def test_generated_urban_scenario_is_loadable_and_complete(tmp_path: Path) -> No
     assert len(events) == 3
     assert {event["type"] for event in events} == set(EVENT_TYPES)
     assert all(set(event) == {"type", "x", "y", "timestamp", "severity"} for event in events)
+
+
+def test_urban_config_accepts_batch_variations(tmp_path: Path) -> None:
+    raw = yaml.safe_load(DEFAULT_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw["vehicles"]["count"] = 80
+    raw["events"] = {
+        "types": ["obstacle"],
+        "times_s": [18],
+        "severities": [0.6],
+    }
+    raw["traffic_lights"] = {"type": "actuated", "green_time_s": 24}
+    config_path = tmp_path / "urban.yaml"
+    config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+
+    config = load_urban_scenario_config(config_path)
+
+    assert config.vehicle_count == 80
+    assert config.event_types == ("obstacle",)
+    assert config.traffic_light_type == "actuated"

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import gymnasium as gym
 import torch
@@ -77,6 +77,47 @@ class TransformerFeatureExtractor(BaseFeaturesExtractor):
         )
 
 
+class HandcraftedFeatureExtractor(BaseFeaturesExtractor):
+    """Flatten local motion plus nearest-event relative features for RL-only ablation."""
+
+    def __init__(self, observation_space: gym.spaces.Dict) -> None:
+        max_vehicles = observation_space.spaces["vehicles"].shape[0]
+        max_events = observation_space.spaces["events"].shape[0]
+        features_dim = max_vehicles * 9 + max_events * 5 + 2
+        super().__init__(observation_space, features_dim=features_dim)
+
+    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+        vehicles = observations["vehicles"].float()
+        events = observations["events"].float()
+        vehicle_valid = observations["vehicle_mask"].float()
+        event_valid = observations["event_mask"].bool()
+        differences = vehicles[:, :, None, :2] - events[:, None, :, 1:3]
+        distances = torch.linalg.vector_norm(differences, dim=-1)
+        distances = distances.masked_fill(~event_valid[:, None, :], float("inf"))
+        nearest_distance, nearest_index = distances.min(dim=-1)
+        has_event = event_valid.any(dim=-1, keepdim=True)
+        nearest_index = nearest_index.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, 1, 2)
+        nearest_difference = torch.gather(differences, 2, nearest_index).squeeze(2)
+        nearest_difference = torch.where(
+            has_event.unsqueeze(-1), nearest_difference, torch.zeros_like(nearest_difference)
+        )
+        nearest_distance = torch.where(
+            has_event, nearest_distance, torch.zeros_like(nearest_distance)
+        ).unsqueeze(-1)
+        vehicle_features = torch.cat(
+            (vehicles, nearest_difference, nearest_distance, vehicle_valid.unsqueeze(-1)), dim=-1
+        ) * vehicle_valid.unsqueeze(-1)
+        event_features = torch.cat((events, event_valid.float().unsqueeze(-1)), dim=-1)
+        return torch.cat(
+            (
+                vehicle_features.flatten(start_dim=1),
+                event_features.flatten(start_dim=1),
+                observations["network_state"].float(),
+            ),
+            dim=1,
+        )
+
+
 class PPOAgent:
     """Thin lifecycle wrapper around the configured Stable-Baselines3 PPO model."""
 
@@ -95,9 +136,18 @@ class PPOAgent:
         tensorboard_log: str | Path | None = None,
         device: str = "auto",
         verbose: int = 0,
+        feature_extractor: Literal["transformer", "handcrafted"] = "transformer",
     ) -> None:
+        extractor_classes = {
+            "transformer": TransformerFeatureExtractor,
+            "handcrafted": HandcraftedFeatureExtractor,
+        }
+        try:
+            extractor_class = extractor_classes[feature_extractor]
+        except KeyError as exc:
+            raise ValueError("feature_extractor must be 'transformer' or 'handcrafted'") from exc
         policy_kwargs: dict[str, Any] = {
-            "features_extractor_class": TransformerFeatureExtractor,
+            "features_extractor_class": extractor_class,
             "net_arch": {"pi": [512, 256], "vf": [512, 256]},
         }
         self.model = PPO(

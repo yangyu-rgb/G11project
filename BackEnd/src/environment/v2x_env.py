@@ -17,7 +17,7 @@ import numpy as np
 from gymnasium import spaces
 
 from src.environment.network_model import Priority, SimpleNetworkModel
-from src.environment.reward_calculator import RewardBreakdown, calculate_reward
+from src.environment.reward_calculator import RewardBreakdown, RewardWeights, calculate_reward
 
 
 @dataclass(frozen=True)
@@ -71,6 +71,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         road_length_m: float = 5000.0,
         lateral_extent_m: float = 10.0,
         delay_normalization_ms: float = 100.0,
+        reward_mode: Literal["simple", "full"] = "simple",
+        reward_weights: Mapping[str, float] | None = None,
+        safety_window_ms: float = 100.0,
         network_mode: Literal["simple", "3gpp"] = "simple",
         network_scenario: Literal["highway", "urban"] = "highway",
         network_options: Mapping[str, float] | None = None,
@@ -84,6 +87,8 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("max_vehicles and max_events must be positive")
         if critical_radius_m <= 0 or road_length_m <= 0 or lateral_extent_m <= 0:
             raise ValueError("distance settings must be positive")
+        if safety_window_ms <= 0:
+            raise ValueError("safety_window_ms must be positive")
         if render_mode not in (None, "ansi"):
             raise ValueError("render_mode must be None or 'ansi'")
 
@@ -95,6 +100,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.road_length_m = road_length_m
         self.lateral_extent_m = lateral_extent_m
         self.delay_normalization_ms = delay_normalization_ms
+        self.reward_mode = reward_mode
+        self.reward_weights = RewardWeights.from_mapping(reward_weights)
+        self.safety_window_ms = safety_window_ms
         self.network_mode = network_mode
         self.network_scenario = network_scenario
         self._network_options = dict(network_options or {})
@@ -297,8 +305,14 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         bandwidth_fraction = (int(action[self.max_vehicles + 1]) + 1) / 10.0
         critical_ids: set[str] = set()
         successful_ids: set[str] = set()
+        timely_successful_ids: set[str] = set()
+        reward_critical_ids: set[str] = set()
+        reward_successful_ids: set[str] = set()
+        reward_timely_ids: set[str] = set()
         latencies_ms: list[float] = []
         transmissions: list[dict[str, Any]] = []
+        critical_ids_by_event: dict[str, list[str]] = {}
+        sender_ids_by_event: dict[str, str | None] = {}
 
         for event in active_events:
             sender = self._nearest_vehicle(frame.vehicles, event)
@@ -310,6 +324,11 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 and math.dist((vehicle.x, vehicle.y), (event.x, event.y)) <= self.critical_radius_m
             }
             critical_ids.update(event_critical_ids)
+            reward_critical_ids.update(
+                f"{event.event_id}:{receiver_id}" for receiver_id in event_critical_ids
+            )
+            critical_ids_by_event[event.event_id] = sorted(event_critical_ids)
+            sender_ids_by_event[event.event_id] = sender_id
             for receiver_id in sorted(selected_ids - ({sender_id} if sender_id else set())):
                 receiver = active_by_id[receiver_id]
                 result = self._network_model.calculate_transmission(
@@ -330,9 +349,14 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 delivered = bool(self.np_random.random() >= result.packet_loss_rate)
                 if delivered:
                     successful_ids.add(receiver_id)
+                    reward_successful_ids.add(f"{event.event_id}:{receiver_id}")
+                    if result.latency_ms <= self.safety_window_ms:
+                        timely_successful_ids.add(receiver_id)
+                        reward_timely_ids.add(f"{event.event_id}:{receiver_id}")
                 latencies_ms.append(result.latency_ms)
                 transmissions.append(
                     {
+                        "event_id": event.event_id,
                         "sender_id": sender_id,
                         "receiver_id": receiver_id,
                         "delivered": delivered,
@@ -343,19 +367,40 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 )
 
         breakdown = calculate_reward(
-            critical_ids,
-            successful_ids,
+            reward_critical_ids if self.reward_mode == "full" else critical_ids,
+            reward_successful_ids if self.reward_mode == "full" else successful_ids,
             latencies_ms,
             self.delay_normalization_ms,
+            mode=self.reward_mode,
+            timely_successful_receiver_ids=(
+                reward_timely_ids if self.reward_mode == "full" else timely_successful_ids
+            ),
+            selected_receiver_count=len(transmissions),
+            active_receiver_count=max(
+                sum(
+                    len(active_by_id) - (1 if sender_id else 0)
+                    for sender_id in sender_ids_by_event.values()
+                ),
+                0,
+            ),
+            weights=self.reward_weights,
         )
         info = {
             "timestamp": frame.timestamp,
             "selected_receiver_ids": sorted(selected_ids),
             "critical_receiver_ids": sorted(critical_ids),
             "successful_receiver_ids": sorted(successful_ids),
+            "timely_successful_receiver_ids": sorted(timely_successful_ids),
+            "critical_receiver_ids_by_event": critical_ids_by_event,
+            "sender_ids_by_event": sender_ids_by_event,
             "transmissions": transmissions,
             "delivery_success_rate": breakdown.delivery_success_rate,
             "avg_delay_penalty": breakdown.avg_delay_penalty,
+            "effective_delivery_rate": breakdown.effective_delivery_rate,
+            "coverage_rate": breakdown.coverage_rate,
+            "overhead_penalty": breakdown.overhead_penalty,
+            "miss_rate": breakdown.miss_rate,
+            "reward": breakdown.reward,
         }
         return breakdown, info
 
