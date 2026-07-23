@@ -1,0 +1,26 @@
+seed: 42
+
+road:
+  length_m: 5000
+  lanes: 3
+  speed_limit_kmh: 120
+
+vehicles:
+  count_min: 30
+  count_max: 50
+  speed_min_kmh: 80
+  speed_max_kmh: 120
+  minimum_spacing_m: 20
+
+events:
+  count_min: 1
+  count_max: 2
+  time_min_s: 10
+  time_max_s: 30
+  braking_deceleration_mps2: 8
+  braking_duration_s: 2
+  severity: 0.9
+
+simulation:
+  duration_s: 40
+  step_length_s: 0.1

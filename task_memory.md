@@ -68,6 +68,35 @@
   - 执行任务004：WebSocket基础通信
   - 执行任务005：创建技术文档三件套
 
+## 2026-07-22 23:30｜完成M0阶段所有任务
+
+- 状态：已完成
+- 目标：建立开发环境，完成项目骨架，验证核心工具链。
+- 完成内容：
+  - **任务000**：后端目录结构完善（src/models, environment, training, evaluation, deployment + configs + experiments + notebooks + scripts）
+  - **任务001**：Python环境配置（requirements.txt + environment.yml，包含PyTorch, Stable-Baselines3, Gymnasium, SUMO等）
+  - **任务003**：SUMO安装验证（verify_sumo.py脚本 + 集成测试，验证SUMO 1.27.1可用）
+  - **任务004**：WebSocket基础通信（后端/ws/simulation端点 + 前端useWebSocket hook，测试消息推送正常）
+  - **任务005**：创建技术文档（TECHNICAL_SPECIFICATION.md + IMPLEMENTATION_ROADMAP.md + DEMO_GUIDE.md）
+- 关键决策：
+  - 目录结构遵循四顶层目录约束（FrontEnd/BackEnd/Docs/Test）
+  - Python依赖版本：PyTorch 2.13.0, Gymnasium 1.3.0, Stable-Baselines3 2.9.0
+  - SUMO通过traci和sumolib集成
+  - WebSocket通信验证通过（连接、断开、重连机制正常）
+- 验证结果：
+  - 所有目录结构创建并添加__init__.py
+  - .gitignore已更新（experiments/, *.pyc, .ipynb_checkpoints/, *.pt等）
+  - README.md完整更新（项目架构、快速开始、安装指南、技术栈）
+  - 依赖安装测试通过（Python 3.12.13环境）
+  - SUMO验证脚本运行成功
+  - WebSocket前后端通信测试通过
+  - 三份技术文档已创建
+- 后续事项：
+  - 进入M1阶段：简单场景原型（Week 3-5）
+  - 执行任务006：SUMO高速公路场景生成
+  - 执行任务007：Transformer模型实现
+  - 执行任务008：简化网络抽象层
+
 ## 2026-07-22｜完成M0交接任务000、001、003、004、005
 
 - 状态：已完成
@@ -77,3 +106,12 @@
 - 验证结果：后端Ruff和格式检查通过，完整pytest为4 passed；前端ESLint和生产构建通过；浏览器验证持续收信、断开状态和自动重连；SUMO最小场景运行1秒并通过集成测试；Python 3.12核心依赖导入成功且 `pip check` 无冲突。
 - 遗留说明：本机缺少 `tree` 命令，两次Homebrew安装因外部TLS失败；目录已通过等价的 `find` 检查。现有Markdown草稿包含行尾空格，因此 `git diff --check` 仍会报告这些原有格式问题，本轮未为此改写架构内容。
 - 后续事项：进入M1简单场景原型；任何公共接口、算法、数据格式、基线或指标变更继续按桥接文档请求架构师批准。
+
+## 2026-07-23｜完成M1任务006、007、008
+
+- 状态：已完成
+- 目标：按架构师桥接文档完成高速场景生成、Transformer环境编码器和简化网络抽象层。
+- 完成内容：生成可由SUMO加载的3车道5公里高速场景、30-50辆车轨迹与急刹事件；实现4层8头、256维的车辆/事件分离Transformer编码器；实现时延、距离丢包与优先级带宽分配模型；补齐单元测试及CI所需开发依赖。
+- 关键决策：Transformer输出保留batch维度；网络模型以结构化结果返回时延、丢包率和分配带宽；相对输出路径统一解析到 `BackEnd/`，并生成完整SUMO运行包。
+- 验证结果：Ruff lint与格式检查通过；后端完整测试16项通过；默认场景由SUMO/TraCI实际加载并生成50辆车、2个事件；前端ESLint与生产构建通过。
+- 后续事项：M1剩余Gymnasium环境、PPO基础版、基线方法和前端可视化按新的架构师任务继续执行。

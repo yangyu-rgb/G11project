@@ -71,45 +71,123 @@
 
 ## 📋 活跃任务
 
-#### 任务000：后端目录结构完善
+**当前阶段**: M1 - 简单场景原型（Week 3-5）
+
+#### 任务006：SUMO高速公路场景生成
 **状态**：🟢 已完成  
 **优先级**：高  
-**描述**：在既有四个顶层业务目录约束内，完善 BackEnd 的 AI/ML 项目结构
+**描述**：生成简单高速公路场景，包含车辆轨迹和急刹事件
 
 **需求**：
-创建以下目录结构：
-```
-BackEnd/
-├── app/                        # FastAPI服务（已存在）
-├── src/
-│   ├── models/                 # Transformer + RL模型定义
-│   ├── environment/            # SUMO + 网络抽象层
-│   ├── training/               # 训练循环和工具
-│   ├── evaluation/             # 指标和基准测试
-│   └── deployment/             # 模型导出工具
-├── configs/                    # 配置文件（YAML/JSON）
-│   └── scenarios/              # 场景配置子目录
-├── experiments/                # 实验日志和结果（添加到.gitignore）
-├── notebooks/                  # Jupyter notebooks
-└── scripts/                    # 实用脚本
-```
-
-创建以下测试目录结构：
-```
-Test/
-├── unit/                       # 单元测试
-├── integration/                # 集成测试
-└── e2e/                        # 端到端测试
-```
+- 创建 `BackEnd/scripts/generate_highway_scenario.py`：
+  - 高速公路单向3车道，长度5km
+  - 30-50辆车，随机初始位置和速度（80-120 km/h）
+  - 随机触发1-2个急刹事件（在仿真时间10-30秒之间）
+  - 输出轨迹XML（SUMO格式）和事件JSON
+- 创建配置文件 `BackEnd/configs/scenarios/highway_emergency.yaml`
+- 在 `Test/unit/` 创建测试
 
 **验收条件**：
-- 必须通过的命令：`tree BackEnd Test -L 2`（验证目录存在）
-- 必须产生的文件：所有上述目录，每个目录包含 `__init__.py`（Python包标识）
-- 不允许修改：现有 `BackEnd/app/` 的内容
+- 必须通过的命令：
+  - `python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario`
+  - `pytest Test/unit/test_scenario_generation.py -v`
+- 必须产生的文件：
+  - `BackEnd/scripts/generate_highway_scenario.py`
+  - `BackEnd/configs/scenarios/highway_emergency.yaml`
+  - `Test/unit/test_scenario_generation.py`
+  - 示例输出：`experiments/test_scenario/trajectory.xml`, `events.json`
 - 成功标准：
-  - 目录结构符合规范
-  - `.gitignore` 已添加 `experiments/`, `*.pyc`, `__pycache__/`, `.ipynb_checkpoints/`
-  - README.md 已更新项目结构说明
+  - 生成的场景可被SUMO加载
+  - 事件JSON包含完整信息（type, x, y, timestamp, severity）
+  - 车辆数量在30-50范围内
+
+**Codex完成说明**：
+- [x] 场景生成脚本已创建
+- [x] 配置文件已创建
+- [x] 测试已通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/scripts/generate_highway_scenario.py`、`BackEnd/configs/scenarios/highway_emergency.yaml`、`Test/unit/test_scenario_generation.py`
+- 验证记录：默认配置生成50辆车、2个急刹事件及完整SUMO场景包；SUMO/TraCI实际加载成功，事件字段与车辆数量测试通过
+
+---
+
+#### 任务007：Transformer模型实现
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：实现Transformer环境编码器
+
+**需求**：
+- 创建 `BackEnd/src/models/transformer.py`：
+  - 输入：车辆features (x,y,vx,vy,heading) + 事件features (type,x,y,severity)
+  - 实现车辆token和事件token的分离编码
+  - 4层Transformer Encoder，8头注意力
+  - 输出：全局嵌入（256维）+ 每辆车局部嵌入（256维）
+- 创建 `BackEnd/src/models/utils.py`（位置编码等工具函数）
+- 在 `Test/unit/` 创建测试（使用虚拟数据）
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_transformer.py -v`
+  - `ruff check BackEnd/src/models/`
+- 必须产生的文件：
+  - `BackEnd/src/models/transformer.py`
+  - `BackEnd/src/models/utils.py`
+  - `Test/unit/test_transformer.py`
+- 成功标准：
+  - 前向传播成功（batch_size=2, n_vehicles=10, n_events=1）
+  - 输出形状正确：global_emb [256], vehicle_embs [10, 256]
+  - 注意力权重可提取用于可视化
+
+**Codex完成说明**：
+- [x] Transformer模型已实现
+- [x] 工具函数已创建
+- [x] 单元测试通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/src/models/transformer.py`、`BackEnd/src/models/utils.py`、`Test/unit/test_transformer.py`
+- 验证记录：批量前向传播、掩码、梯度及注意力权重形状测试通过；输出保留batch维度
+
+---
+
+#### 任务008：简化网络抽象层
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：实现简化版网络抽象层
+
+**需求**：
+- 创建 `BackEnd/src/environment/network_model.py`：
+  - 时延模型：`base_delay + distance/c + random_jitter`
+  - 丢包率：距离阈值（>500m则10%丢包，否则0%）
+  - 带宽：固定总量（100 Mbps），按分配比例计算
+  - 提供 `calculate_transmission(sender_pos, receiver_pos, message_size, priority, current_load)` 接口
+- 在 `Test/unit/` 创建测试
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_network_model.py -v`
+  - `ruff check BackEnd/src/environment/`
+- 必须产生的文件：
+  - `BackEnd/src/environment/network_model.py`
+  - `Test/unit/test_network_model.py`
+- 成功标准：
+  - 时延计算合理（10-100ms范围）
+  - 丢包率按距离正确触发
+  - 带宽分配总和不超过100%
+
+**Codex完成说明**：
+- [x] 网络模型已实现
+- [x] 测试已通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/src/environment/network_model.py`、`Test/unit/test_network_model.py`
+- 验证记录：时延、500米丢包边界、优先级带宽分配、满负载与非法输入测试通过
+
+
+---
+
+### 已完成任务
+
+#### 任务000：后端目录结构完善
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
 
 **Codex完成说明**：
 - [x] 目录结构已创建
@@ -123,34 +201,7 @@ Test/
 
 #### 任务001：Python环境和核心依赖
 **状态**：🟢 已完成  
-**优先级**：高  
-**描述**：配置Python环境并安装核心ML/RL依赖
-
-**需求**：
-创建 `BackEnd/requirements.txt`，包含：
-- **ML框架**: `torch>=2.0.0`, `torchvision`, `torchaudio`
-- **RL**: `gymnasium>=0.29.0`, `stable-baselines3>=2.0.0`
-- **数据处理**: `numpy>=1.24.0`, `pandas>=2.0.0`
-- **可视化**: `matplotlib>=3.7.0`, `tensorboard>=2.13.0`
-- **SUMO**: `traci`, `sumolib`
-- **配置**: `pyyaml>=6.0`, `python-dotenv>=1.0.0`
-- **测试**: `pytest>=7.3.0`, `pytest-cov>=4.1.0`
-- **代码质量**: `ruff>=0.1.0`
-
-创建 `BackEnd/environment.yml` (conda环境)
-
-在 `README.md` 添加安装说明部分
-
-**验收条件**：
-- 必须通过的命令：
-  - `pip install -r BackEnd/requirements.txt`（在Python 3.10+虚拟环境）
-  - `python -c "import torch; import gymnasium; import stable_baselines3; print('Success')"`
-- 必须产生的文件：`BackEnd/requirements.txt`, `BackEnd/environment.yml`, 更新的 `README.md`
-- 不允许修改：现有代码文件
-- 成功标准：
-  - 依赖安装成功（Mac CPU环境测试）
-  - 核心库可导入
-  - README.md 包含清晰的安装步骤
+**完成日期**：2026-07-22
 
 **Codex完成说明**：
 - [x] requirements.txt 已创建
@@ -161,111 +212,6 @@ Test/
 - 验证记录：Python 3.12.13环境安装成功；PyTorch 2.13.0、Gymnasium 1.3.0、Stable-Baselines3 2.9.0导入成功；`pip check` 无冲突
 
 ---
-
-#### 任务003：SUMO安装验证
-**状态**：🟢 已完成
-**优先级**：高  
-**描述**：安装SUMO并创建简单验证脚本
-
-**需求**：
-- 在 `README.md` 中添加SUMO安装指南（Mac/Linux/Windows）
-- 创建 `BackEnd/scripts/verify_sumo.py`：
-  - 检查SUMO是否安装
-  - 检查 `traci` 和 `sumolib` 是否可用
-  - 生成一个最简单的SUMO场景并运行1秒
-- 在 `Test/integration/` 创建 `test_sumo_integration.py`
-
-**验收条件**：
-- 必须通过的命令：
-  - `python BackEnd/scripts/verify_sumo.py`（输出 "SUMO installation verified"）
-  - `pytest Test/integration/test_sumo_integration.py -v`
-- 必须产生的文件：
-  - `BackEnd/scripts/verify_sumo.py`
-  - `Test/integration/test_sumo_integration.py`
-  - 更新的 `README.md`
-- 成功标准：验证脚本成功运行，确认SUMO可用
-
-**Codex完成说明**：
-- [x] verify_sumo.py 已创建
-- [x] 测试文件已创建
-- [x] README.md 已添加SUMO安装指南
-- [x] 在本地环境验证通过
-- 修改的文件：`BackEnd/scripts/verify_sumo.py`、`Test/integration/test_sumo_integration.py`、`README.md`
-- 验证记录：SUMO 1.27.1最小路网运行1秒并输出 `SUMO installation verified`；集成测试通过
-
----
-
-#### 任务004：WebSocket基础通信
-**状态**：🟢 已完成
-**优先级**：高  
-**描述**：实现后端WebSocket推送，前端接收测试消息
-
-**需求**：
-- 在 `BackEnd/app/main.py` 添加 WebSocket 端点 `/ws/simulation`
-- 实现每秒推送测试消息：
-  ```json
-  {
-    "type": "test",
-    "timestamp": 1234567890.123,
-    "message": "Hello from backend"
-  }
-  ```
-- 在 `FrontEnd/src/hooks/useWebSocket.ts` 实现 WebSocket 连接
-- 在 `FrontEnd/src/App.tsx` 显示接收到的消息
-
-**验收条件**：
-- 必须通过的命令：
-  - `./start.sh` 启动前后端
-  - 浏览器打开 `http://localhost:5173`，控制台显示接收到的消息
-- 必须产生的文件：
-  - 更新的 `BackEnd/app/main.py`
-  - `FrontEnd/src/hooks/useWebSocket.ts`
-  - 更新的 `FrontEnd/src/App.tsx`
-- 成功标准：
-  - 前端成功连接WebSocket
-  - 每秒接收并显示测试消息
-  - 断开重连机制正常工作
-
-**Codex完成说明**：
-- [x] WebSocket端点已实现
-- [x] useWebSocket hook 已创建
-- [x] 前端能接收并显示消息
-- [x] 连接/断开逻辑已测试
-- 修改的文件：`BackEnd/app/main.py`、`FrontEnd/src/hooks/useWebSocket.ts`、`FrontEnd/src/App.tsx`、`FrontEnd/vite.config.ts`、`Test/integration/test_websocket.py`
-- 验证记录：浏览器确认每秒更新；停止服务显示断开，重启后2秒内自动恢复连接；后端WebSocket测试通过
-
----
-
-#### 任务005：创建技术文档
-**状态**：🟢 已完成  
-**优先级**：中  
-**描述**：创建详细的技术规范、实施路线图和演示指南文档
-
-**需求**：
-根据已讨论的项目方向，创建以下文档：
-- `Docs/TECHNICAL_SPECIFICATION.md`：完整技术方案总结
-- `Docs/IMPLEMENTATION_ROADMAP.md`：分阶段实施路线图（M0-M5）
-- `Docs/DEMO_GUIDE.md`：演示脚本与指南
-
-**验收条件**：
-- 必须产生的文件：上述3个文档
-- 成功标准：
-  - 文档结构清晰，包含所有必要章节
-  - 技术规范涵盖所有模块设计
-  - 路线图包含具体任务和验收标准
-  - 演示指南按课程正式评分规范包含20分钟演示脚本
-
-**Codex完成说明**：
-- [x] TECHNICAL_SPECIFICATION.md 已创建
-- [x] IMPLEMENTATION_ROADMAP.md 已创建
-- [x] DEMO_GUIDE.md 已创建
-- [x] 文档已添加到 ARCHITECTURE.md 的相关文档列表
-- 修改的文件：`Docs/TECHNICAL_SPECIFICATION.md`、`Docs/IMPLEMENTATION_ROADMAP.md`、`Docs/DEMO_GUIDE.md`、`ARCHITECTURE.md`
-- 验证记录：三份文档路径和链接存在；演示时长按正式评分规范修正为20分钟
-
----
-
-### 已完成任务
 
 #### 任务002：初始化 CI/CD 流水线与 push 检查规范
 **状态**：🟢 已完成
@@ -280,6 +226,50 @@ Test/
 - [x] 补充本地检查、pull request 合并与 `main` 分支保护规范
 - [x] 未确定部署目标前不注入部署凭据或执行自动部署
 - 修改的文件：`.github/workflows/ci.yml`、`start.sh`、`Docs/CI_CD.md`、`README.md`
+
+---
+
+#### 任务003：SUMO安装验证
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] verify_sumo.py 已创建
+- [x] 测试文件已创建
+- [x] README.md 已添加SUMO安装指南
+- [x] 在本地环境验证通过
+- 修改的文件：`BackEnd/scripts/verify_sumo.py`、`Test/integration/test_sumo_integration.py`、`README.md`
+- 验证记录：SUMO 1.27.1最小路网运行1秒并输出 `SUMO installation verified`；集成测试通过
+
+---
+
+#### 任务004：WebSocket基础通信
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] WebSocket端点已实现
+- [x] useWebSocket hook 已创建
+- [x] 前端能接收并显示消息
+- [x] 连接/断开逻辑已测试
+- 修改的文件：`BackEnd/app/main.py`、`FrontEnd/src/hooks/useWebSocket.ts`、`FrontEnd/src/App.tsx`、`FrontEnd/vite.config.ts`、`Test/integration/test_websocket.py`
+- 验证记录：浏览器确认每秒更新；停止服务显示断开，重启后2秒内自动恢复连接；后端WebSocket测试通过
+
+---
+
+#### 任务005：创建技术文档
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] TECHNICAL_SPECIFICATION.md 已创建
+- [x] IMPLEMENTATION_ROADMAP.md 已创建
+- [x] DEMO_GUIDE.md 已创建
+- [x] 文档已添加到 ARCHITECTURE.md 的相关文档列表
+- 修改的文件：`Docs/TECHNICAL_SPECIFICATION.md`、`Docs/IMPLEMENTATION_ROADMAP.md`、`Docs/DEMO_GUIDE.md`、`ARCHITECTURE.md`
+- 验证记录：三份文档路径和链接存在；演示时长按正式评分规范修正为20分钟
+
+---
 
 ### 被阻塞任务
 *暂无*

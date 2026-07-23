@@ -1,9 +1,14 @@
 # 系统架构文档
 
 ## 文档状态
-**最后更新**: 2026-07-22  
-**状态**: 已确认  
-**版本**: 1.0.0
+
+**最后更新**: 2026-07-23
+
+**状态**: 已确认
+
+**版本**: 1.1.0
+
+本文档记录已经确认的系统边界、模块关系、数据流和当前实现状态。具体特征定义、训练参数和实验指标以 [技术规范](Docs/TECHNICAL_SPECIFICATION.md) 为准，任务执行状态以 [架构师-Codex桥接文档](ARCHITECT_CODEX_BRIDGE.md) 为准。
 
 ---
 
@@ -11,328 +16,363 @@
 
 ### 1.1 层次结构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    前端展示层 (FrontEnd)                  │
-│  React + Leaflet + D3.js + [Three.js]                    │
-│  - 地图可视化  - 注意力热力图  - 实时指标  - 对比视图   │
-└─────────────────────┬───────────────────────────────────┘
-                      │ WebSocket
-┌─────────────────────┴───────────────────────────────────┐
-│                  FastAPI 服务层 (BackEnd/app)            │
-│  - WebSocket Handler  - 状态管理  - 消息广播            │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-┌─────────────────────┴───────────────────────────────────┐
-│                    核心算法层 (BackEnd/src)              │
-│  ┌──────────────┐    ┌──────────────┐                  │
-│  │ Transformer  │───▶│  RL Agent    │                  │
-│  │   Encoder    │    │    (PPO)     │                  │
-│  └──────┬───────┘    └──────┬───────┘                  │
-│         │                   │                            │
-│         │ 环境嵌入          │ 动作(接收者+优先级+带宽)   │
-│         │                   │                            │
-│  ┌──────┴───────────────────┴───────┐                  │
-│  │      Environment Wrapper          │                  │
-│  │  - 状态构建  - 奖励计算           │                  │
-│  └──────┬────────────────────────────┘                  │
-└─────────┼────────────────────────────────────────────────┘
-          │
-┌─────────┴───────────────────────────────────────────────┐
-│              仿真与网络层 (BackEnd/src/environment)      │
-│  ┌──────────────────┐    ┌──────────────────┐          │
-│  │   SUMO Wrapper   │    │  Network Layer   │          │
-│  │  (TraCI/离线)    │    │  (3GPP Model)    │          │
-│  └──────────────────┘    └──────────────────┘          │
-└─────────────────────────────────────────────────────────┘
+```text
+┌──────────────────────────────────────────────────────────┐
+│ 前端展示层（FrontEnd）                                    │
+│ React + TypeScript + Vite                                │
+│ 当前：WebSocket测试消息展示与自动重连                     │
+│ 计划：地图、注意力、调度决策、指标及基线对比视图           │
+└──────────────────────────┬───────────────────────────────┘
+                           │ WebSocket /ws/simulation
+┌──────────────────────────┴───────────────────────────────┐
+│ FastAPI服务层（BackEnd/app）                              │
+│ 当前：健康检查、WebSocket测试消息                         │
+│ 计划：场景控制、仿真状态管理、完整状态广播                │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+┌──────────────────────────┴───────────────────────────────┐
+│ 核心算法层（BackEnd/src）                                 │
+│ Transformer Encoder（M1已实现）                           │
+│ PPO Agent、Environment Wrapper、Reward（待实现）          │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+┌──────────────────────────┴───────────────────────────────┐
+│ 仿真与网络层                                              │
+│ SUMO高速场景生成（M1已实现）                              │
+│ 简化Network Model（M1已实现）→ 3GPP模型（M2计划）         │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### 1.2 数据流
+### 1.2 分阶段数据流
 
+#### M1当前已实现的数据生成流
+
+```text
+高速场景YAML配置
+    ↓
+生成SUMO路网、车辆路由和仿真配置
+    ↓
+通过TraCI运行急刹事件仿真
+    ↓
+输出车辆轨迹XML与事件JSON
 ```
-事件发生 (SUMO)
+
+#### 计划中的离线训练流
+
+```text
+轨迹XML + 事件JSON
     ↓
-收集车辆状态 + 事件信息
+Environment Wrapper构建车辆token、事件token和网络状态
     ↓
-构建输入序列 (车辆tokens + 事件tokens)
+Transformer编码全局嵌入与车辆局部嵌入
     ↓
-Transformer编码 → 全局嵌入 + 局部嵌入
+PPO选择接收者、优先级和带宽档位
     ↓
-RL Agent决策 → (接收者集合, 优先级, 带宽分配)
+Network Model计算传输结果
     ↓
-Network Layer计算 → (实际时延, 丢包)
+Reward Calculator计算奖励
     ↓
-消息送达状态 → 计算奖励
-    ↓
-更新PPO策略网络
-    ↓
-WebSocket推送状态 → 前端可视化
+按训练批次更新PPO策略
 ```
+
+#### 计划中的演示与推理流
+
+```text
+SUMO/场景回放 → 环境状态 → Transformer → PPO决策
+    ↓
+Network Model计算消息传播结果
+    ↓
+FastAPI通过WebSocket推送完整状态
+    ↓
+React前端展示仿真、注意力、决策和指标
+```
+
+训练更新只发生在训练流程中；演示与推理流程加载已训练模型，不在每条消息送达后更新策略。
 
 ---
 
-## 2. 模块详细设计
+## 2. 后端模块
 
-### 2.1 Transformer模块
-**路径**: `BackEnd/src/models/transformer.py`  
-**状态**: 未实现
+### 2.1 SUMO高速场景生成
 
-**输入**:
-- 车辆序列: `[N_vehicles, feature_dim]`
-  - 特征: (x, y, vx, vy, heading, lane, ...)
-- 事件序列: `[N_events, event_feature_dim]`
-  - 特征: (type, x, y, timestamp, severity, ...)
-- 位置编码: 时间顺序编码
+**路径**:
 
-**架构**:
-- 多头自注意力: 8 heads
-- 前馈网络 (FFN)
-- Layer Norm + Residual
-- 层数: 4-6层 (可配置)
+- `BackEnd/scripts/generate_highway_scenario.py`
+- `BackEnd/configs/scenarios/highway_emergency.yaml`
 
-**输出**:
-- 全局嵌入: `[256]` (所有token的加权和)
-- 车辆嵌入: `[N_vehicles, 256]`
-
----
-
-### 2.2 PPO Agent
-**路径**: `BackEnd/src/models/ppo_agent.py`  
-**状态**: 未实现
-
-**State Space**:
-- Transformer全局嵌入: `[256]`
-- 候选车辆嵌入: `[N_candidates, 256]`
-- 消息队列状态: `[queue_size, message_features]`
-- 网络状态: `[available_bandwidth, current_load, ...]`
-
-**Action Space** (Multi-discrete):
-- 接收者选择: `[N_candidates]` binary
-- 优先级: `[3]` (低/中/高)
-- 带宽分配: `[10]` (0-100%分10档)
-
-**网络结构**:
-- Actor: MLP `[state_dim → 512 → 256 → action_logits]`
-- Critic: MLP `[state_dim → 512 → 256 → 1]`
-
-**训练参数**:
-- Learning rate: 3e-4
-- Clip epsilon: 0.2
-- Entropy coef: 0.01
-- Batch size: 64
-- Epochs per update: 10
-
----
-
-### 2.3 Environment Wrapper
-**路径**: `BackEnd/src/environment/v2x_env.py`  
-**状态**: 未实现
-
-**接口**: 遵循Gymnasium API
-- `reset() → observation`
-- `step(action) → observation, reward, done, info`
+**状态**: 已实现M1版本
 
 **职责**:
-- 与SUMO交互 (TraCI或读取文件)
-- 调用Network Layer计算通信结果
-- 构建Transformer输入
-- 计算奖励函数
-- 判定episode结束条件
 
----
+- 生成单向3车道、长度5公里的高速公路路网。
+- 根据固定随机种子生成30–50辆车，初始速度为80–120 km/h。
+- 在仿真时间10–30秒触发1–2个急刹事件。
+- 通过SUMO和TraCI实际运行场景，确保生成结果可加载。
 
-### 2.4 Network Abstraction Layer
-**路径**: `BackEnd/src/environment/network_model.py`  
+**输出目录内容**:
+
+- `highway.net.xml`: SUMO路网。
+- `vehicles.rou.xml`: 车辆与路由。
+- `scenario.sumocfg`: SUMO仿真配置。
+- `trajectory.xml`: SUMO FCD车辆轨迹。
+- `events.json`: 急刹事件的类型、位置、时间和严重程度。
+
+相对输出路径以 `BackEnd/` 为基准。例如 `--output experiments/test_scenario` 输出到 `BackEnd/experiments/test_scenario/`。
+
+### 2.2 Transformer环境编码器
+
+**路径**:
+
+- `BackEnd/src/models/transformer.py`
+- `BackEnd/src/models/utils.py`
+
+**状态**: 已实现M1基础版
+
+**输入**:
+
+- 车辆特征 `[B, N_vehicles, 5]`: `(x, y, vx, vy, heading)`。
+- 事件特征 `[B, N_events, 4]`: `(type, x, y, severity)`。
+- 可选的车辆和事件padding mask。
+
+车辆token和事件token使用独立线性投影，并添加token类型嵌入与正弦序列位置编码。
+
+**架构**:
+
+- 隐藏维度256。
+- 4层Transformer Encoder。
+- 每层8个注意力头。
+- FFN维度1024，使用GELU、残差连接和Layer Normalization。
+- 使用可学习的attention pooling生成全局嵌入。
+
+**输出**:
+
+- 全局嵌入 `[B, 256]`。
+- 车辆局部嵌入 `[B, N_vehicles, 256]`。
+- 每层每个注意力头的权重 `[B, 4, 8, T, T]`，其中 `T = N_vehicles + N_events`。
+
+### 2.3 PPO通信调度器
+
+**计划路径**: `BackEnd/src/models/ppo_agent.py`
+
 **状态**: 未实现
 
-**输入**: 发送者位置、接收者位置、消息大小、优先级、当前负载
+**状态空间**:
 
-**输出**: 时延、丢包率、实际占用带宽
+- Transformer全局环境嵌入。
+- 候选车辆局部嵌入。
+- 消息队列状态。
+- 可用带宽和当前网络负载。
 
-**模型**:
-- 传播时延: `distance / c`
-- 路径损耗: 3GPP TR 38.901公式 (Urban/Highway场景)
-- 排队时延: `f(当前负载, 优先级)` (简化排队论模型)
-- 丢包率: `f(SINR, 负载)`
+**动作空间**:
 
----
+- 候选车辆的二进制接收选择。
+- 低、中、高三级优先级。
+- 十档带宽份额。
 
-### 2.5 FastAPI服务
-**路径**: `BackEnd/app/main.py`  
-**状态**: 基础骨架已实现
+**确认的目标结构**:
 
-**端点**:
-- `GET /health`: 健康检查 (已实现)
-- `GET /status`: 查询系统状态 (待实现)
-- `WS /simulation`: WebSocket仿真流 (M0基础通信已实现)
-- `POST /scenario`: 加载/创建场景 (待实现)
-- `POST /control`: 控制命令 (播放/暂停/重置) (待实现)
+- Actor: `state_dim → 512 → 256 → action_logits`。
+- Critic: `state_dim → 512 → 256 → 1`。
+- 使用Stable-Baselines3的PPO实现基础版本。
 
-**WebSocket消息格式**:
+具体训练超参数由配置文件管理，不在架构文档中重复维护。
+
+### 2.4 Environment Wrapper
+
+**计划路径**: `BackEnd/src/environment/v2x_env.py`
+
+**状态**: 未实现
+
+**接口**: 遵循Gymnasium API。
+
+- `reset() → (observation, info)`
+- `step(action) → (observation, reward, terminated, truncated, info)`
+
+**职责**:
+
+- M1读取离线SUMO轨迹与事件数据，M2扩展TraCI在线交互。
+- 构建Transformer输入及PPO观察空间。
+- 调用Network Model并记录消息传输结果。
+- 调用奖励计算模块。
+- 管理episode状态和终止条件。
+
+### 2.5 Network Abstraction Layer
+
+**路径**: `BackEnd/src/environment/network_model.py`
+
+**状态**: 已实现M1简化版
+
+**公共接口**:
+
+```text
+calculate_transmission(
+    sender_pos,
+    receiver_pos,
+    message_size,
+    priority,
+    current_load,
+) → TransmissionResult
+```
+
+**M1当前模型**:
+
+- 时延：`base_delay + distance / c + random_jitter`。
+- 丢包率：距离大于500米时为10%，否则为0%。
+- 总带宽：默认100 Mbps。
+- 当前负载范围为 `[0, 1]`；低、中、高优先级分别获得剩余带宽的25%、50%和100%。
+- 结构化输出包括时延、丢包率和分配带宽。
+
+**M2计划升级**:
+
+- 引入3GPP TR 38.901城市/高速信道模型。
+- 分别计算基础、传播、排队和传输时延。
+- 根据路径损耗、SINR、干扰和网络负载计算丢包率。
+- 保持现有网络层边界，是否需要调整公共接口须先由架构师确认。
+
+### 2.6 FastAPI服务
+
+**路径**: `BackEnd/app/main.py`
+
+**状态**: M0基础骨架已实现
+
+**当前接口**:
+
+- `GET /api/v1/health`: 健康检查。
+- `WS /ws/simulation`: 每秒发送M0测试消息，支持客户端断开后重新连接。
+
+当前WebSocket消息格式：
+
 ```json
 {
-  "type": "state_update",
-  "timestamp": 123.45,
-  "vehicles": [...],
-  "events": [...],
-  "messages": [...],
-  "metrics": {...},
-  "attention_weights": [...],
-  "decision": {...}
+  "type": "test",
+  "timestamp": 1234567890.123,
+  "message": "Hello from backend"
 }
 ```
+
+**计划接口**:
+
+- `GET /api/v1/status`: 查询系统状态。
+- `POST /api/v1/scenario`: 加载或创建场景。
+- `POST /api/v1/control`: 播放、暂停和重置仿真。
+- 保持 `WS /ws/simulation` 路径不变，将内容扩展为车辆、事件、消息、指标、注意力权重和调度决策。
 
 ---
 
 ## 3. 前端架构
 
-### 3.1 组件结构
-**路径**: `FrontEnd/src/`  
-**状态**: 基础骨架已实现
+### 3.1 当前实现
 
-```
-src/
-├── components/
-│   ├── MapView/              # 主地图视图 (Leaflet) - 待实现
-│   │   ├── VehicleLayer.tsx  # 车辆标记
-│   │   ├── EventLayer.tsx    # 事件标记
-│   │   └── MessageLayer.tsx  # 消息传播动画
-│   ├── AttentionViz/         # 注意力可视化 - 待实现
-│   │   ├── HeatmapOverlay.tsx
-│   │   └── AttentionLinks.tsx
-│   ├── DecisionPanel/        # 决策过程面板 - 待实现
-│   │   ├── CandidateList.tsx
-│   │   └── ResourceChart.tsx
-│   ├── MetricsPanel/         # 指标面板 - 待实现
-│   │   ├── RealtimeMetrics.tsx
-│   │   ├── TimeSeriesChart.tsx  # D3.js
-│   │   └── EventStats.tsx
-│   ├── ComparisonView/       # 对比视图 - 待实现
-│   │   ├── SplitScreen.tsx   # 左右分屏
-│   │   └── MethodToggle.tsx
-│   └── [Optional] Scene3D/   # 3D视图 (Three.js) - 待实现
-├── hooks/
-│   └── useWebSocket.ts       # WebSocket连接管理 - 待实现
-├── utils/
-│   └── dataProcessing.ts     # 数据格式转换 - 待实现
-└── App.tsx                   # 已实现基础骨架
+**路径**: `FrontEnd/src/`
+
+**状态**: M0基础骨架已实现
+
+- `App.tsx`: 展示WebSocket连接状态和最新测试消息。
+- `hooks/useWebSocket.ts`: 管理连接、消息解析、断开状态和2秒自动重连。
+- `styles.css`: 当前基础界面样式。
+
+### 3.2 计划组件
+
+```text
+components/
+├── MapView/             # Leaflet车辆、事件和消息传播图层
+├── AttentionViz/        # 注意力热力图及关联线
+├── DecisionPanel/       # 候选车辆和资源分配
+├── MetricsPanel/        # 实时指标、时序图和事件统计
+├── ComparisonView/      # AI与基线同步对比
+└── Scene3D/             # Three.js可选增强
 ```
 
-### 3.2 状态管理
-**方案**: React Context 或 Zustand (待确定)
-
-**全局状态**:
-- 当前仿真时间
-- 车辆/事件/消息列表
-- 实时指标历史
-- 用户选择的对比模式
+在组件数量增长前不提前引入全局状态库。需要跨多个页面共享仿真状态时，再由React Context和Zustand中选择一种方案。
 
 ---
 
-## 4. 文件系统组织
+## 4. 文件系统与职责边界
 
-```
+以下仅列出当前关键文件和已经确认的计划模块，避免与实现目录重复维护完整文件清单。
+
+```text
 G11project/
 ├── BackEnd/
+│   ├── app/                         # FastAPI服务
+│   │   ├── main.py                  # 已实现
+│   │   └── api/                     # 健康检查路由，已实现
 │   ├── src/
 │   │   ├── models/
-│   │   │   ├── transformer.py        # 待创建
-│   │   │   ├── ppo_agent.py          # 待创建
-│   │   │   └── utils.py               # 待创建
+│   │   │   ├── transformer.py       # 已实现
+│   │   │   ├── utils.py             # 已实现
+│   │   │   └── ppo_agent.py         # 计划
 │   │   ├── environment/
-│   │   │   ├── v2x_env.py             # 待创建
-│   │   │   ├── sumo_wrapper.py        # 待创建
-│   │   │   ├── network_model.py       # 待创建
-│   │   │   └── reward_calculator.py   # 待创建
-│   │   ├── training/
-│   │   │   ├── train_ppo.py           # 待创建
-│   │   │   └── trainer_utils.py       # 待创建
-│   │   ├── evaluation/
-│   │   │   ├── evaluator.py           # 待创建
-│   │   │   ├── baselines.py           # 待创建
-│   │   │   └── metrics.py             # 待创建
-│   │   └── deployment/
-│   │       └── model_export.py        # 待创建
-│   ├── app/
-│   │   ├── main.py                    # 基础骨架已实现
-│   │   └── websocket_handler.py       # 待创建
-│   ├── configs/                       # 待创建
-│   │   ├── model_config.yaml
-│   │   ├── training_config.yaml
-│   │   └── scenarios/
-│   │       ├── highway_emergency.yaml
-│   │       └── urban_intersection.yaml
-│   ├── experiments/                   # 待创建
-│   └── scripts/                       # 待创建
-│       ├── generate_scenarios.py
-│       └── run_experiment.py
-├── FrontEnd/
-│   └── [如上述组件结构]
+│   │   │   ├── network_model.py     # M1简化版已实现
+│   │   │   ├── v2x_env.py           # 计划
+│   │   │   └── reward_calculator.py # 计划
+│   │   ├── training/                 # 训练流程
+│   │   ├── evaluation/               # 基线、指标与评估
+│   │   └── deployment/               # 模型导出
+│   ├── configs/scenarios/
+│   │   └── highway_emergency.yaml   # 已实现
+│   ├── scripts/
+│   │   ├── verify_sumo.py            # 已实现
+│   │   └── generate_highway_scenario.py # 已实现
+│   └── experiments/                  # 生成数据、模型和实验产物
+├── FrontEnd/src/                     # React应用与WebSocket hook
 ├── Test/
-│   ├── unit/                          # 待创建
-│   │   ├── test_transformer.py
-│   │   ├── test_ppo.py
-│   │   └── test_network_model.py
-│   ├── integration/                   # 待创建
-│   │   ├── test_env_integration.py
-│   │   └── test_api.py
-│   └── e2e/                           # 待创建
-│       └── test_full_pipeline.py
-└── Docs/
-    ├── TECHNICAL_SPECIFICATION.md     # 详见独立文档
-    ├── IMPLEMENTATION_ROADMAP.md      # 详见独立文档
-    └── DEMO_GUIDE.md                  # 详见独立文档
+│   ├── unit/                         # 场景、Transformer和网络模型测试
+│   ├── integration/                  # SUMO与WebSocket集成测试
+│   └── e2e/                          # 端到端测试预留目录
+└── Docs/                             # 技术规范、路线图和演示指南
 ```
+
+顶层业务目录固定为 `BackEnd`、`FrontEnd`、`Test` 和 `Docs`。新增业务代码必须归入对应目录，不创建新的顶层业务目录。
 
 ---
 
-## 5. 部署与运行
+## 5. 运行与交付边界
 
-### 5.1 开发环境启动
+### 5.1 开发环境
+
+根目录统一使用以下命令启动前后端：
+
 ```bash
-# 一键启动前后端
 ./start.sh
 ```
 
-**内部流程**:
-1. 检查并安装依赖
-2. 后台启动FastAPI服务 (端口8000)
-3. 后台启动React开发服务器 (端口5173)
-4. 退出时自动清理进程
+脚本负责检查依赖、启动FastAPI和Vite，并在退出时清理子进程。前端和后端不要求用户分别执行启动命令。
 
-### 5.2 训练流程 (待实现)
+### 5.2 场景生成
+
 ```bash
-python BackEnd/scripts/run_experiment.py \
-  --config configs/training_config.yaml \
-  --scenario configs/scenarios/highway_emergency.yaml \
-  --output experiments/exp001
+python BackEnd/scripts/generate_highway_scenario.py \
+  --output experiments/test_scenario
 ```
 
-### 5.3 演示模式 (待实现)
-```bash
-# 加载预训练模型，启动WebSocket服务
-python BackEnd/app/main.py --demo --model experiments/best_model.pt
-```
+该命令依赖本机SUMO运行时，输出目录位于 `BackEnd/experiments/test_scenario/`。
+
+### 5.3 训练和演示
+
+训练脚本、实验运行器、预训练模型加载和完整演示模式尚未实现。对应命令应在实际接口完成后写入本文档，避免把计划命令误写成可用命令。
 
 ---
 
-## 6. 技术栈总结
+## 6. 技术栈与实现状态
 
-| 层级 | 技术 | 状态 |
-|------|------|------|
+| 层级 | 技术 | 当前状态 |
+|------|------|----------|
 | 前端框架 | React + TypeScript + Vite | ✅ 已搭建 |
-| 地图可视化 | Leaflet / Mapbox | 待集成 |
+| 地图可视化 | Leaflet | 待集成 |
 | 图表可视化 | D3.js | 待集成 |
 | 3D可视化 | Three.js | 可选，待实现 |
-| 后端框架 | FastAPI | ✅ 基础骨架 |
+| 后端框架 | FastAPI | ✅ 基础骨架已实现 |
 | 通信协议 | WebSocket | ✅ M0基础通信已实现 |
-| ML框架 | PyTorch | ✅ 已安装并验证 |
-| RL库 | Stable-Baselines3 | ✅ 已安装并验证 |
-| 仿真工具 | SUMO | ✅ 已安装并验证 |
-| 环境接口 | Gymnasium | ✅ 已安装并验证 |
-| 测试框架 | Pytest (后端), Vitest (前端) | 已配置 |
-| 代码检查 | Ruff (后端), ESLint (前端) | ✅ 已配置 |
-| CI/CD | GitHub Actions | ✅ 已配置 |
+| 环境编码 | PyTorch Transformer | ✅ M1基础版已实现 |
+| RL调度 | Stable-Baselines3 PPO | 依赖已安装，Agent待实现 |
+| 交通仿真 | SUMO + TraCI | ✅ 场景生成与验证已实现 |
+| 网络抽象 | Python简化模型 | ✅ M1版本已实现 |
+| 环境接口 | Gymnasium | 依赖已安装，Wrapper待实现 |
+| 后端测试 | Pytest | ✅ 已配置 |
+| 前端测试 | 尚未选定 | 待配置 |
+| 代码检查 | Ruff + ESLint | ✅ 已配置 |
+| 持续集成 | GitHub Actions | ✅ 已配置 |
 
 ---
 
@@ -347,4 +387,4 @@ python BackEnd/app/main.py --demo --model experiments/best_model.pt
 
 ---
 
-**文档维护**: 当架构决策确认并实现后更新本文档
+**文档维护规则**: 仅在架构决策确认、公共边界变化或实现状态发生变化后更新本文档；具体任务进度和实验参数分别维护在桥接文档与技术规范中。

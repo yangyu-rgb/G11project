@@ -16,7 +16,11 @@ dependencies = [
 dev = [
     "httpx>=0.28,<1.0",
     "pytest>=8.3,<9.0",
+    "pyyaml>=6.0",
     "ruff>=0.8,<1.0",
+    "sumolib",
+    "torch>=2.0",
+    "traci",
 ]
 
 [tool.pytest.ini_options]
