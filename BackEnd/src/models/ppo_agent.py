@@ -40,6 +40,19 @@ class TransformerFeatureExtractor(BaseFeaturesExtractor):
             vehicle_feature_dim=vehicle_feature_dim,
             event_feature_dim=event_feature_dim,
         )
+        self._capture_attention_once = False
+        self._captured_attention: torch.Tensor | None = None
+
+    def capture_next_attention(self) -> None:
+        """Capture attention from the next forward pass without affecting training."""
+        self._capture_attention_once = True
+        self._captured_attention = None
+
+    def consume_captured_attention(self) -> torch.Tensor | None:
+        """Return and clear the most recently requested attention tensor."""
+        attention = self._captured_attention
+        self._captured_attention = None
+        return attention
 
     def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
         vehicle_valid = observations["vehicle_mask"].bool()
@@ -50,6 +63,9 @@ class TransformerFeatureExtractor(BaseFeaturesExtractor):
             vehicle_padding_mask=~vehicle_valid,
             event_padding_mask=~event_valid,
         )
+        if getattr(self, "_capture_attention_once", False):
+            self._captured_attention = output.attention_weights.detach().cpu()
+            self._capture_attention_once = False
         local_embeddings = output.vehicle_embeddings * vehicle_valid.unsqueeze(-1)
         return torch.cat(
             (
@@ -125,6 +141,17 @@ class PPOAgent:
         """Return the environment action produced by PPO for direct ``env.step`` use."""
         action, _ = self.model.predict(observation, deterministic=deterministic)
         return action
+
+    def predict_raw_with_attention(
+        self, observation: dict[str, Any], *, deterministic: bool = True
+    ) -> tuple[Any, torch.Tensor | None]:
+        """Predict once and return the final encoder attention produced by that pass."""
+        extractor = self.model.policy.features_extractor
+        if not isinstance(extractor, TransformerFeatureExtractor):
+            return self.predict_raw(observation, deterministic=deterministic), None
+        extractor.capture_next_attention()
+        action = self.predict_raw(observation, deterministic=deterministic)
+        return action, extractor.consume_captured_attention()
 
     @staticmethod
     def decode_action(action: Any) -> DecodedAction:

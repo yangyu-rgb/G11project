@@ -67,6 +67,12 @@ def test_ppo_agent_predicts_trains_and_round_trips_model(tmp_path: Path) -> None
     raw_action = agent.predict_raw(observation)
     assert environment.action_space.contains(raw_action)
 
+    attention_action, attention = agent.predict_raw_with_attention(observation)
+    assert environment.action_space.contains(attention_action)
+    assert attention is not None
+    assert attention.shape == (1, 4, 8, 6, 6)
+    assert agent.model.policy.features_extractor.consume_captured_attention() is None
+
     action = agent.predict(observation)
     assert all(0 <= slot < 4 for slot in action.receiver_slots)
     assert 0 <= action.priority < 3

@@ -79,6 +79,7 @@ def test_simulation_websocket_streams_ten_complete_state_updates(
         "events",
         "messages",
         "metrics",
+        "attention_weights",
         "decision",
     }
     assert set(first["vehicles"][0]) == {
@@ -94,7 +95,21 @@ def test_simulation_websocket_streams_ten_complete_state_updates(
     assert first["events"][0]["type"] == "emergency_brake"
     assert set(first["messages"][0]) == {"from", "to", "status", "delay_ms"}
     assert set(first["metrics"]) == {"avg_delay_ms", "delivery_rate", "comm_overhead"}
+    assert first["attention_weights"] == []
     assert first["decision"]["priority"] == "high"
+    assert set(first["decision"]) == {
+        "selected_receivers",
+        "priority",
+        "bandwidth_allocation",
+        "candidate_vehicles",
+        "selected_vehicles",
+        "selection_reason",
+    }
+    assert first["decision"]["selected_vehicles"] == first["decision"]["selected_receivers"]
+    assert all(
+        candidate["status"] in {"candidate", "selected"}
+        for candidate in first["decision"]["candidate_vehicles"]
+    )
     assert len(first["decision"]["bandwidth_allocation"]) == len(
         first["decision"]["selected_receivers"]
     )

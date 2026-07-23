@@ -1,15 +1,17 @@
-import { CircleMarker, Tooltip } from 'react-leaflet'
+import L from 'leaflet'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { Marker, Tooltip } from 'react-leaflet'
 
 import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
+import { smoothstep } from '../../utils/interpolation'
 import { toMapPosition } from './coordinates'
+import {
+  interpolateVehicles,
+  VEHICLE_INTERPOLATION_DURATION_MS,
+} from './vehicleInterpolation'
+import './VehicleLayer.css'
 
 type VehicleLayerProps = { vehicles: SimulationVehicle[] }
-
-const colors: Record<VehicleStatus, string> = {
-  normal: '#3282f6',
-  sending: '#10b981',
-  receiving: '#f59e0b',
-}
 
 const labels: Record<VehicleStatus, string> = {
   normal: '正常',
@@ -17,27 +19,106 @@ const labels: Record<VehicleStatus, string> = {
   receiving: '接收消息',
 }
 
-export function VehicleLayer({ vehicles }: VehicleLayerProps) {
-  return vehicles.map((vehicle) => {
-    const speedKmh = Math.hypot(vehicle.vx, vehicle.vy) * 3.6
-    return (
-    <CircleMarker
-      key={vehicle.id}
-      center={toMapPosition(vehicle.x, vehicle.y)}
-      radius={vehicle.status === 'sending' ? 10 : 8}
-      pathOptions={{
-        color: '#ffffff',
-        fillColor: colors[vehicle.status],
-        fillOpacity: 1,
-        weight: 2,
-      }}
+type VehicleMarkerProps = { vehicle: SimulationVehicle }
+
+const VehicleMarker = memo(function VehicleMarker({ vehicle }: VehicleMarkerProps) {
+  const markerRef = useRef<L.Marker | null>(null)
+  const icon = useMemo(
+    () => L.divIcon({
+      className: 'vehicle-marker-icon',
+      html: `<span class="vehicle-marker__body vehicle-marker__body--${vehicle.status}"><span class="vehicle-marker__arrow"></span></span>`,
+      iconAnchor: [11, 11],
+      iconSize: [22, 22],
+      tooltipAnchor: [0, -12],
+    }),
+    [vehicle.status],
+  )
+  const speedKmh = Math.hypot(vehicle.vx, vehicle.vy) * 3.6
+
+  useEffect(() => {
+    const arrow = markerRef.current
+      ?.getElement()
+      ?.querySelector<HTMLElement>('.vehicle-marker__arrow')
+    arrow?.style.setProperty('--vehicle-heading', `${vehicle.heading}deg`)
+  }, [vehicle.heading, vehicle.status])
+
+  return (
+    <Marker
+      ref={markerRef}
+      alt={`车辆 ${vehicle.id}`}
+      icon={icon}
+      keyboard
+      position={toMapPosition(vehicle.x, vehicle.y)}
+      title={`${vehicle.id}，${labels[vehicle.status]}`}
     >
-      <Tooltip direction="top" offset={[0, -8]}>
+      <Tooltip direction="top">
         <strong>{vehicle.id}</strong><br />
         {speedKmh.toFixed(1)} km/h · {labels[vehicle.status]}<br />
         航向：{vehicle.heading.toFixed(1)}°
       </Tooltip>
-    </CircleMarker>
-    )
-  })
+    </Marker>
+  )
+}, ({ vehicle: previous }, { vehicle: next }) => (
+  previous.id === next.id
+  && previous.x === next.x
+  && previous.y === next.y
+  && previous.vx === next.vx
+  && previous.vy === next.vy
+  && previous.heading === next.heading
+  && previous.status === next.status
+))
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+export function VehicleLayer({ vehicles }: VehicleLayerProps) {
+  const [displayedVehicles, setDisplayedVehicles] = useState(vehicles)
+  const displayedRef = useRef(vehicles)
+  const animationFrameRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (animationFrameRef.current !== null) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+
+    if (prefersReducedMotion() || displayedRef.current.length === 0) {
+      displayedRef.current = vehicles
+      setDisplayedVehicles(vehicles)
+      return
+    }
+
+    const starts = displayedRef.current
+    const startedAt = performance.now()
+
+    const renderFrame = (now: number) => {
+      const progress = (now - startedAt) / VEHICLE_INTERPOLATION_DURATION_MS
+      const nextVehicles = progress >= 1
+        ? vehicles
+        : interpolateVehicles(starts, vehicles, smoothstep(0, 1, progress))
+
+      displayedRef.current = nextVehicles
+      setDisplayedVehicles(nextVehicles)
+
+      if (progress < 1) {
+        animationFrameRef.current = requestAnimationFrame(renderFrame)
+      } else {
+        animationFrameRef.current = null
+      }
+    }
+
+    animationFrameRef.current = requestAnimationFrame(renderFrame)
+    return () => {
+      if (animationFrameRef.current !== null) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+    }
+  }, [vehicles])
+
+  return displayedVehicles.map((vehicle) => (
+    <VehicleMarker key={vehicle.id} vehicle={vehicle} />
+  ))
 }

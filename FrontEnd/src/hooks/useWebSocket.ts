@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type {
+  ComparisonPair,
   ControlAction,
   ControlAckMessage,
   SimulationMessage,
@@ -12,6 +13,32 @@ export type { SimulationMessage } from '../types/simulation'
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
 const RECONNECT_DELAY_MS = 2000
+
+export type ComparisonUpdateCache = {
+  ai: Map<number, StateUpdateMessage>
+  baseline: Map<number, StateUpdateMessage>
+}
+
+export function createComparisonUpdateCache(): ComparisonUpdateCache {
+  return { ai: new Map(), baseline: new Map() }
+}
+
+export function cacheComparisonUpdate(
+  cache: ComparisonUpdateCache,
+  update: StateUpdateMessage,
+): ComparisonPair | null {
+  if (update.method === 'ai') cache.ai.set(update.timestamp, update)
+  else if (update.method) cache.baseline.set(update.timestamp, update)
+  else return null
+
+  const ai = cache.ai.get(update.timestamp)
+  const baseline = cache.baseline.get(update.timestamp)
+  if (!ai || !baseline) return null
+
+  cache.ai.delete(update.timestamp)
+  cache.baseline.delete(update.timestamp)
+  return { ai, baseline }
+}
 
 function websocketUrl(path: string) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -27,18 +54,24 @@ function isSimulationMessage(value: unknown): value is SimulationMessage {
 
 export function useWebSocket(path: string | null = '/ws/simulation', autoReconnect = true) {
   const socketRef = useRef<WebSocket | null>(null)
+  const comparisonCacheRef = useRef<ComparisonUpdateCache>(createComparisonUpdateCache())
   const [message, setMessage] = useState<SimulationMessage | null>(null)
   const [stateUpdate, setStateUpdate] = useState<StateUpdateMessage | null>(null)
+  const [comparisonPair, setComparisonPair] = useState<ComparisonPair | null>(null)
   const [controlState, setControlState] = useState<ControlAckMessage | null>(null)
   const [status, setStatus] = useState<WebSocketStatus>(path ? 'connecting' : 'disconnected')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [completed, setCompleted] = useState(false)
 
   useEffect(() => {
-    if (!path) return
+    if (!path) {
+      setStatus('disconnected')
+      return
+    }
 
     let active = true
     let reconnectTimer: number | null = null
+    comparisonCacheRef.current = createComparisonUpdateCache()
 
     const connect = () => {
       if (!active) return
@@ -51,11 +84,19 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
         setErrorMessage(null)
       }
       socket.onmessage = (event) => {
+        if (!active) return
         try {
           const parsed: unknown = JSON.parse(event.data)
           if (!isSimulationMessage(parsed)) throw new Error('不支持的WebSocket消息格式')
           setMessage(parsed)
-          if (parsed.type === 'state_update') setStateUpdate(parsed)
+          if (parsed.type === 'state_update') {
+            if (parsed.method) {
+              const pair = cacheComparisonUpdate(comparisonCacheRef.current, parsed)
+              if (pair) setComparisonPair(pair)
+            } else {
+              setStateUpdate(parsed)
+            }
+          }
           if (parsed.type === 'control_ack') setControlState(parsed)
           if (parsed.type === 'error') {
             setErrorMessage(parsed.message)
@@ -97,17 +138,32 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     socket.send(JSON.stringify({ type: 'control', action, ...(speed === undefined ? {} : { speed }) }))
     if (action === 'reset') {
       setStateUpdate(null)
+      setComparisonPair(null)
+      comparisonCacheRef.current = createComparisonUpdateCache()
       setCompleted(false)
     }
     return true
   }, [])
 
   const clearState = useCallback(() => {
+    setMessage(null)
     setStateUpdate(null)
+    setComparisonPair(null)
+    comparisonCacheRef.current = createComparisonUpdateCache()
     setControlState(null)
     setErrorMessage(null)
     setCompleted(false)
   }, [])
 
-  return { message, stateUpdate, controlState, status, errorMessage, completed, sendControl, clearState }
+  return {
+    message,
+    stateUpdate,
+    comparisonPair,
+    controlState,
+    status,
+    errorMessage,
+    completed,
+    sendControl,
+    clearState,
+  }
 }

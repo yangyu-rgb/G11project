@@ -32,10 +32,28 @@ export type SimulationMetrics = {
   comm_overhead: number
 }
 
+export type AttentionWeight = {
+  vehicle_id: string
+  event_id: string
+  weight: number
+}
+
+export type ComparisonBaseline = 'broadcast' | 'distance' | 'urgency'
+export type SimulationMethod = 'ai' | ComparisonBaseline
+
+export type CandidateVehicle = {
+  id: string
+  distance_m: number
+  status: VehicleStatus | 'selected' | string
+}
+
 export type SimulationDecision = {
   selected_receivers: string[]
   priority: 'low' | 'medium' | 'high'
   bandwidth_allocation: number[]
+  candidate_vehicles?: CandidateVehicle[]
+  selected_vehicles?: string[]
+  selection_reason?: Record<string, string>
 }
 
 export type TestMessage = {
@@ -52,7 +70,16 @@ export type StateUpdateMessage = {
   messages: SimulationTransmission[]
   metrics: SimulationMetrics
   decision: SimulationDecision
+  attention_weights?: AttentionWeight[]
+  method?: SimulationMethod
 }
+
+export type ComparisonPair = {
+  ai: StateUpdateMessage
+  baseline: StateUpdateMessage
+}
+
+export type MetricHistoryPoint = SimulationMetrics & { timestamp: number }
 
 export type ControlAction = 'play' | 'pause' | 'reset' | 'set_speed'
 

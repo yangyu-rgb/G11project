@@ -1,14 +1,14 @@
 import asyncio
-import math
 import time
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from app.api.router import api_router
-from src.environment.v2x_env import SimulationSnapshot, V2XEnv
+from app.comparison import build_baseline_action, validate_baseline
+from app.simulation_service import build_state_update, summarize_attention
+from src.environment.v2x_env import V2XEnv
 from src.models.ppo_agent import PPOAgent
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
@@ -57,101 +57,15 @@ def _resolve_simulation_path(raw_path: str, *, kind: str) -> Path:
     return resolved
 
 
-def _create_environment(scenario_path: Path) -> V2XEnv:
-    return V2XEnv(scenario_path)
+def _create_environment(scenario_path: Path, *, seed: int | None = None) -> V2XEnv:
+    return V2XEnv(scenario_path, seed=seed)
 
 
 def _load_agent(model_path: Path, environment: V2XEnv) -> PPOAgent:
     return PPOAgent.load(model_path, environment)
 
 
-def _state_update(
-    snapshot: SimulationSnapshot,
-    action: np.ndarray,
-    info: dict[str, Any],
-) -> dict[str, Any]:
-    selected_receivers = list(info["selected_receiver_ids"])
-    transmissions = info["transmissions"]
-    sender_ids = {
-        transmission["sender_id"]
-        for transmission in transmissions
-        if transmission["sender_id"] is not None
-    }
-    selected_set = set(selected_receivers)
-    vehicles = []
-    for vehicle in snapshot.vehicles:
-        angle_radians = math.radians(vehicle.angle)
-        status = "normal"
-        if vehicle.vehicle_id in selected_set:
-            status = "receiving"
-        if vehicle.vehicle_id in sender_ids:
-            status = "sending"
-        vehicles.append(
-            {
-                "id": vehicle.vehicle_id,
-                "x": vehicle.x,
-                "y": vehicle.y,
-                "vx": vehicle.speed * math.sin(angle_radians),
-                "vy": vehicle.speed * math.cos(angle_radians),
-                "heading": vehicle.angle,
-                "status": status,
-            }
-        )
-
-    successful_count = sum(bool(item["delivered"]) for item in transmissions)
-    transmission_count = len(transmissions)
-    average_delay = (
-        sum(float(item["latency_ms"]) for item in transmissions) / transmission_count
-        if transmission_count
-        else 0.0
-    )
-    delivery_rate = successful_count / transmission_count if transmission_count else 0.0
-    communication_overhead = (
-        transmission_count / successful_count if successful_count else float(transmission_count)
-    )
-    bandwidth_fraction = (int(action[-1]) + 1) / 10.0
-    receiver_share = bandwidth_fraction / len(selected_receivers) if selected_receivers else 0.0
-    priority_name = ("low", "medium", "high")[int(action[-2])]
-
-    return {
-        "type": "state_update",
-        "timestamp": snapshot.timestamp,
-        "vehicles": vehicles,
-        "events": [
-            {
-                "id": event.event_id,
-                "type": (
-                    "emergency_brake"
-                    if event.event_type == "emergency_braking"
-                    else event.event_type
-                ),
-                "x": event.x,
-                "y": event.y,
-                "timestamp": event.timestamp,
-                "severity": event.severity,
-            }
-            for event in snapshot.events
-        ],
-        "messages": [
-            {
-                "from": item["sender_id"],
-                "to": item["receiver_id"],
-                "status": "success" if item["delivered"] else "timeout",
-                "delay_ms": float(item["latency_ms"]),
-            }
-            for item in transmissions
-        ],
-        "metrics": {
-            "avg_delay_ms": average_delay,
-            "delivery_rate": delivery_rate,
-            "comm_overhead": communication_overhead,
-        },
-        "decision": {
-            "selected_receivers": selected_receivers,
-            "priority": priority_name,
-            "bandwidth_allocation": [receiver_share] * len(selected_receivers),
-        },
-    }
+_state_update = build_state_update
 
 
 async def _send_control_ack(
@@ -216,9 +130,28 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
         while True:
             if playing and not complete:
                 snapshot = environment.snapshot()
-                action = np.asarray(agent.predict_raw(observation), dtype=np.int64)
+                if hasattr(agent, "predict_raw_with_attention"):
+                    raw_action, raw_attention = agent.predict_raw_with_attention(observation)
+                else:
+                    raw_action = agent.predict_raw(observation)
+                    raw_attention = None
+                action = np.asarray(raw_action, dtype=np.int64)
+                attention_weights, attention_by_vehicle = summarize_attention(
+                    raw_attention,
+                    observation,
+                    environment.vehicle_ids,
+                    snapshot.events,
+                )
                 observation, _, terminated, truncated, info = environment.step(action)
-                await websocket.send_json(_state_update(snapshot, action, info))
+                await websocket.send_json(
+                    _state_update(
+                        snapshot,
+                        action,
+                        info,
+                        attention_weights=attention_weights,
+                        attention_by_vehicle=attention_by_vehicle,
+                    )
+                )
                 complete = terminated or truncated
                 if complete:
                     playing = False
@@ -276,3 +209,167 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
         return
     finally:
         environment.close()
+
+
+@app.websocket("/ws/simulation/compare")
+async def compare_simulation_websocket(websocket: WebSocket) -> None:
+    """Stream timestamp-aligned AI and deterministic-baseline episodes."""
+    await websocket.accept()
+    scenario_query = websocket.query_params.get("scenario")
+    model_query = websocket.query_params.get("model")
+    if not scenario_query or not model_query:
+        await _send_simulation_error(
+            websocket,
+            "missing_parameters",
+            "scenario and model query parameters are required",
+        )
+        await websocket.close(code=1008)
+        return
+
+    try:
+        baseline = validate_baseline(websocket.query_params.get("baseline", "distance"))
+        speed = float(websocket.query_params.get("speed", "1"))
+        if not MIN_SIMULATION_SPEED <= speed <= MAX_SIMULATION_SPEED:
+            raise ValueError(
+                f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}"
+            )
+    except ValueError as exc:
+        await _send_simulation_error(websocket, "invalid_parameters", str(exc))
+        await websocket.close(code=1008)
+        return
+
+    ai_environment: V2XEnv | None = None
+    baseline_environment: V2XEnv | None = None
+    try:
+        scenario_path = _resolve_simulation_path(scenario_query, kind="scenario")
+        model_path = _resolve_simulation_path(model_query, kind="model")
+        ai_environment = _create_environment(scenario_path, seed=42)
+        baseline_environment = _create_environment(scenario_path, seed=42)
+        agent = _load_agent(model_path, ai_environment)
+        ai_observation, _ = ai_environment.reset(seed=42)
+        baseline_environment.reset(seed=42)
+    except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
+        if ai_environment is not None:
+            ai_environment.close()
+        if baseline_environment is not None:
+            baseline_environment.close()
+        await _send_simulation_error(websocket, "resource_error", str(exc))
+        await websocket.close(code=1008)
+        return
+
+    playing = True
+    complete = False
+    try:
+        while True:
+            if playing and not complete:
+                ai_snapshot = ai_environment.snapshot()
+                baseline_snapshot = baseline_environment.snapshot()
+                if ai_snapshot.timestamp != baseline_snapshot.timestamp:
+                    raise RuntimeError("comparison environments are no longer synchronized")
+
+                if hasattr(agent, "predict_raw_with_attention"):
+                    raw_action, raw_attention = agent.predict_raw_with_attention(ai_observation)
+                else:
+                    raw_action = agent.predict_raw(ai_observation)
+                    raw_attention = None
+                ai_action = np.asarray(raw_action, dtype=np.int64)
+                attention_weights, attention_by_vehicle = summarize_attention(
+                    raw_attention,
+                    ai_observation,
+                    ai_environment.vehicle_ids,
+                    ai_snapshot.events,
+                )
+                ai_observation, _, ai_terminated, ai_truncated, ai_info = ai_environment.step(
+                    ai_action
+                )
+
+                baseline_action, baseline_reasons = build_baseline_action(
+                    baseline_environment,
+                    baseline_snapshot,
+                    baseline,
+                )
+                _, _, baseline_terminated, baseline_truncated, baseline_info = (
+                    baseline_environment.step(baseline_action)
+                )
+
+                await websocket.send_json(
+                    _state_update(
+                        ai_snapshot,
+                        ai_action,
+                        ai_info,
+                        attention_weights=attention_weights,
+                        attention_by_vehicle=attention_by_vehicle,
+                        method="ai",
+                    )
+                )
+                await websocket.send_json(
+                    _state_update(
+                        baseline_snapshot,
+                        baseline_action,
+                        baseline_info,
+                        method=baseline,
+                        selection_reason_override=baseline_reasons,
+                    )
+                )
+
+                complete = (ai_terminated or ai_truncated) and (
+                    baseline_terminated or baseline_truncated
+                )
+                if complete:
+                    playing = False
+                    await websocket.send_json(
+                        {"type": "simulation_complete", "timestamp": ai_snapshot.timestamp}
+                    )
+
+            timeout = None if not playing else 1.0 / speed
+            try:
+                command = await asyncio.wait_for(websocket.receive_json(), timeout=timeout)
+            except TimeoutError:
+                continue
+
+            if command.get("type") != "control":
+                await _send_simulation_error(
+                    websocket, "invalid_control", "control message type must be 'control'"
+                )
+                continue
+            action_name = command.get("action")
+            if action_name == "play":
+                if complete:
+                    await _send_simulation_error(
+                        websocket,
+                        "simulation_complete",
+                        "reset the simulation before playing it again",
+                    )
+                    continue
+                playing = True
+            elif action_name == "pause":
+                playing = False
+            elif action_name == "reset":
+                ai_observation, _ = ai_environment.reset(seed=42)
+                baseline_environment.reset(seed=42)
+                complete = False
+                playing = False
+            elif action_name == "set_speed":
+                try:
+                    requested_speed = float(command["speed"])
+                    if not MIN_SIMULATION_SPEED <= requested_speed <= MAX_SIMULATION_SPEED:
+                        raise ValueError
+                    speed = requested_speed
+                except (KeyError, TypeError, ValueError):
+                    await _send_simulation_error(
+                        websocket,
+                        "invalid_speed",
+                        f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}",
+                    )
+                    continue
+            else:
+                await _send_simulation_error(
+                    websocket, "invalid_control", f"unsupported control action: {action_name}"
+                )
+                continue
+            await _send_control_ack(websocket, action_name, playing=playing, speed=speed)
+    except WebSocketDisconnect:
+        return
+    finally:
+        ai_environment.close()
+        baseline_environment.close()

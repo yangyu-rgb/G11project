@@ -71,7 +71,215 @@
 
 ## 📋 活跃任务
 
-**当前阶段**: M1已完成 + M2训练准备就绪（Week 5-6）
+**当前阶段**: M2 - 中等场景与完整功能（Week 6-9）
+
+#### 任务019：Transformer注意力可视化
+**状态**：🟢 已完成
+**优先级**：高
+**描述**：实现Transformer注意力权重的可视化，展示AI的决策依据
+
+**需求**：
+- 更新后端 `BackEnd/app/main.py`：
+  - 在 `state_update` 消息中添加 `attention_weights` 字段
+  - 格式：`{"vehicle_id": "v0", "event_id": "e0", "weight": 0.85}`
+  - 从Transformer模型提取注意力权重（top-k最高的权重对）
+- 创建 `FrontEnd/src/components/AttentionViz/AttentionHeatmap.tsx`：
+  - 地图叠加：车辆标记的颜色深浅表示注意力强度
+  - 颜色映射：低注意力（蓝色）→ 高注意力（红色）
+- 创建 `FrontEnd/src/components/AttentionViz/AttentionLinks.tsx`：
+  - 绘制高注意力（>0.6）的车辆-事件连接线
+  - 线条粗细表示注意力强度
+  - 动画效果：连接线淡入淡出
+- 在 `App.tsx` 添加注意力可视化开关（默认开启）
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+  - `pytest Test/integration/test_simulation_websocket.py -v`（验证attention_weights字段）
+- 必须产生的文件：
+  - 更新的 `BackEnd/app/main.py`
+  - `FrontEnd/src/components/AttentionViz/AttentionHeatmap.tsx`
+  - `FrontEnd/src/components/AttentionViz/AttentionLinks.tsx`
+  - 更新的 `FrontEnd/src/App.tsx`
+- 成功标准：
+  - 浏览器显示车辆颜色深浅变化
+  - 高注意力车辆与事件之间有连接线
+  - 可通过开关控制显示/隐藏
+
+**Codex完成说明**：
+- [x] attention_weights字段已添加：最终层多头均值、逐事件归一化、全局Top 10
+- [x] AttentionHeatmap组件已实现：蓝到红的相对注意力热区
+- [x] AttentionLinks组件已实现：仅显示权重大于0.6的事件—车辆连线
+- [x] 浏览器验证通过：事件时间点显示10个热区和10条高权重连线，开关可控制显隐
+
+---
+
+#### 任务020：RL决策过程面板
+**状态**：🟢 已完成
+**优先级**：高
+**描述**：实现RL决策过程的详细展示面板
+
+**需求**：
+- 更新后端 `BackEnd/app/main.py`：
+  - 在 `state_update` 消息的 `decision` 字段中添加：
+    - `candidate_vehicles`：候选车辆列表（300米内）
+    - `selected_vehicles`：选中车辆列表（PPO决策结果）
+    - `selection_reason`：简短原因（如 "high_attention", "critical_distance"）
+- 创建 `FrontEnd/src/components/DecisionPanel/DecisionPanel.tsx`：
+  - 主面板容器（右侧侧边栏，可折叠）
+- 创建 `FrontEnd/src/components/DecisionPanel/CandidateList.tsx`：
+  - 显示候选车辆列表（ID、距离、状态）
+  - 高亮选中的车辆（绿色背景）
+- 创建 `FrontEnd/src/components/DecisionPanel/ResourceChart.tsx`：
+  - 使用D3.js绘制条形图
+  - 显示每辆选中车辆的带宽分配比例
+- 安装依赖：`d3`，`@types/d3`
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 更新的 `BackEnd/app/main.py`
+  - `FrontEnd/src/components/DecisionPanel/DecisionPanel.tsx`
+  - `FrontEnd/src/components/DecisionPanel/CandidateList.tsx`
+  - `FrontEnd/src/components/DecisionPanel/ResourceChart.tsx`
+  - 更新的 `FrontEnd/package.json`（含D3.js依赖）
+- 成功标准：
+  - 右侧面板显示候选车辆列表
+  - 选中车辆高亮显示
+  - 条形图正确显示带宽分配
+
+**Codex完成说明**：
+- [x] decision字段已扩展并保留旧字段兼容
+- [x] DecisionPanel组件已实现，候选车辆包含距离、状态和选择原因
+- [x] D3.js条形图已实现，并支持较多接收车辆滚动查看
+- [x] 浏览器验证通过：候选列表、高亮和资源图均使用真实后端状态
+
+---
+
+#### 任务021：时序指标图表
+**状态**：🟢 已完成
+**优先级**：高
+**描述**：实现实时指标的时序曲线图
+
+**需求**：
+- 创建 `FrontEnd/src/components/MetricsPanel/TimeSeriesChart.tsx`：
+  - 使用D3.js绘制三条折线图：
+    - 时延（毫秒）
+    - 覆盖率（百分比）
+    - 通信开销（倍数）
+  - X轴：仿真时间（秒）
+  - Y轴：指标数值
+  - 保留最近30个时间点的数据
+  - 实时滚动更新
+- 更新 `FrontEnd/src/components/MetricsPanel/RealtimeMetrics.tsx`：
+  - 将时序图表集成到指标面板
+  - 布局：上方数值卡片，下方时序图表
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/components/MetricsPanel/TimeSeriesChart.tsx`
+  - 更新的 `FrontEnd/src/components/MetricsPanel/RealtimeMetrics.tsx`
+- 成功标准：
+  - 浏览器显示三条动态曲线
+  - 曲线随仿真实时更新
+  - 数据点保留最近30个
+
+**Codex完成说明**：
+- [x] TimeSeriesChart三联图已实现，使用同步时间轴和独立Y轴
+- [x] 时序图表已集成到MetricsPanel，保留最近30点并在运行/重置时清空
+- [x] 浏览器验证通过：真实仿真过程中曲线实时更新
+
+---
+
+#### 任务022：对比视图（左右分屏）
+**状态**：🟢 已完成
+**优先级**：中
+**描述**：实现AI方法与基线方法的并排对比展示
+
+**需求**：
+- 更新后端 `BackEnd/app/main.py`：
+  - 新增 `/ws/simulation/compare` 端点
+  - 同时运行AI方法和指定基线方法
+  - 推送两个独立的 `state_update` 消息（标记method字段）
+- 创建 `FrontEnd/src/components/ComparisonView/ComparisonView.tsx`：
+  - 左右分屏布局（50%-50%）
+  - 左侧：AI方法
+  - 右侧：基线方法
+  - 顶部：方法选择器（全量广播/距离筛选/紧急度优先）
+- 创建 `FrontEnd/src/components/ComparisonView/SplitMapView.tsx`：
+  - 复用MapView组件，独立渲染左右两侧
+- 更新 `App.tsx`：
+  - 添加"对比模式"切换按钮
+  - 对比模式下显示ComparisonView，否则显示单一视图
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+  - `pytest Test/integration/ -v`（验证compare端点）
+- 必须产生的文件：
+  - 更新的 `BackEnd/app/main.py`
+  - `FrontEnd/src/components/ComparisonView/ComparisonView.tsx`
+  - `FrontEnd/src/components/ComparisonView/SplitMapView.tsx`
+  - 更新的 `FrontEnd/src/App.tsx`
+- 成功标准：
+  - 点击"对比模式"后显示左右分屏
+  - 左右两侧同步播放同一场景
+  - 可以选择不同基线方法对比
+  - 能明显看出AI与基线的差异（消息数量、覆盖车辆）
+
+**Codex完成说明**：
+- [x] compare端点已实现：相同场景与种子下成对推送AI和白名单基线状态
+- [x] ComparisonView组件已实现：左右地图显示独立指标与消息数量
+- [x] 对比模式与三种基线切换已验证，切换后清空旧状态并要求重新运行
+- [x] 浏览器验证通过：AI/距离基线按相同时间戳原子更新，统一控制有效
+
+---
+
+#### 任务023：动画流畅度优化
+**状态**：🟢 已完成
+**优先级**：高
+**描述**：优化车辆移动动画，解决"PPT切换"问题
+
+**需求**：
+- 更新 `FrontEnd/src/components/MapView/VehicleLayer.tsx`：
+  - 实现车辆位置插值算法：
+    - 保存前一帧位置（prevX, prevY）
+    - 收到新位置后，在100-200ms内平滑过渡（CSS transition或requestAnimationFrame）
+  - 车辆图标添加旋转动画（根据heading角度）
+- 创建 `FrontEnd/src/utils/interpolation.ts`：
+  - 提供线性插值函数：`lerp(start, end, t)`
+  - 提供平滑插值函数：`smoothstep(start, end, t)`
+- 性能优化（如果需要）：
+  - 批量更新DOM（使用React.memo）
+  - 降低非关键更新频率
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 更新的 `FrontEnd/src/components/MapView/VehicleLayer.tsx`
+  - `FrontEnd/src/utils/interpolation.ts`
+- 成功标准：
+  - 车辆移动平滑连续（不再像PPT）
+  - 车辆图标旋转跟随方向
+  - 50辆车场景下帧率 ≥30fps
+  - 100辆车场景下帧率 ≥20fps
+
+**Codex完成说明**：
+- [x] 位置插值已实现：单RAF、150ms smoothstep并从当前显示位置续接
+- [x] 车辆旋转动画已实现：方向箭头按最短航向角变化
+- [x] 性能优化已完成：React.memo、批量状态更新、RAF清理和reduced-motion支持
+- [x] 浏览器验证流畅度：50辆约59.8fps，100辆约56.4fps（各连续测量5秒）
+
+---
 
 ### 已完成任务
 
