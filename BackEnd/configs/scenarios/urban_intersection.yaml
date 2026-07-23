@@ -1,0 +1,22 @@
+seed: 42
+
+road:
+  length_m: 5000
+  intersections_m: [1000, 2500, 4000]
+  branch_length_m: 500
+  lanes_per_direction: 2
+  speed_limit_kmh: 60
+
+vehicles:
+  count: 100
+  speed_min_kmh: 30
+  speed_max_kmh: 60
+  minimum_spacing_m: 20
+
+events:
+  times_s: [12, 20, 28]
+  severities: [0.9, 0.6, 0.8]
+
+simulation:
+  duration_s: 40
+  step_length_s: 0.1

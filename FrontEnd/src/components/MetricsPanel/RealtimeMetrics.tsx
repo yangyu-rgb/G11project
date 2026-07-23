@@ -1,12 +1,12 @@
-import type { RealtimeMetricValues } from '../../types/simulation'
+import type { SimulationMetrics } from '../../types/simulation'
 
-type RealtimeMetricsProps = { metrics: RealtimeMetricValues }
+type RealtimeMetricsProps = { metrics: SimulationMetrics }
 
 export function RealtimeMetrics({ metrics }: RealtimeMetricsProps) {
   const values = [
-    { label: '当前时延', value: `${metrics.latencyMs} ms`, tone: 'blue' },
-    { label: '关键车辆覆盖率', value: `${metrics.coveragePercent}%`, tone: 'green' },
-    { label: '通信开销', value: `${metrics.communicationOverhead.toFixed(1)}x`, tone: 'orange' },
+    { label: '当前平均时延', value: `${metrics.avg_delay_ms.toFixed(1)} ms`, tone: 'blue' },
+    { label: '消息送达率', value: `${(metrics.delivery_rate * 100).toFixed(1)}%`, tone: 'green' },
+    { label: '通信开销', value: `${metrics.comm_overhead.toFixed(2)}x`, tone: 'orange' },
   ]
   return (
     <section className="metrics-grid" aria-label="实时通信指标">

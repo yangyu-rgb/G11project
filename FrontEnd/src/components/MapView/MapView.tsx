@@ -1,12 +1,20 @@
 import L from 'leaflet'
 import { MapContainer, Polyline, ZoomControl } from 'react-leaflet'
 
-import type { MapEvent, MapMessage, MapVehicle } from '../../types/simulation'
+import type {
+  SimulationEvent,
+  SimulationTransmission,
+  SimulationVehicle,
+} from '../../types/simulation'
 import { EventLayer } from './EventLayer'
 import { MessageLayer } from './MessageLayer'
 import { VehicleLayer } from './VehicleLayer'
 
-type MapViewProps = { vehicles: MapVehicle[]; events: MapEvent[]; messages: MapMessage[] }
+type MapViewProps = {
+  vehicles: SimulationVehicle[]
+  events: SimulationEvent[]
+  messages: SimulationTransmission[]
+}
 
 const ROAD_BOUNDS = L.latLngBounds([-100, 0], [260, 5000])
 const LANES = [0, 80, 160]

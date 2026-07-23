@@ -1,9 +1,9 @@
 import { CircleMarker, Tooltip } from 'react-leaflet'
 
-import type { MapVehicle, VehicleStatus } from '../../types/simulation'
+import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
 import { toMapPosition } from './coordinates'
 
-type VehicleLayerProps = { vehicles: MapVehicle[] }
+type VehicleLayerProps = { vehicles: SimulationVehicle[] }
 
 const colors: Record<VehicleStatus, string> = {
   normal: '#3282f6',
@@ -18,7 +18,9 @@ const labels: Record<VehicleStatus, string> = {
 }
 
 export function VehicleLayer({ vehicles }: VehicleLayerProps) {
-  return vehicles.map((vehicle) => (
+  return vehicles.map((vehicle) => {
+    const speedKmh = Math.hypot(vehicle.vx, vehicle.vy) * 3.6
+    return (
     <CircleMarker
       key={vehicle.id}
       center={toMapPosition(vehicle.x, vehicle.y)}
@@ -32,8 +34,10 @@ export function VehicleLayer({ vehicles }: VehicleLayerProps) {
     >
       <Tooltip direction="top" offset={[0, -8]}>
         <strong>{vehicle.id}</strong><br />
-        {vehicle.speedKmh} km/h · {labels[vehicle.status]}
+        {speedKmh.toFixed(1)} km/h · {labels[vehicle.status]}<br />
+        航向：{vehicle.heading.toFixed(1)}°
       </Tooltip>
     </CircleMarker>
-  ))
+    )
+  })
 }

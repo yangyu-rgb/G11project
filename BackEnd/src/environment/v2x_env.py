@@ -7,9 +7,10 @@ import json
 import math
 import random
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import gymnasium as gym
 import numpy as np
@@ -36,11 +37,22 @@ class TrajectoryFrame:
 
 @dataclass(frozen=True)
 class EmergencyEvent:
+    event_id: str
     event_type: str
     x: float
     y: float
     timestamp: float
     severity: float
+
+
+@dataclass(frozen=True)
+class SimulationSnapshot:
+    """Immutable view of the raw scenario state at the current environment step."""
+
+    step_index: int
+    timestamp: float
+    vehicles: tuple[VehicleSnapshot, ...]
+    events: tuple[EmergencyEvent, ...]
 
 
 class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
@@ -57,7 +69,11 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         max_events: int = 2,
         critical_radius_m: float = 300.0,
         road_length_m: float = 5000.0,
+        lateral_extent_m: float = 10.0,
         delay_normalization_ms: float = 100.0,
+        network_mode: Literal["simple", "3gpp"] = "simple",
+        network_scenario: Literal["highway", "urban"] = "highway",
+        network_options: Mapping[str, float] | None = None,
         seed: int | None = None,
         render_mode: str | None = None,
     ) -> None:
@@ -66,7 +82,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("episode_steps must be at least 2")
         if max_vehicles <= 0 or max_events <= 0:
             raise ValueError("max_vehicles and max_events must be positive")
-        if critical_radius_m <= 0 or road_length_m <= 0:
+        if critical_radius_m <= 0 or road_length_m <= 0 or lateral_extent_m <= 0:
             raise ValueError("distance settings must be positive")
         if render_mode not in (None, "ansi"):
             raise ValueError("render_mode must be None or 'ansi'")
@@ -77,7 +93,11 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.max_events = max_events
         self.critical_radius_m = critical_radius_m
         self.road_length_m = road_length_m
+        self.lateral_extent_m = lateral_extent_m
         self.delay_normalization_ms = delay_normalization_ms
+        self.network_mode = network_mode
+        self.network_scenario = network_scenario
+        self._network_options = dict(network_options or {})
         self.render_mode = render_mode
         self._initial_seed = seed
 
@@ -121,8 +141,16 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         )
         self._step_index = 0
         self._current_load = 0.0
-        self._network_model = SimpleNetworkModel(random_source=random.Random(seed))
+        self._network_model = self._create_network_model(seed)
         self._closed = False
+
+    def _create_network_model(self, seed: int | None) -> SimpleNetworkModel:
+        return SimpleNetworkModel(
+            random_source=random.Random(seed),
+            mode=self.network_mode,
+            scenario=self.network_scenario,
+            **self._network_options,
+        )
 
     @staticmethod
     def _load_trajectory(path: Path) -> list[TrajectoryFrame]:
@@ -156,17 +184,28 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raw_events = json.loads(path.read_text(encoding="utf-8"))
             events = tuple(
                 EmergencyEvent(
+                    event_id=str(event.get("id", f"event-{index}")),
                     event_type=str(event["type"]),
                     x=float(event["x"]),
                     y=float(event["y"]),
                     timestamp=float(event["timestamp"]),
                     severity=float(event["severity"]),
                 )
-                for event in raw_events
+                for index, event in enumerate(raw_events)
             )
         except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"unable to read event data: {path}") from exc
         return tuple(sorted(events, key=lambda event: event.timestamp))
+
+    def snapshot(self) -> SimulationSnapshot:
+        """Return the current raw frame without exposing mutable environment internals."""
+        frame = self.frames[min(self._step_index, self.episode_steps - 1)]
+        return SimulationSnapshot(
+            step_index=self._step_index,
+            timestamp=frame.timestamp,
+            vehicles=frame.vehicles,
+            events=self._events_by_step[self._step_index],
+        )
 
     def _assign_events_to_steps(self) -> tuple[tuple[EmergencyEvent, ...], ...]:
         assignments: list[list[EmergencyEvent]] = [[] for _ in self.frames]
@@ -184,7 +223,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         return np.asarray(
             [
                 np.clip(2 * vehicle.x / self.road_length_m - 1, -1, 1),
-                np.clip(vehicle.y / 10.0, -1, 1),
+                np.clip(vehicle.y / self.lateral_extent_m, -1, 1),
                 np.clip(velocity_x / 40.0, -1, 1),
                 np.clip(velocity_y / 40.0, -1, 1),
                 (vehicle.angle % 360.0) / 180.0 - 1.0,
@@ -193,12 +232,17 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         )
 
     def _event_features(self, event: EmergencyEvent) -> np.ndarray:
-        event_code = 1.0 if event.event_type == "emergency_braking" else 0.0
+        event_codes = {
+            "emergency_braking": 1.0,
+            "obstacle": 0.5,
+            "intersection_collision_warning": -1.0,
+        }
+        event_code = event_codes.get(event.event_type, 0.0)
         return np.asarray(
             [
                 event_code,
                 np.clip(2 * event.x / self.road_length_m - 1, -1, 1),
-                np.clip(event.y / 10.0, -1, 1),
+                np.clip(event.y / self.lateral_extent_m, -1, 1),
                 np.clip(event.severity, 0, 1),
             ],
             dtype=np.float32,
@@ -324,7 +368,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         del options
         super().reset(seed=self._initial_seed if seed is None else seed)
         resolved_seed = self._initial_seed if seed is None else seed
-        self._network_model = SimpleNetworkModel(random_source=random.Random(resolved_seed))
+        self._network_model = self._create_network_model(resolved_seed)
         self._step_index = 0
         self._current_load = 0.0
         self._closed = False

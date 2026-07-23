@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
@@ -15,7 +17,7 @@ VEHICLES = [
     {"id": "near_2", "x": 200, "y": 0},
     {"id": "far", "x": 600, "y": 0},
 ]
-EVENT = {"x": 0, "y": 0, "sender_id": "sender"}
+EVENT = {"x": 0, "y": 0, "sender_id": "sender", "severity": 0.8}
 
 
 def test_evaluator_reports_latency_delivery_and_overhead() -> None:
@@ -39,7 +41,7 @@ def test_zero_effective_deliveries_have_null_overhead() -> None:
     assert metrics.communication_overhead is None
 
 
-def test_compare_methods_outputs_ai_and_two_baselines() -> None:
+def test_compare_methods_outputs_ai_and_three_baselines() -> None:
     result = compare_methods(
         VEHICLES,
         EVENT,
@@ -47,7 +49,13 @@ def test_compare_methods_outputs_ai_and_two_baselines() -> None:
         seed=4,
     )
 
-    assert set(result) == {"ai", "broadcast", "distance"}
+    assert set(result) == {"ai", "broadcast", "distance", "urgency"}
     assert result["ai"]["sent_count"] == 1
     assert result["broadcast"]["sent_count"] == 3
     assert result["distance"]["sent_count"] == 2
+    assert result["urgency"]["sent_count"] == 2
+
+
+def test_evaluator_rejects_invalid_total_bandwidth_fraction() -> None:
+    with pytest.raises(ValueError, match="bandwidth_fraction"):
+        evaluate_selection(VEHICLES, EVENT, ["near_1"], bandwidth_fraction=1.1)

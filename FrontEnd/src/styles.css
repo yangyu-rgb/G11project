@@ -80,6 +80,85 @@ h2 { margin-bottom: 0; font-size: 22px; }
 .connection-indicator--error,
 .connection-indicator--disconnected { background: #ef4444; box-shadow: 0 0 0 5px rgb(239 68 68 / 14%); }
 
+.control-panel {
+  display: grid;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  border: 1px solid #1e344e;
+  border-radius: 18px;
+  gap: 18px;
+  background: rgb(11 25 42 / 90%);
+}
+
+.control-summary,
+.control-actions,
+.speed-control,
+.decision-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-summary { justify-content: space-between; }
+.control-summary .eyebrow { margin-bottom: 5px; }
+.control-summary h2 { font-size: 19px; }
+
+.run-state {
+  padding: 7px 11px;
+  border-radius: 999px;
+  color: #cbd5e1;
+  background: rgb(100 116 139 / 20%);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.run-state--playing { color: #6ee7b7; background: rgb(16 185 129 / 14%); }
+
+.control-panel button {
+  min-height: 38px;
+  padding: 0 15px;
+  border: 1px solid #29415e;
+  border-radius: 10px;
+  color: #dbeafe;
+  background: #10243b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.control-panel button:hover:not(:disabled) { border-color: #60a5fa; background: #173554; }
+.control-panel button:focus-visible { outline: 3px solid rgb(96 165 250 / 45%); outline-offset: 2px; }
+.control-panel button:disabled { cursor: not-allowed; opacity: 0.42; }
+.control-panel .primary-button { border-color: #2563eb; background: #2563eb; }
+
+.speed-control { flex-wrap: wrap; color: #91a4bd; font-size: 13px; }
+.speed-control > span { margin-right: 3px; font-weight: 700; }
+.speed-control .speed-button { min-height: 32px; padding: 0 11px; }
+.speed-control .speed-button--active { border-color: #3b82f6; color: white; background: rgb(37 99 235 / 45%); }
+
+.decision-summary {
+  min-width: 0;
+  flex-wrap: wrap;
+  padding-top: 15px;
+  border-top: 1px solid #1e344e;
+  color: #91a4bd;
+  font-size: 12px;
+}
+
+.decision-summary span { padding-right: 14px; }
+.decision-summary strong { color: #e5edf8; }
+
+.simulation-alert {
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  border: 1px solid rgb(248 113 113 / 50%);
+  border-radius: 12px;
+  color: #fecaca;
+  background: rgb(127 29 29 / 28%);
+  font-size: 13px;
+}
+
 .metrics-grid {
   display: grid;
   margin-bottom: 20px;
@@ -178,6 +257,8 @@ h2 { margin-bottom: 0; font-size: 22px; }
   .dashboard-header { align-items: stretch; flex-direction: column; }
   .connection-panel { min-width: 0; }
   .metrics-grid { grid-template-columns: 1fr; }
+  .control-summary { align-items: flex-start; flex-direction: column; }
+  .control-actions { align-items: stretch; flex-direction: column; }
   .section-heading { align-items: flex-start; flex-direction: column; }
   .highway-map { min-height: 360px; }
 }

@@ -1,4 +1,4 @@
-"""Common metrics and three-method comparison for M1 receiver selection."""
+"""Common metrics and four-method comparison for V2X receiver selection."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 
 from src.environment.network_model import Priority, SimpleNetworkModel
-from src.evaluation.baselines import select_receivers
+from src.evaluation.baselines import select_receivers, select_urgency_resources
 
 ReceiverSelector = Callable[[Sequence[Mapping[str, Any]], Mapping[str, Any]], Sequence[str]]
 
@@ -60,10 +60,14 @@ def evaluate_selection(
     *,
     critical_radius_m: float = 300.0,
     seed: int = 42,
+    priority: Priority = Priority.HIGH,
+    bandwidth_fraction: float | None = None,
 ) -> EvaluationMetrics:
     """Evaluate one receiver selection with the shared simplified network model."""
     if critical_radius_m <= 0:
         raise ValueError("critical_radius_m must be positive")
+    if bandwidth_fraction is not None and not 0 <= bandwidth_fraction <= 1:
+        raise ValueError("bandwidth_fraction must be between 0 and 1")
     event_position = _position(event)
     sender_id = event.get("sender_id")
     vehicles_by_id = {str(vehicle["id"]): vehicle for vehicle in vehicles}
@@ -83,17 +87,28 @@ def evaluate_selection(
     effective_delivery_count = 0
     current_load = 0.0
     unique_receiver_ids = tuple(dict.fromkeys(receiver_ids))
+    per_receiver_bandwidth_fraction = (
+        bandwidth_fraction / len(unique_receiver_ids)
+        if bandwidth_fraction is not None and unique_receiver_ids
+        else None
+    )
     for receiver_id in unique_receiver_ids:
         result = network_model.calculate_transmission(
             event_position,
             _position(vehicles_by_id[receiver_id]),
             message_size=512,
-            priority=Priority.HIGH,
+            priority=priority,
             current_load=current_load,
         )
+        allocated_bandwidth_mbps = result.allocated_bandwidth_mbps
+        if per_receiver_bandwidth_fraction is not None:
+            allocated_bandwidth_mbps = min(
+                allocated_bandwidth_mbps,
+                network_model.total_bandwidth_mbps * per_receiver_bandwidth_fraction,
+            )
         current_load = min(
             1.0,
-            current_load + result.allocated_bandwidth_mbps / network_model.total_bandwidth_mbps,
+            current_load + allocated_bandwidth_mbps / network_model.total_bandwidth_mbps,
         )
         delivered = random_source.random() >= result.packet_loss_rate
         if delivered:
@@ -126,13 +141,23 @@ def compare_methods(
     *,
     seed: int = 42,
 ) -> dict[str, dict[str, float | int | None]]:
-    """Run AI, broadcast, and distance selectors under identical network randomness."""
+    """Run AI and three baselines under identical network randomness."""
+    urgency = select_urgency_resources(vehicles, event)
     selections = {
         "ai": list(ai_selector(vehicles, event)),
         "broadcast": select_receivers(vehicles, event, "broadcast"),
         "distance": select_receivers(vehicles, event, "distance"),
     }
-    return {
+    results = {
         method: evaluate_selection(vehicles, event, receivers, seed=seed).to_dict()
         for method, receivers in selections.items()
     }
+    results["urgency"] = evaluate_selection(
+        vehicles,
+        event,
+        urgency.receiver_ids,
+        seed=seed,
+        priority=urgency.priority,
+        bandwidth_fraction=urgency.bandwidth_fraction,
+    ).to_dict()
+    return results

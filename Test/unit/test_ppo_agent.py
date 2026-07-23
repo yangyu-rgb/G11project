@@ -64,6 +64,9 @@ def test_ppo_agent_predicts_trains_and_round_trips_model(tmp_path: Path) -> None
     )
     observation, _ = environment.reset()
 
+    raw_action = agent.predict_raw(observation)
+    assert environment.action_space.contains(raw_action)
+
     action = agent.predict(observation)
     assert all(0 <= slot < 4 for slot in action.receiver_slots)
     assert 0 <= action.priority < 3

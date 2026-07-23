@@ -1,20 +1,23 @@
 seed: 42
 
 scenario:
-  directory: experiments/test_scenario
-  config: configs/scenarios/highway_emergency.yaml
+  type: urban
+  directory: experiments/test_urban
+  config: configs/scenarios/urban_intersection.yaml
   generate_if_missing: true
 
 environment:
   episode_steps: 10
-  max_vehicles: 50
-  max_events: 2
+  max_vehicles: 100
+  max_events: 3
   critical_radius_m: 300
+  road_length_m: 5000
+  lateral_extent_m: 500
   delay_normalization_ms: 100
 
 network:
   mode: simple
-  scenario: highway
+  scenario: urban
   carrier_frequency_ghz: 5.9
   transmit_power_dbm: 23
   noise_floor_dbm: -94

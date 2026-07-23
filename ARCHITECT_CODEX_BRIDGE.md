@@ -71,7 +71,204 @@
 
 ## 📋 活跃任务
 
-**当前阶段**: M1 - 简单场景原型（Week 3-5）- 继续
+**当前阶段**: M1已完成 + M2训练准备就绪（Week 5-6）
+
+### 已完成任务
+
+#### 任务000：后端目录结构完善
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] 目录结构已创建
+- [x] __init__.py 已添加到所有Python包
+- [x] .gitignore 已更新
+- [x] README.md 已更新结构说明
+- 修改的文件：`BackEnd/src/`、`BackEnd/configs/`、`BackEnd/experiments/`、`BackEnd/notebooks/`、`BackEnd/scripts/`、`Test/`、`.gitignore`、`README.md`
+- 验证记录：目录逐项检查通过；本机缺少 `tree`，两次安装均因Homebrew外部TLS下载失败，已用 `find BackEnd Test -maxdepth 2 -type d` 完成等价检查
+
+---
+
+#### 任务001：Python环境和核心依赖
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] requirements.txt 已创建
+- [x] environment.yml 已创建
+- [x] 在虚拟环境中测试安装
+- [x] README.md 已添加安装说明
+- 修改的文件：`BackEnd/requirements.txt`、`BackEnd/environment.yml`、`README.md`
+- 验证记录：Python 3.12.13环境安装成功；PyTorch 2.13.0、Gymnasium 1.3.0、Stable-Baselines3 2.9.0导入成功；`pip check` 无冲突
+
+---
+
+#### 任务002：初始化 CI/CD 流水线与 push 检查规范
+**状态**：🟢 已完成
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] GitHub Actions 在 push、pull request、merge queue 和手动触发时运行
+- [x] 前端执行依赖锁定安装、ESLint 和生产构建
+- [x] 后端执行 Ruff 和 pytest
+- [x] 根目录提供 `./start.sh`，统一初始化并启动前后端服务
+- [x] 启动脚本通过语法检查，并在退出时统一清理两个服务进程
+- [x] 补充本地检查、pull request 合并与 `main` 分支保护规范
+- [x] 未确定部署目标前不注入部署凭据或执行自动部署
+- 修改的文件：`.github/workflows/ci.yml`、`start.sh`、`Docs/CI_CD.md`、`README.md`
+
+---
+
+#### 任务003：SUMO安装验证
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] verify_sumo.py 已创建
+- [x] 测试文件已创建
+- [x] README.md 已添加SUMO安装指南
+- [x] 在本地环境验证通过
+- 修改的文件：`BackEnd/scripts/verify_sumo.py`、`Test/integration/test_sumo_integration.py`、`README.md`
+- 验证记录：SUMO 1.27.1最小路网运行1秒并输出 `SUMO installation verified`；集成测试通过
+
+---
+
+#### 任务004：WebSocket基础通信
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] WebSocket端点已实现
+- [x] useWebSocket hook 已创建
+- [x] 前端能接收并显示消息
+- [x] 连接/断开逻辑已测试
+- 修改的文件：`BackEnd/app/main.py`、`FrontEnd/src/hooks/useWebSocket.ts`、`FrontEnd/src/App.tsx`、`FrontEnd/vite.config.ts`、`Test/integration/test_websocket.py`
+- 验证记录：浏览器确认每秒更新；停止服务显示断开，重启后2秒内自动恢复连接；后端WebSocket测试通过
+
+---
+
+#### 任务005：创建技术文档
+**状态**：🟢 已完成  
+**完成日期**：2026-07-22
+
+**Codex完成说明**：
+- [x] TECHNICAL_SPECIFICATION.md 已创建
+- [x] IMPLEMENTATION_ROADMAP.md 已创建
+- [x] DEMO_GUIDE.md 已创建
+- [x] 文档已添加到 ARCHITECTURE.md 的相关文档列表
+- 修改的文件：`Docs/TECHNICAL_SPECIFICATION.md`、`Docs/IMPLEMENTATION_ROADMAP.md`、`Docs/DEMO_GUIDE.md`、`ARCHITECTURE.md`
+- 验证记录：三份文档路径和链接存在；演示时长按正式评分规范修正为20分钟
+
+---
+
+#### 任务006：SUMO高速公路场景生成
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：生成简单高速公路场景，包含车辆轨迹和急刹事件
+
+**需求**：
+- 创建 `BackEnd/scripts/generate_highway_scenario.py`：
+  - 高速公路单向3车道，长度5km
+  - 30-50辆车，随机初始位置和速度（80-120 km/h）
+  - 随机触发1-2个急刹事件（在仿真时间10-30秒之间）
+  - 输出轨迹XML（SUMO格式）和事件JSON
+- 创建配置文件 `BackEnd/configs/scenarios/highway_emergency.yaml`
+- 在 `Test/unit/` 创建测试
+
+**验收条件**：
+- 必须通过的命令：
+  - `python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario`
+  - `pytest Test/unit/test_scenario_generation.py -v`
+- 必须产生的文件：
+  - `BackEnd/scripts/generate_highway_scenario.py`
+  - `BackEnd/configs/scenarios/highway_emergency.yaml`
+  - `Test/unit/test_scenario_generation.py`
+  - 示例输出：`experiments/test_scenario/trajectory.xml`, `events.json`
+- 成功标准：
+  - 生成的场景可被SUMO加载
+  - 事件JSON包含完整信息（type, x, y, timestamp, severity）
+  - 车辆数量在30-50范围内
+
+**Codex完成说明**：
+- [x] 场景生成脚本已创建
+- [x] 配置文件已创建
+- [x] 测试已通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/scripts/generate_highway_scenario.py`、`BackEnd/configs/scenarios/highway_emergency.yaml`、`Test/unit/test_scenario_generation.py`
+- 验证记录：默认配置生成50辆车、2个急刹事件及完整SUMO场景包；SUMO/TraCI实际加载成功，事件字段与车辆数量测试通过
+
+---
+
+#### 任务007：Transformer模型实现
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：实现Transformer环境编码器
+
+**需求**：
+- 创建 `BackEnd/src/models/transformer.py`：
+  - 输入：车辆features (x,y,vx,vy,heading) + 事件features (type,x,y,severity)
+  - 实现车辆token和事件token的分离编码
+  - 4层Transformer Encoder，8头注意力
+  - 输出：全局嵌入（256维）+ 每辆车局部嵌入（256维）
+- 创建 `BackEnd/src/models/utils.py`（位置编码等工具函数）
+- 在 `Test/unit/` 创建测试（使用虚拟数据）
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_transformer.py -v`
+  - `ruff check BackEnd/src/models/`
+- 必须产生的文件：
+  - `BackEnd/src/models/transformer.py`
+  - `BackEnd/src/models/utils.py`
+  - `Test/unit/test_transformer.py`
+- 成功标准：
+  - 前向传播成功（batch_size=2, n_vehicles=10, n_events=1）
+  - 输出形状正确：global_emb [256], vehicle_embs [10, 256]
+  - 注意力权重可提取用于可视化
+
+**Codex完成说明**：
+- [x] Transformer模型已实现
+- [x] 工具函数已创建
+- [x] 单元测试通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/src/models/transformer.py`、`BackEnd/src/models/utils.py`、`Test/unit/test_transformer.py`
+- 验证记录：批量前向传播、掩码、梯度及注意力权重形状测试通过；输出保留batch维度
+
+---
+
+#### 任务008：简化网络抽象层
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：实现简化版网络抽象层
+
+**需求**：
+- 创建 `BackEnd/src/environment/network_model.py`：
+  - 时延模型：`base_delay + distance/c + random_jitter`
+  - 丢包率：距离阈值（>500m则10%丢包，否则0%）
+  - 带宽：固定总量（100 Mbps），按分配比例计算
+  - 提供 `calculate_transmission(sender_pos, receiver_pos, message_size, priority, current_load)` 接口
+- 在 `Test/unit/` 创建测试
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_network_model.py -v`
+  - `ruff check BackEnd/src/environment/`
+- 必须产生的文件：
+  - `BackEnd/src/environment/network_model.py`
+  - `Test/unit/test_network_model.py`
+- 成功标准：
+  - 时延计算合理（10-100ms范围）
+  - 丢包率按距离正确触发
+  - 带宽分配总和不超过100%
+
+**Codex完成说明**：
+- [x] 网络模型已实现
+- [x] 测试已通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/src/environment/network_model.py`、`Test/unit/test_network_model.py`
+- 验证记录：时延、500米丢包边界、优先级带宽分配、满负载与非法输入测试通过
+
+---
 
 #### 任务009：Gymnasium Environment Wrapper
 **状态**：🟢 已完成  
@@ -305,200 +502,231 @@
 
 ---
 
-### 已完成任务
-
-#### 任务000：后端目录结构完善
-**状态**：🟢 已完成  
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] 目录结构已创建
-- [x] __init__.py 已添加到所有Python包
-- [x] .gitignore 已更新
-- [x] README.md 已更新结构说明
-- 修改的文件：`BackEnd/src/`、`BackEnd/configs/`、`BackEnd/experiments/`、`BackEnd/notebooks/`、`BackEnd/scripts/`、`Test/`、`.gitignore`、`README.md`
-- 验证记录：目录逐项检查通过；本机缺少 `tree`，两次安装均因Homebrew外部TLS下载失败，已用 `find BackEnd Test -maxdepth 2 -type d` 完成等价检查
-
----
-
-#### 任务001：Python环境和核心依赖
-**状态**：🟢 已完成  
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] requirements.txt 已创建
-- [x] environment.yml 已创建
-- [x] 在虚拟环境中测试安装
-- [x] README.md 已添加安装说明
-- 修改的文件：`BackEnd/requirements.txt`、`BackEnd/environment.yml`、`README.md`
-- 验证记录：Python 3.12.13环境安装成功；PyTorch 2.13.0、Gymnasium 1.3.0、Stable-Baselines3 2.9.0导入成功；`pip check` 无冲突
-
----
-
-#### 任务002：初始化 CI/CD 流水线与 push 检查规范
-**状态**：🟢 已完成
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] GitHub Actions 在 push、pull request、merge queue 和手动触发时运行
-- [x] 前端执行依赖锁定安装、ESLint 和生产构建
-- [x] 后端执行 Ruff 和 pytest
-- [x] 根目录提供 `./start.sh`，统一初始化并启动前后端服务
-- [x] 启动脚本通过语法检查，并在退出时统一清理两个服务进程
-- [x] 补充本地检查、pull request 合并与 `main` 分支保护规范
-- [x] 未确定部署目标前不注入部署凭据或执行自动部署
-- 修改的文件：`.github/workflows/ci.yml`、`start.sh`、`Docs/CI_CD.md`、`README.md`
-
----
-
-#### 任务003：SUMO安装验证
-**状态**：🟢 已完成  
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] verify_sumo.py 已创建
-- [x] 测试文件已创建
-- [x] README.md 已添加SUMO安装指南
-- [x] 在本地环境验证通过
-- 修改的文件：`BackEnd/scripts/verify_sumo.py`、`Test/integration/test_sumo_integration.py`、`README.md`
-- 验证记录：SUMO 1.27.1最小路网运行1秒并输出 `SUMO installation verified`；集成测试通过
-
----
-
-#### 任务004：WebSocket基础通信
-**状态**：🟢 已完成  
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] WebSocket端点已实现
-- [x] useWebSocket hook 已创建
-- [x] 前端能接收并显示消息
-- [x] 连接/断开逻辑已测试
-- 修改的文件：`BackEnd/app/main.py`、`FrontEnd/src/hooks/useWebSocket.ts`、`FrontEnd/src/App.tsx`、`FrontEnd/vite.config.ts`、`Test/integration/test_websocket.py`
-- 验证记录：浏览器确认每秒更新；停止服务显示断开，重启后2秒内自动恢复连接；后端WebSocket测试通过
-
----
-
-#### 任务005：创建技术文档
-**状态**：🟢 已完成  
-**完成日期**：2026-07-22
-
-**Codex完成说明**：
-- [x] TECHNICAL_SPECIFICATION.md 已创建
-- [x] IMPLEMENTATION_ROADMAP.md 已创建
-- [x] DEMO_GUIDE.md 已创建
-- [x] 文档已添加到 ARCHITECTURE.md 的相关文档列表
-- 修改的文件：`Docs/TECHNICAL_SPECIFICATION.md`、`Docs/IMPLEMENTATION_ROADMAP.md`、`Docs/DEMO_GUIDE.md`、`ARCHITECTURE.md`
-- 验证记录：三份文档路径和链接存在；演示时长按正式评分规范修正为20分钟
-
----
-
-#### 任务006：SUMO高速公路场景生成
+#### 任务014：后端WebSocket完整状态推送
 **状态**：🟢 已完成  
 **优先级**：高  
-**描述**：生成简单高速公路场景，包含车辆轨迹和急刹事件
+**描述**：实现完整的仿真状态WebSocket推送，替换测试消息
 
 **需求**：
-- 创建 `BackEnd/scripts/generate_highway_scenario.py`：
-  - 高速公路单向3车道，长度5km
-  - 30-50辆车，随机初始位置和速度（80-120 km/h）
-  - 随机触发1-2个急刹事件（在仿真时间10-30秒之间）
-  - 输出轨迹XML（SUMO格式）和事件JSON
-- 创建配置文件 `BackEnd/configs/scenarios/highway_emergency.yaml`
-- 在 `Test/unit/` 创建测试
+- 在 `BackEnd/app/main.py` 添加 `/ws/simulation/run` 端点：
+  - 接收场景配置参数（场景路径、模型路径、speed倍率）
+  - 加载V2X环境和训练好的PPO模型
+  - 每个时间步执行：
+    1. 从环境获取当前状态
+    2. PPO模型推理得到动作
+    3. 环境step执行动作
+    4. 构建state_update消息推送到前端
+  - 支持播放控制（播放/暂停/重置/倍速）
+- 定义 **state_update 消息格式**：
+  ```json
+  {
+    "type": "state_update",
+    "timestamp": 1234567890.123,
+    "vehicles": [
+      {"id": "v0", "x": 100.5, "y": 50.2, "vx": 25.0, "vy": 0.0, "heading": 0.0, "status": "normal|sending|receiving"}
+    ],
+    "events": [
+      {"id": "e0", "type": "emergency_brake", "x": 500.0, "y": 50.0, "timestamp": 10.5, "severity": 0.9}
+    ],
+    "messages": [
+      {"from": "v0", "to": "v1", "status": "success|timeout", "delay_ms": 25.3}
+    ],
+    "metrics": {
+      "avg_delay_ms": 28.5,
+      "delivery_rate": 0.85,
+      "comm_overhead": 1.3
+    },
+    "decision": {
+      "selected_receivers": ["v1", "v2", "v3"],
+      "priority": "high",
+      "bandwidth_allocation": [0.3, 0.3, 0.4]
+    }
+  }
+  ```
+- 创建 `Test/integration/test_simulation_websocket.py`（集成测试）
 
 **验收条件**：
 - 必须通过的命令：
-  - `python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario`
-  - `pytest Test/unit/test_scenario_generation.py -v`
+  - `pytest Test/integration/test_simulation_websocket.py -v`
+  - `ruff check BackEnd/app/`
 - 必须产生的文件：
-  - `BackEnd/scripts/generate_highway_scenario.py`
-  - `BackEnd/configs/scenarios/highway_emergency.yaml`
-  - `Test/unit/test_scenario_generation.py`
-  - 示例输出：`experiments/test_scenario/trajectory.xml`, `events.json`
+  - 更新的 `BackEnd/app/main.py`
+  - `Test/integration/test_simulation_websocket.py`
 - 成功标准：
-  - 生成的场景可被SUMO加载
-  - 事件JSON包含完整信息（type, x, y, timestamp, severity）
-  - 车辆数量在30-50范围内
+  - WebSocket能推送完整state_update消息
+  - 消息格式符合上述定义
+  - 至少运行10个时间步无错误
+  - 播放控制命令响应正常
 
 **Codex完成说明**：
-- [x] 场景生成脚本已创建
-- [x] 配置文件已创建
+- [x] WebSocket仿真端点已实现
+- [x] state_update消息格式已定义
+- [x] 集成测试已通过
+- 完成日期：2026-07-23
+- 修改的文件：`BackEnd/app/main.py`、`BackEnd/src/environment/v2x_env.py`、`BackEnd/src/models/ppo_agent.py`、`Test/integration/test_simulation_websocket.py`
+- 验证记录：完整推送10个真实状态步；播放、暂停、重置、倍速、结束及资源错误协议通过；旧test端点保持兼容
+
+---
+
+#### 任务015：前端接入真实仿真数据
+**状态**：🟢 已完成  
+**优先级**：高  
+**描述**：更新前端组件，从WebSocket接收并渲染真实仿真数据
+
+**需求**：
+- 更新 `FrontEnd/src/hooks/useWebSocket.ts`：
+  - 区分 `test` 消息（旧）和 `state_update` 消息（新）
+  - 解析state_update消息并提供给组件
+- 更新 `FrontEnd/src/App.tsx`：
+  - 移除mock数据，使用WebSocket实时数据
+  - 添加仿真控制面板（播放/暂停/重置/倍速按钮）
+- 更新所有可视化组件以接收真实数据：
+  - `MapView`：车辆和事件位置实时更新
+  - `MessageLayer`：根据实际消息传播绘制动画
+  - `RealtimeMetrics`：显示真实指标数值
+- 创建 `FrontEnd/src/components/ControlPanel/SimulationControl.tsx`（控制面板）
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 更新的 `FrontEnd/src/hooks/useWebSocket.ts`
+  - 更新的 `FrontEnd/src/App.tsx`
+  - `FrontEnd/src/components/ControlPanel/SimulationControl.tsx`
+  - 更新的所有MapView和MetricsPanel组件
+- 成功标准：
+  - `./start.sh` 后点击"运行仿真"按钮
+  - 浏览器显示真实场景（50辆车动态移动）
+  - 消息传播动画与真实决策一致
+  - 指标实时更新
+  - 播放控制按钮功能正常
+
+**Codex完成说明**：
+- [x] WebSocket集成已完成
+- [x] 仿真控制面板已实现
+- [x] 真实数据渲染已验证
+- 完成日期：2026-07-23
+- 修改的文件：`FrontEnd/src/hooks/useWebSocket.ts`、`FrontEnd/src/App.tsx`、`FrontEnd/src/components/ControlPanel/SimulationControl.tsx`及地图/指标组件
+- 验证记录：真实浏览器完成模型连接、车辆动态状态、PPO决策、10步结束、重置和2x控制验证；前端lint与build通过
+
+---
+
+#### 任务016：第3个基线方法（紧急度优先）
+**状态**：🟢 已完成  
+**优先级**：中  
+**描述**：实现紧急度优先基线方法
+
+**需求**：
+- 在 `BackEnd/src/evaluation/baselines.py` 添加：
+  - **紧急度优先**：根据事件severity分配带宽和优先级
+    - High severity (>0.7)：分配50%带宽，高优先级
+    - Medium severity (0.4-0.7)：分配30%带宽，中优先级
+    - Low severity (<0.4)：分配20%带宽，低优先级
+  - 接收者选择：与AI方法相同（300米内）
+  - 更新 `select_receivers` 接口支持 `method='urgency'`
+- 更新 `BackEnd/src/evaluation/evaluator.py`：
+  - 支持4种方法对比（AI + 3个基线）
+- 更新测试
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_baselines.py -v`
+  - `pytest Test/unit/test_evaluator.py -v`
+  - `ruff check BackEnd/src/evaluation/`
+- 必须产生的文件：
+  - 更新的 `BackEnd/src/evaluation/baselines.py`
+  - 更新的 `BackEnd/src/evaluation/evaluator.py`
+  - 更新的测试文件
+- 成功标准：
+  - 紧急度优先正确按severity分配资源
+  - 评估器输出4种方法对比
+
+**Codex完成说明**：
+- [x] 紧急度优先基线已实现
+- [x] 评估器已更新
 - [x] 测试已通过
 - 完成日期：2026-07-23
-- 修改的文件：`BackEnd/scripts/generate_highway_scenario.py`、`BackEnd/configs/scenarios/highway_emergency.yaml`、`Test/unit/test_scenario_generation.py`
-- 验证记录：默认配置生成50辆车、2个急刹事件及完整SUMO场景包；SUMO/TraCI实际加载成功，事件字段与车辆数量测试通过
+- 修改的文件：`BackEnd/src/evaluation/baselines.py`、`BackEnd/src/evaluation/evaluator.py`及对应测试
+- 验证记录：severity边界、300米选择、结构化带宽分配和AI加三基线的四方法输出均通过
 
 ---
 
-#### 任务007：Transformer模型实现
+#### 任务017：城市场景生成（100辆车）
 **状态**：🟢 已完成  
-**优先级**：高  
-**描述**：实现Transformer环境编码器
+**优先级**：中  
+**描述**：生成中等规模城市场景，为M2做准备
 
 **需求**：
-- 创建 `BackEnd/src/models/transformer.py`：
-  - 输入：车辆features (x,y,vx,vy,heading) + 事件features (type,x,y,severity)
-  - 实现车辆token和事件token的分离编码
-  - 4层Transformer Encoder，8头注意力
-  - 输出：全局嵌入（256维）+ 每辆车局部嵌入（256维）
-- 创建 `BackEnd/src/models/utils.py`（位置编码等工具函数）
-- 在 `Test/unit/` 创建测试（使用虚拟数据）
+- 创建 `BackEnd/scripts/generate_urban_scenario.py`：
+  - 城市路网：2-3个交叉口，多车道
+  - 100辆车，随机初始位置和速度（30-60 km/h）
+  - 触发2-3个事件（急刹 + 障碍物 + 交叉口碰撞预警）
+  - 输出格式与高速场景一致
+- 创建配置文件 `BackEnd/configs/scenarios/urban_intersection.yaml`
+- 更新测试
 
 **验收条件**：
 - 必须通过的命令：
-  - `pytest Test/unit/test_transformer.py -v`
-  - `ruff check BackEnd/src/models/`
+  - `python BackEnd/scripts/generate_urban_scenario.py --output experiments/test_urban`
+  - `pytest Test/unit/test_scenario_generation.py -v`（需更新测试支持城市场景）
 - 必须产生的文件：
-  - `BackEnd/src/models/transformer.py`
-  - `BackEnd/src/models/utils.py`
-  - `Test/unit/test_transformer.py`
+  - `BackEnd/scripts/generate_urban_scenario.py`
+  - `BackEnd/configs/scenarios/urban_intersection.yaml`
+  - 更新的测试文件
+  - 示例输出：`experiments/test_urban/trajectory.xml`, `events.json`
 - 成功标准：
-  - 前向传播成功（batch_size=2, n_vehicles=10, n_events=1）
-  - 输出形状正确：global_emb [256], vehicle_embs [10, 256]
-  - 注意力权重可提取用于可视化
+  - 生成的场景可被SUMO加载
+  - 车辆数量100辆
+  - 包含交叉口结构
+  - 事件类型包含3种
 
 **Codex完成说明**：
-- [x] Transformer模型已实现
-- [x] 工具函数已创建
-- [x] 单元测试通过
+- [x] 城市场景生成脚本已创建
+- [x] 配置文件已创建
+- [x] SUMO加载验证通过
 - 完成日期：2026-07-23
-- 修改的文件：`BackEnd/src/models/transformer.py`、`BackEnd/src/models/utils.py`、`Test/unit/test_transformer.py`
-- 验证记录：批量前向传播、掩码、梯度及注意力权重形状测试通过；输出保留batch维度
+- 修改的文件：`BackEnd/scripts/generate_urban_scenario.py`、`BackEnd/configs/scenarios/urban_intersection.yaml`、`BackEnd/configs/training_urban.yaml`及对应测试
+- 验证记录：真实SUMO生成100辆车、3个信号交叉口和3类事件；100车/3事件环境与PPO预测冒烟通过
 
 ---
 
-#### 任务008：简化网络抽象层
+#### 任务018：升级网络抽象层（3GPP模型）
 **状态**：🟢 已完成  
-**优先级**：高  
-**描述**：实现简化版网络抽象层
+**优先级**：低  
+**描述**：将简化网络模型升级为基于3GPP TR 38.901的信道模型
 
 **需求**：
-- 创建 `BackEnd/src/environment/network_model.py`：
-  - 时延模型：`base_delay + distance/c + random_jitter`
-  - 丢包率：距离阈值（>500m则10%丢包，否则0%）
-  - 带宽：固定总量（100 Mbps），按分配比例计算
-  - 提供 `calculate_transmission(sender_pos, receiver_pos, message_size, priority, current_load)` 接口
-- 在 `Test/unit/` 创建测试
+- 更新 `BackEnd/src/environment/network_model.py`：
+  - 实现3GPP TR 38.901路径损耗公式
+    - Urban Macro场景：`PL = 28.0 + 22*log10(d) + 20*log10(fc)`
+    - Highway场景：`PL = 32.4 + 20*log10(d) + 20*log10(fc)`
+  - 根据路径损耗计算SINR
+  - 根据SINR计算丢包率（查表或公式）
+  - 排队时延模型：`queue_delay = f(load, priority)`（考虑优先级）
+  - 保持向后兼容（提供 `mode='simple'|'3gpp'` 参数）
+- 更新配置以支持模式切换
+- 更新测试
 
 **验收条件**：
 - 必须通过的命令：
   - `pytest Test/unit/test_network_model.py -v`
   - `ruff check BackEnd/src/environment/`
 - 必须产生的文件：
-  - `BackEnd/src/environment/network_model.py`
-  - `Test/unit/test_network_model.py`
+  - 更新的 `BackEnd/src/environment/network_model.py`
+  - 更新的测试文件
 - 成功标准：
-  - 时延计算合理（10-100ms范围）
-  - 丢包率按距离正确触发
-  - 带宽分配总和不超过100%
+  - 3GPP模式下路径损耗计算正确
+  - 丢包率与SINR对应合理
+  - 简单模式仍可用（向后兼容）
 
 **Codex完成说明**：
-- [x] 网络模型已实现
+- [x] 3GPP信道模型已实现
+- [x] 向后兼容验证通过
 - [x] 测试已通过
 - 完成日期：2026-07-23
-- 修改的文件：`BackEnd/src/environment/network_model.py`、`Test/unit/test_network_model.py`
-- 验证记录：时延、500米丢包边界、优先级带宽分配、满负载与非法输入测试通过
+- 修改的文件：`BackEnd/src/environment/network_model.py`、训练配置、环境配置接线及对应测试
+- 验证记录：Urban/Highway路径损耗、SINR Logistic丢包、优先级排队时延和simple回归均通过；模式可由训练YAML切换
 
 ---
 

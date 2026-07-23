@@ -45,7 +45,16 @@ G11project/
 
 ### 一键启动
 
-首次启动会自动安装前端依赖，并创建包含 FastAPI 运行依赖的后端虚拟环境。ML/RL 与 SUMO 的完整开发环境请按“安装依赖”配置：
+首次启动会自动安装前端依赖，并创建包含仿真和PPO运行依赖的后端虚拟环境。
+
+第一次执行 `./start.sh` 后，如果终端提示演示资源尚未准备，请保持服务运行并另开终端执行以下命令。生成与训练不会由启动脚本自动执行：
+
+```bash
+BackEnd/.venv/bin/python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario
+BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py --config configs/training_config.yaml --episodes 10 --output experiments/test_ppo
+```
+
+日常开发使用一条命令同时启动前后端：
 
 ```bash
 ./start.sh
@@ -143,19 +152,31 @@ npm run lint           # ESLint 检查
 npm run build          # 生产构建测试
 ```
 
-### 训练模型（待实现）
+### 训练模型
 
 ```bash
-python BackEnd/scripts/run_experiment.py \
+BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
   --config configs/training_config.yaml \
-  --scenario configs/scenarios/highway_emergency.yaml \
-  --output experiments/exp001
+  --episodes 10 \
+  --output experiments/test_ppo
 ```
 
-### 演示模式（待实现）
+### 演示模式
 
 ```bash
-python BackEnd/app/main.py --demo --model experiments/best_model.pt
+./start.sh
+```
+
+打开前端后点击“运行仿真”，即可加载默认高速场景和PPO模型。播放、暂停、重置和倍速均由页面控制。
+
+M2城市100车场景可单独生成并开始训练：
+
+```bash
+BackEnd/.venv/bin/python BackEnd/scripts/generate_urban_scenario.py --output experiments/test_urban
+BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
+  --config configs/training_urban.yaml \
+  --episodes 10 \
+  --output experiments/urban_ppo
 ```
 
 ---

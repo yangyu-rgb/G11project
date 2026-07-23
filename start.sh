@@ -10,6 +10,9 @@ FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 BACKEND_HOST="${BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
+DEMO_SCENARIO="${BACKEND_DIR}/experiments/test_scenario/trajectory.xml"
+DEMO_EVENTS="${BACKEND_DIR}/experiments/test_scenario/events.json"
+DEMO_MODEL="${BACKEND_DIR}/experiments/test_ppo/model.zip"
 SERVICE_PIDS=()
 
 cleanup() {
@@ -52,6 +55,13 @@ if [[ ! -x "${BACKEND_PYTHON}" ]]; then
   echo "首次运行：正在创建后端虚拟环境并安装依赖……"
   python3 -m venv "${BACKEND_DIR}/.venv"
   (cd "${BACKEND_DIR}" && "${BACKEND_PYTHON}" -m pip install -e .)
+fi
+
+if [[ ! -f "${DEMO_SCENARIO}" || ! -f "${DEMO_EVENTS}" || ! -f "${DEMO_MODEL}" ]]; then
+  echo "提示：M1演示场景或PPO模型尚未准备，服务仍会正常启动。" >&2
+  echo "请另开终端依次执行：" >&2
+  echo "  BackEnd/.venv/bin/python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario" >&2
+  echo "  BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py --config configs/training_config.yaml --episodes 10 --output experiments/test_ppo" >&2
 fi
 
 echo "正在启动后端：http://${BACKEND_HOST}:${BACKEND_PORT}"

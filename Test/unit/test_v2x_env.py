@@ -55,9 +55,28 @@ def test_reset_returns_padded_observation(scenario_directory: Path) -> None:
     assert observation["vehicle_mask"].sum() == 5
     assert observation["event_mask"].sum() == 0
     assert info["timestamp"] == 0
+    snapshot = environment.snapshot()
+    assert snapshot.step_index == 0
+    assert snapshot.timestamp == 0
+    assert len(snapshot.vehicles) == 5
+    assert snapshot.events == ()
 
 
-def test_step_processes_event_and_returns_reward_details(scenario_directory: Path) -> None:
+def test_snapshot_exposes_stable_generated_event_id(scenario_directory: Path) -> None:
+    environment = V2XEnv(scenario_directory, seed=3)
+    environment.reset()
+    action = np.asarray([0] * 50 + [0, 0], dtype=np.int64)
+
+    for _ in range(4):
+        environment.step(action)
+
+    snapshot = environment.snapshot()
+    assert snapshot.events[0].event_id == "event-0"
+
+
+def test_step_processes_event_and_returns_reward_details(
+    scenario_directory: Path,
+) -> None:
     environment = V2XEnv(scenario_directory, seed=5)
     environment.reset()
     action = np.asarray([1] * 50 + [2, 9], dtype=np.int64)
@@ -95,6 +114,25 @@ def test_environment_runs_exactly_ten_steps(scenario_directory: Path) -> None:
         environment.step(action)
 
 
+def test_environment_accepts_3gpp_network_configuration(scenario_directory: Path) -> None:
+    environment = V2XEnv(
+        scenario_directory,
+        network_mode="3gpp",
+        network_scenario="urban",
+        network_options={"carrier_frequency_ghz": 5.9, "max_queue_delay_ms": 25},
+        seed=13,
+    )
+
+    observation, _ = environment.reset()
+    action = np.asarray([1] * 50 + [2, 9], dtype=np.int64)
+    _, _, _, _, info = environment.step(action)
+
+    assert environment.network_mode == "3gpp"
+    assert environment.network_scenario == "urban"
+    assert environment.observation_space.contains(observation)
+    assert info["timestamp"] == 0
+
+
 def test_reward_calculator_clips_delay_and_counts_only_critical_successes() -> None:
     breakdown = calculate_reward(
         critical_receiver_ids={"a", "b"},
@@ -105,3 +143,64 @@ def test_reward_calculator_clips_delay_and_counts_only_critical_successes() -> N
     assert breakdown.delivery_success_rate == 0.5
     assert breakdown.avg_delay_penalty == 1.0
     assert breakdown.reward == -0.5
+
+
+def test_urban_coordinates_and_event_types_have_distinct_features(
+    tmp_path: Path,
+) -> None:
+    timesteps = [
+        (
+            f'<timestep time="{step}">'
+            '<vehicle id="urban_vehicle" x="2500" y="250" speed="10" angle="0" />'
+            "</timestep>"
+        )
+        for step in range(10)
+    ]
+    (tmp_path / "trajectory.xml").write_text(
+        f"<fcd-export>{''.join(timesteps)}</fcd-export>", encoding="utf-8"
+    )
+    (tmp_path / "events.json").write_text(
+        json.dumps(
+            [
+                {
+                    "type": "emergency_braking",
+                    "x": 1000,
+                    "y": 250,
+                    "timestamp": 1,
+                    "severity": 0.9,
+                },
+                {
+                    "type": "obstacle",
+                    "x": 2500,
+                    "y": 0,
+                    "timestamp": 2,
+                    "severity": 0.6,
+                },
+                {
+                    "type": "intersection_collision_warning",
+                    "x": 4000,
+                    "y": -250,
+                    "timestamp": 3,
+                    "severity": 0.8,
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    environment = V2XEnv(
+        tmp_path,
+        max_vehicles=100,
+        max_events=3,
+        lateral_extent_m=500,
+    )
+
+    observation, _ = environment.reset()
+    assert observation["vehicles"][0, 1] == pytest.approx(0.5)
+    action = np.asarray([0] * 100 + [0, 0], dtype=np.int64)
+    event_codes = []
+    for _ in range(3):
+        observation, *_ = environment.step(action)
+        active = observation["events"][observation["event_mask"].astype(bool)]
+        event_codes.extend(active[:, 0].tolist())
+
+    assert event_codes == [1.0, 0.5, -1.0]

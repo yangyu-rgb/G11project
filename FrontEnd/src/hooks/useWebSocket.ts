@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type SimulationMessage = {
-  type: 'test'
-  timestamp: number
-  message: string
-}
+import type {
+  ControlAction,
+  ControlAckMessage,
+  SimulationMessage,
+  StateUpdateMessage,
+} from '../types/simulation'
+
+export type { SimulationMessage } from '../types/simulation'
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -15,47 +18,96 @@ function websocketUrl(path: string) {
   return `${protocol}//${window.location.host}${path}`
 }
 
-export function useWebSocket(path = '/ws/simulation') {
+function isSimulationMessage(value: unknown): value is SimulationMessage {
+  if (typeof value !== 'object' || value === null || !('type' in value)) return false
+  return ['test', 'state_update', 'control_ack', 'error', 'simulation_complete'].includes(
+    String(value.type),
+  )
+}
+
+export function useWebSocket(path: string | null = '/ws/simulation', autoReconnect = true) {
+  const socketRef = useRef<WebSocket | null>(null)
   const [message, setMessage] = useState<SimulationMessage | null>(null)
-  const [status, setStatus] = useState<WebSocketStatus>('connecting')
+  const [stateUpdate, setStateUpdate] = useState<StateUpdateMessage | null>(null)
+  const [controlState, setControlState] = useState<ControlAckMessage | null>(null)
+  const [status, setStatus] = useState<WebSocketStatus>(path ? 'connecting' : 'disconnected')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [completed, setCompleted] = useState(false)
 
   useEffect(() => {
+    if (!path) return
+
     let active = true
-    let socket: WebSocket | null = null
     let reconnectTimer: number | null = null
 
     const connect = () => {
       if (!active) return
-
       setStatus('connecting')
-      socket = new WebSocket(websocketUrl(path))
+      const socket = new WebSocket(websocketUrl(path))
+      socketRef.current = socket
 
-      socket.onopen = () => setStatus('connected')
+      socket.onopen = () => {
+        setStatus('connected')
+        setErrorMessage(null)
+      }
       socket.onmessage = (event) => {
         try {
-          const nextMessage = JSON.parse(event.data) as SimulationMessage
-          setMessage(nextMessage)
-          console.info('WebSocket message received', nextMessage)
-        } catch {
+          const parsed: unknown = JSON.parse(event.data)
+          if (!isSimulationMessage(parsed)) throw new Error('不支持的WebSocket消息格式')
+          setMessage(parsed)
+          if (parsed.type === 'state_update') setStateUpdate(parsed)
+          if (parsed.type === 'control_ack') setControlState(parsed)
+          if (parsed.type === 'error') {
+            setErrorMessage(parsed.message)
+            setStatus('error')
+          }
+          if (parsed.type === 'simulation_complete') setCompleted(true)
+        } catch (error) {
+          setErrorMessage(error instanceof Error ? error.message : 'WebSocket消息解析失败')
           setStatus('error')
         }
       }
-      socket.onerror = () => setStatus('error')
+      socket.onerror = () => {
+        setErrorMessage('无法连接仿真服务，请确认后端、场景和模型均已准备好')
+        setStatus('error')
+      }
       socket.onclose = () => {
+        if (socketRef.current === socket) socketRef.current = null
         if (!active) return
         setStatus('disconnected')
-        reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY_MS)
+        if (autoReconnect) reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY_MS)
       }
     }
 
     connect()
-
     return () => {
       active = false
       if (reconnectTimer !== null) window.clearTimeout(reconnectTimer)
-      socket?.close()
+      socketRef.current?.close()
+      socketRef.current = null
     }
-  }, [path])
+  }, [autoReconnect, path])
 
-  return { message, status }
+  const sendControl = useCallback((action: ControlAction, speed?: number) => {
+    const socket = socketRef.current
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setErrorMessage('仿真服务尚未连接')
+      return false
+    }
+    socket.send(JSON.stringify({ type: 'control', action, ...(speed === undefined ? {} : { speed }) }))
+    if (action === 'reset') {
+      setStateUpdate(null)
+      setCompleted(false)
+    }
+    return true
+  }, [])
+
+  const clearState = useCallback(() => {
+    setStateUpdate(null)
+    setControlState(null)
+    setErrorMessage(null)
+    setCompleted(false)
+  }, [])
+
+  return { message, stateUpdate, controlState, status, errorMessage, completed, sendControl, clearState }
 }

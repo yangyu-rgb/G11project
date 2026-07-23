@@ -18,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from scripts.generate_highway_scenario import generate_highway_scenario  # noqa: E402
+from scripts.generate_urban_scenario import generate_urban_scenario  # noqa: E402
 from src.environment.v2x_env import V2XEnv  # noqa: E402
 from src.models.ppo_agent import PPOAgent  # noqa: E402
 
@@ -61,7 +62,16 @@ def _ensure_scenario(config: dict[str, Any]) -> Path:
         return scenario_directory
     if not scenario.get("generate_if_missing", False):
         raise ValueError(f"scenario data is missing: {scenario_directory}")
-    generate_highway_scenario(
+    generators = {
+        "highway": generate_highway_scenario,
+        "urban": generate_urban_scenario,
+    }
+    scenario_type = str(scenario.get("type", "highway"))
+    try:
+        generator = generators[scenario_type]
+    except KeyError as exc:
+        raise ValueError(f"unsupported scenario type: {scenario_type}") from exc
+    generator(
         scenario_directory,
         config_path=_backend_path(scenario["config"]),
         seed_override=int(config.get("seed", 42)),
@@ -71,6 +81,10 @@ def _ensure_scenario(config: dict[str, Any]) -> Path:
 
 def _make_environment(config: dict[str, Any], scenario_directory: Path) -> Monitor:
     environment = config["environment"]
+    network = config.get("network", {})
+    network_options = {
+        key: float(value) for key, value in network.items() if key not in {"mode", "scenario"}
+    }
     return Monitor(
         V2XEnv(
             scenario_directory,
@@ -78,7 +92,12 @@ def _make_environment(config: dict[str, Any], scenario_directory: Path) -> Monit
             max_vehicles=int(environment["max_vehicles"]),
             max_events=int(environment["max_events"]),
             critical_radius_m=float(environment["critical_radius_m"]),
+            road_length_m=float(environment.get("road_length_m", 5000)),
+            lateral_extent_m=float(environment.get("lateral_extent_m", 10)),
             delay_normalization_ms=float(environment["delay_normalization_ms"]),
+            network_mode=str(network.get("mode", "simple")),
+            network_scenario=str(network.get("scenario", "highway")),
+            network_options=network_options,
             seed=int(config.get("seed", 42)),
         )
     )

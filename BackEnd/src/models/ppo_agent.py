@@ -118,8 +118,13 @@ class PPOAgent:
         return self
 
     def predict(self, observation: dict[str, Any], *, deterministic: bool = True) -> DecodedAction:
-        action, _ = self.model.predict(observation, deterministic=deterministic)
+        action = self.predict_raw(observation, deterministic=deterministic)
         return self.decode_action(action)
+
+    def predict_raw(self, observation: dict[str, Any], *, deterministic: bool = True) -> Any:
+        """Return the environment action produced by PPO for direct ``env.step`` use."""
+        action, _ = self.model.predict(observation, deterministic=deterministic)
+        return action
 
     @staticmethod
     def decode_action(action: Any) -> DecodedAction:

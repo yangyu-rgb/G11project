@@ -52,6 +52,90 @@ def test_full_load_allocates_no_additional_bandwidth() -> None:
 
 
 @pytest.mark.parametrize(
+    ("scenario", "distance_m", "expected_path_loss_db"),
+    [
+        ("urban", 100.0, 28.0 + 22 * 2 + 20 * 0.7708520116421442),
+        ("highway", 100.0, 32.4 + 20 * 2 + 20 * 0.7708520116421442),
+    ],
+)
+def test_3gpp_path_loss_matches_configured_formula(
+    scenario: str, distance_m: float, expected_path_loss_db: float
+) -> None:
+    model = SimpleNetworkModel(mode="3gpp", scenario=scenario)
+
+    assert model.calculate_path_loss_db(distance_m) == pytest.approx(expected_path_loss_db)
+
+
+def test_3gpp_path_loss_clamps_distances_below_one_metre() -> None:
+    model = SimpleNetworkModel(mode="3gpp", scenario="highway")
+
+    assert model.calculate_path_loss_db(0) == model.calculate_path_loss_db(1)
+    assert model.calculate_path_loss_db(0.5) == model.calculate_path_loss_db(1)
+
+
+def test_3gpp_sinr_and_loss_are_distance_dependent() -> None:
+    model = SimpleNetworkModel(mode="3gpp", scenario="urban")
+
+    near_sinr = model.calculate_sinr_db(10)
+    far_sinr = model.calculate_sinr_db(1_000)
+
+    assert near_sinr > far_sinr
+    assert model.calculate_packet_loss_rate(near_sinr) < model.calculate_packet_loss_rate(far_sinr)
+    assert model.calculate_packet_loss_rate(5) == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize(
+    ("priority", "expected_delay_ms"),
+    [
+        (Priority.LOW, 40.0),
+        (Priority.MEDIUM, 24.0),
+        (Priority.HIGH, 12.0),
+    ],
+)
+def test_3gpp_queue_delay_accounts_for_load_and_priority(
+    priority: Priority, expected_delay_ms: float
+) -> None:
+    model = SimpleNetworkModel(mode="3gpp", max_queue_delay_ms=50)
+
+    assert model.calculate_queue_delay_ms(0.8, priority) == pytest.approx(expected_delay_ms)
+
+
+def test_3gpp_transmission_combines_latency_loss_and_existing_bandwidth() -> None:
+    model = SimpleNetworkModel(
+        mode="3gpp",
+        scenario="highway",
+        base_delay_ms=20,
+        jitter_min_ms=0,
+        jitter_max_ms=0,
+        max_queue_delay_ms=50,
+    )
+
+    result = model.calculate_transmission((0, 0), (100, 0), 512, Priority.HIGH, 0.8)
+
+    expected_propagation_ms = 100 / 299_792_458.0 * 1_000
+    assert result.latency_ms == pytest.approx(32 + expected_propagation_ms)
+    assert 0 <= result.packet_loss_rate <= 1
+    assert result.allocated_bandwidth_mbps == pytest.approx(20)
+
+
+def test_simple_mode_retains_original_behavior() -> None:
+    model = SimpleNetworkModel(
+        mode="simple",
+        base_delay_ms=20,
+        jitter_min_ms=0,
+        jitter_max_ms=0,
+        max_queue_delay_ms=1_000,
+    )
+
+    result = model.calculate_transmission((0, 0), (501, 0), 512, Priority.HIGH, 0.8)
+
+    expected_propagation_ms = 501 / 299_792_458.0 * 1_000
+    assert result.latency_ms == pytest.approx(20 + expected_propagation_ms)
+    assert result.packet_loss_rate == pytest.approx(0.1)
+    assert result.allocated_bandwidth_mbps == pytest.approx(20)
+
+
+@pytest.mark.parametrize(
     ("message_size", "priority", "current_load", "error"),
     [
         (0, Priority.LOW, 0.0, "message_size"),
