@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Literal
 
 import gymnasium as gym
@@ -191,6 +192,14 @@ class PPOAgent:
         """Return the environment action produced by PPO for direct ``env.step`` use."""
         action, _ = self.model.predict(observation, deterministic=deterministic)
         return action
+
+    def predict_raw_timed(
+        self, observation: dict[str, Any], *, deterministic: bool = True
+    ) -> tuple[Any, float]:
+        """Return an action and measured end-to-end policy inference time in milliseconds."""
+        started = perf_counter()
+        action = self.predict_raw(observation, deterministic=deterministic)
+        return action, (perf_counter() - started) * 1000.0
 
     def predict_raw_with_attention(
         self, observation: dict[str, Any], *, deterministic: bool = True

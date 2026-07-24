@@ -11,6 +11,18 @@ environment:
   max_events: 2
   critical_radius_m: 300
   delay_normalization_ms: 100
+  feature_mode: basic
+  history_window: 5
+  ttc_max_seconds: 30
+
+reward:
+  weights:
+    effective_delivery: 0.25
+    coverage: 0.30
+    latency: 0.20
+    overhead: 0.10
+    missed: 0.10
+    fairness: 0.05
 
 network:
   mode: simple

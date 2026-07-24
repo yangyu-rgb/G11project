@@ -6,6 +6,7 @@ torchaudio>=2.0.0
 # Reinforcement Learning
 gymnasium>=0.29.0
 stable-baselines3>=2.0.0
+optuna>=3.6.0
 
 # Data Processing
 numpy>=1.24.0
@@ -36,7 +37,7 @@ pytest-cov>=4.1.0
 pytest-asyncio>=0.21.0
 
 # Code Quality
-ruff>=0.1.0
+ruff==0.15.22
 
 # Utilities
 tqdm>=4.65.0

@@ -14,22 +14,36 @@ class RewardWeights:
     effective_delivery: float = 0.25
     coverage: float = 0.30
     latency: float = 0.20
-    overhead: float = 0.15
+    overhead: float = 0.10
     missed: float = 0.10
+    fairness: float = 0.05
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, float] | None) -> "RewardWeights":
         if values is None:
             return cls()
         try:
-            weights = cls(**{key: float(value) for key, value in values.items()})
+            mapped = {key: float(value) for key, value in values.items()}
+            if "fairness" not in mapped:
+                mapped["fairness"] = 0.0
+            weights = cls(**mapped)
         except (TypeError, ValueError) as exc:
             raise ValueError("invalid complete reward weights") from exc
         if any(value < 0 for value in weights.__dict__.values()):
             raise ValueError("reward weights must be non-negative")
-        if not math.isclose(sum(weights.__dict__.values()), 1.0, abs_tol=1e-6):
-            raise ValueError("reward weights must sum to 1")
-        return weights
+        total = sum(weights.__dict__.values())
+        if total <= 0:
+            raise ValueError("at least one reward weight must be positive")
+        return cls(**{key: value / total for key, value in weights.__dict__.items()})
+
+
+@dataclass(frozen=True)
+class SegmentedLatency:
+    """Latency components measured across decision and network processing."""
+
+    decision_ms: float = 0.0
+    queue_ms: float = 0.0
+    transmission_ms: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,10 @@ class RewardBreakdown:
     coverage_rate: float = 0.0
     overhead_penalty: float = 0.0
     miss_rate: float = 0.0
+    decision_delay_penalty: float = 0.0
+    queue_delay_penalty: float = 0.0
+    transmission_delay_penalty: float = 0.0
+    fairness_penalty: float = 0.0
 
 
 def calculate_reward(
@@ -56,12 +74,22 @@ def calculate_reward(
     selected_receiver_count: int | None = None,
     active_receiver_count: int | None = None,
     weights: RewardWeights | Mapping[str, float] | None = None,
+    segmented_latencies: Sequence[SegmentedLatency] | None = None,
+    receiver_severities: Mapping[str, float] | None = None,
+    receiver_coverage_history: Mapping[str, float] | None = None,
 ) -> RewardBreakdown:
     """Calculate the backward-compatible simple or complete M2 objective."""
     if delay_normalization_ms <= 0:
         raise ValueError("delay_normalization_ms must be positive")
     if any(not math.isfinite(value) or value < 0 for value in latencies_ms):
         raise ValueError("latencies_ms must contain finite non-negative values")
+    segments = tuple(segmented_latencies or ())
+    if any(
+        not math.isfinite(value) or value < 0
+        for segment in segments
+        for value in (segment.decision_ms, segment.queue_ms, segment.transmission_ms)
+    ):
+        raise ValueError("segmented latency values must be finite and non-negative")
     if mode not in ("simple", "full"):
         raise ValueError("reward mode must be 'simple' or 'full'")
 
@@ -69,6 +97,15 @@ def calculate_reward(
     successful = set(successful_receiver_ids)
     delivery_success_rate = len(critical & successful) / len(critical) if critical else 0.0
     average_delay_ms = sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0
+    decision_ms = sum(item.decision_ms for item in segments) / len(segments) if segments else 0.0
+    queue_ms = sum(item.queue_ms for item in segments) / len(segments) if segments else 0.0
+    transmission_ms = (
+        sum(item.transmission_ms for item in segments) / len(segments)
+        if segments
+        else average_delay_ms
+    )
+    if segments:
+        average_delay_ms = decision_ms + queue_ms + transmission_ms
     avg_delay_penalty = min(average_delay_ms / delay_normalization_ms, 1.0)
     if mode == "simple":
         reward = max(-1.0, min(1.0, delivery_success_rate - avg_delay_penalty))
@@ -81,11 +118,31 @@ def calculate_reward(
     if selected_count < 0 or active_count < 0:
         raise ValueError("receiver counts must be non-negative")
     timely = set(timely_successful_receiver_ids or successful)
-    timely_critical_count = len(critical & timely)
-    effective_delivery_rate = timely_critical_count / selected_count if selected_count else 0.0
-    coverage_rate = len(critical & successful) / len(critical) if critical else 0.0
+    severities = receiver_severities or {}
+
+    def severity_weight(receiver_id: str) -> float:
+        severity = float(severities.get(receiver_id, 0.5))
+        return 2.0 if severity > 0.7 else 1.0 if severity >= 0.4 else 0.5
+
+    total_critical_weight = sum(severity_weight(receiver_id) for receiver_id in critical)
+    timely_weight = sum(severity_weight(receiver_id) for receiver_id in critical & timely)
+    delivered_weight = sum(severity_weight(receiver_id) for receiver_id in critical & successful)
+    selected_weight = sum(severity_weight(receiver_id) for receiver_id in successful)
+    effective_delivery_rate = timely_weight / selected_weight if selected_weight else 0.0
+    coverage_rate = delivered_weight / total_critical_weight if total_critical_weight else 0.0
     miss_rate = 1.0 - coverage_rate if critical else 0.0
     overhead_penalty = min(selected_count / active_count, 1.0) if active_count else 0.0
+    coverage_values = tuple(float(value) for value in (receiver_coverage_history or {}).values())
+    if any(not math.isfinite(value) or not 0 <= value <= 1 for value in coverage_values):
+        raise ValueError("receiver coverage history values must be in [0, 1]")
+    if len(coverage_values) < 2:
+        fairness_penalty = 0.0
+    else:
+        mean_coverage = sum(coverage_values) / len(coverage_values)
+        variance = sum((value - mean_coverage) ** 2 for value in coverage_values) / len(
+            coverage_values
+        )
+        fairness_penalty = min(variance / 0.25, 1.0)
     resolved_weights = (
         weights if isinstance(weights, RewardWeights) else RewardWeights.from_mapping(weights)
     )
@@ -98,6 +155,7 @@ def calculate_reward(
             - resolved_weights.latency * avg_delay_penalty
             - resolved_weights.overhead * overhead_penalty
             - resolved_weights.missed * miss_rate
+            - resolved_weights.fairness * fairness_penalty
         )
     return RewardBreakdown(
         delivery_success_rate=delivery_success_rate,
@@ -107,4 +165,8 @@ def calculate_reward(
         coverage_rate=coverage_rate,
         overhead_penalty=overhead_penalty,
         miss_rate=miss_rate,
+        decision_delay_penalty=min(decision_ms / delay_normalization_ms, 1.0),
+        queue_delay_penalty=min(queue_ms / delay_normalization_ms, 1.0),
+        transmission_delay_penalty=min(transmission_ms / delay_normalization_ms, 1.0),
+        fairness_penalty=fairness_penalty,
     )

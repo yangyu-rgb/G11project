@@ -71,7 +71,273 @@
 
 ## 📋 活跃任务
 
-**当前阶段**: M2 - 深入训练与性能验证（Week 6-8）
+**当前阶段**: M2 - 算法优化与演示准备（并行GPU训练）
+
+#### 任务030：完整奖励函数实现与权重优化
+**状态**：🟡 进行中（实现与3125组离线smoke完成，GPU正式复训待执行）
+**优先级**：高
+**描述**：实现完整的分段奖励函数并在验证集上优化权重
+
+**需求**：
+- 更新 `BackEnd/src/environment/reward_calculator.py`：
+  - 实现完整奖励函数：
+    ```python
+    reward = α·有效送达率 + β·覆盖率 - γ·分段时延 - δ·通信开销 - ε·漏送惩罚 + ζ·公平性
+    ```
+  - **分段时延**：
+    - 决策延迟（Transformer + PPO推理时间）
+    - 排队延迟（网络层负载排队）
+    - 传输延迟（物理传播时间）
+    - 分别记录并加权求和
+  - **紧急度加权**：
+    - 根据事件severity调整送达率权重
+    - High severity (>0.7)：权重×2
+    - Medium severity (0.4-0.7)：权重×1
+    - Low severity (<0.4)：权重×0.5
+  - **公平性指标**：
+    - 计算受影响车辆的覆盖方差
+    - 惩罚只关注部分车辆忽略其他车辆的情况
+- 实现权重优化 `BackEnd/scripts/optimize_reward_weights.py`：
+  - 在验证集上进行网格搜索
+  - 搜索空间：α, β, γ, δ, ε ∈ [0.1, 0.5, 1.0, 2.0, 5.0]
+  - 目标：最大化验证集上的综合性能（覆盖率×0.4 + (1-归一化时延)×0.3 + (1-开销)×0.3）
+  - 使用交叉验证（7个验证场景）
+  - 输出最优权重配置
+- 更新配置文件以支持权重切换
+- 创建测试
+
+**验收条件**：
+- 必须通过的命令：
+  - `python BackEnd/scripts/optimize_reward_weights.py --config configs/reward_optimization.yaml --output experiments/reward_weights`
+  - `pytest Test/unit/test_reward_calculator.py -v`
+  - `ruff check BackEnd/src/environment/ BackEnd/scripts/`
+- 必须产生的文件：
+  - 更新的 `BackEnd/src/environment/reward_calculator.py`
+  - `BackEnd/scripts/optimize_reward_weights.py`
+  - `BackEnd/configs/reward_optimization.yaml`
+  - `experiments/reward_weights/best_weights.json`
+  - `experiments/reward_weights/grid_search_results.csv`
+- 成功标准：
+  - 分段时延正确计算（3个组成部分）
+  - 紧急度加权生效
+  - 网格搜索完成（5^5 = 3125个配置，可采样减少）
+  - 最优权重在验证集上性能优于默认权重至少10%
+
+**Codex完成说明**：
+- [x] 完整奖励函数已实现
+- [x] 权重优化脚本已创建
+- [x] 网格搜索已完成（离线smoke，未作为正式实验结论）
+- [ ] 最优权重已确定
+
+---
+
+#### 任务031：特征工程增强
+**状态**：🟡 进行中（特征实现与兼容性测试完成，正式性能对比待GPU）
+**优先级**：高
+**描述**：增强车辆和事件的特征提取，提供更丰富的信息给模型
+
+**需求**：
+- 更新 `BackEnd/src/models/utils.py` 添加特征提取函数：
+  - **相对特征**（车辆-车辆）：
+    - 相对距离（欧氏距离）
+    - 相对速度（速度差的模）
+    - 相对航向角（角度差）
+    - 是否同车道
+  - **相对特征**（车辆-事件）：
+    - 到事件的距离
+    - 朝向事件的角度差
+    - 是否在事件影响区域（300米）
+  - **高阶特征**：
+    - 加速度（速度变化率）
+    - TTC (Time-to-Collision)：当前速度下多久会到达事件位置
+    - 车道变化频率（如适用）
+  - **历史特征**（时序）：
+    - 过去5步的位置轨迹
+    - 过去5步的速度变化
+    - 使用滑动窗口编码
+  - **环境特征**：
+    - 当前车道ID
+    - 前方车辆数量（100米内）
+    - 后方车辆数量（100米内）
+- 更新 `BackEnd/src/environment/v2x_env.py`：
+  - 在构建observation时调用增强特征提取
+  - 保持向后兼容（可通过配置开关）
+- 更新Transformer输入维度以适应新特征
+- 创建测试验证特征计算正确性
+
+**验收条件**：
+- 必须通过的命令：
+  - `pytest Test/unit/test_feature_extraction.py -v`
+  - `ruff check BackEnd/src/models/ BackEnd/src/environment/`
+- 必须产生的文件：
+  - 更新的 `BackEnd/src/models/utils.py`
+  - 更新的 `BackEnd/src/environment/v2x_env.py`
+  - `Test/unit/test_feature_extraction.py`
+  - 更新的配置文件（支持特征开关）
+- 成功标准：
+  - 所有新特征计算正确
+  - TTC计算合理（考虑零速度情况）
+  - 历史特征正确维护滑动窗口
+  - 与简单特征版本性能对比（至少持平或提升）
+
+**Codex完成说明**：
+- [x] 特征提取函数已实现
+- [x] v2x_env已更新
+- [x] 测试已通过
+- [x] 向后兼容已验证
+
+---
+
+#### 任务032：Transformer架构优化搜索
+**状态**：🟡 进行中（搜索框架与Graph Transformer完成，正式54组GPU搜索待执行）
+**优先级**：中
+**描述**：搜索最优Transformer架构配置
+
+**需求**：
+- 创建 `BackEnd/scripts/search_transformer_arch.py`：
+  - 搜索空间：
+    - 层数：[2, 4, 6]
+    - 注意力头数：[4, 8, 12]
+    - 嵌入维度：[128, 256, 512]
+    - FFN维度比例：[2, 4]（相对于嵌入维度）
+  - 训练配置：每个架构在5个场景上训练20 episodes
+  - 在验证集上评估性能
+  - 使用Ray Tune或Optuna进行自动搜索
+- 实现Graph Transformer变体：
+  - 将车辆建模为图节点
+  - 边权重基于距离（邻接矩阵）
+  - 使用图注意力机制
+- 创建配置支持架构切换
+- 对比标准Transformer vs Graph Transformer
+
+**验收条件**：
+- 必须通过的命令：
+  - `python BackEnd/scripts/search_transformer_arch.py --config configs/arch_search.yaml --output experiments/arch_search`
+  - `ruff check BackEnd/scripts/`
+- 必须产生的文件：
+  - `BackEnd/scripts/search_transformer_arch.py`
+  - `BackEnd/src/models/graph_transformer.py`（Graph Transformer实现）
+  - `BackEnd/configs/arch_search.yaml`
+  - `experiments/arch_search/best_architecture.json`
+  - `experiments/arch_search/search_results.csv`
+- 成功标准：
+  - 架构搜索完成（至少测试3×3×3×2 = 54个配置的子集）
+  - Graph Transformer可运行
+  - 找到比默认配置（4层8头256维）更好的架构，或确认默认配置合理
+
+**Codex完成说明**：
+- [x] 架构搜索脚本已创建
+- [x] Graph Transformer已实现
+- [ ] 搜索已完成
+- [ ] 最优架构已确定
+
+---
+
+#### 任务033：UI/UX专业化改造
+**状态**：🟢 已完成
+**优先级**：中
+**描述**：提升前端界面的专业度和视觉效果
+
+**需求**：
+- 设计并实现专业配色方案：
+  - 使用Material Design或Ant Design配色palette
+  - 统一主题色、强调色、中性色
+  - 支持深色模式（可选）
+- 优化布局和间距：
+  - 统一边距、内边距规范（8px网格系统）
+  - 改进信息层次（标题、正文、辅助文本）
+  - 响应式布局优化（适配1920×1080投影）
+- 动画和过渡效果：
+  - 添加页面切换过渡动画
+  - 组件加载骨架屏
+  - 数据更新平滑过渡（不突兀跳变）
+  - 按钮悬停、点击反馈
+- 改进组件样式：
+  - 美化按钮（圆角、阴影、渐变）
+  - 美化卡片（边框、阴影、间距）
+  - 美化面板（背景、分隔线）
+  - 统一图标风格（使用统一图标库如Lucide或Heroicons）
+- 添加加载状态和错误提示：
+  - 仿真加载中的优雅提示
+  - WebSocket断开的友好提示
+  - 操作反馈（成功/失败 Toast）
+- 创建 `FrontEnd/src/styles/theme.ts`（主题配置文件）
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/styles/theme.ts`
+  - 更新的所有组件样式文件
+  - `FrontEnd/src/components/common/LoadingSkeleton.tsx`
+  - `FrontEnd/src/components/common/Toast.tsx`
+- 成功标准：
+  - 视觉效果显著提升（截图对比）
+  - 配色统一协调
+  - 动画流畅（60fps）
+  - 响应式在1920×1080和1280×720都正常显示
+
+**Codex完成说明**：
+- [x] 主题配置已创建
+- [x] 组件样式已更新
+- [x] 动画效果已添加
+- [x] 浏览器验证通过（1920×1080、1280×720）
+
+---
+
+#### 任务034：演示模式与自动播放
+**状态**：🟡 进行中（控制与真实高速场景已验证，城市/多事件正式模型待GPU）
+**优先级**：中
+**描述**：实现自动演示模式，方便presentation展示
+
+**需求**：
+- 创建 `FrontEnd/src/components/DemoMode/DemoController.tsx`：
+  - 预设演示场景列表（3-5个精选场景）
+  - 场景1：高速急刹，AI vs 全量广播对比
+  - 场景2：城市交叉口遮挡，AI vs 距离筛选对比
+  - 场景3：复杂多事件场景，展示泛化能力
+  - 自动播放控制器：
+    - 播放/暂停
+    - 上一场景/下一场景
+    - 循环播放（演示完自动回到第一个）
+    - 播放速度调节（1x, 2x, 5x）
+- 关键时刻高亮功能：
+  - 事件发生时：闪烁提示 + 文字说明
+  - AI决策时：高亮选中车辆 + 决策原因弹窗
+  - 消息送达时：成功/失败动画增强
+- 实现演示解说文字：
+  - 每个场景自动显示解说词
+  - "当前场景：高速急刹"
+  - "AI选择了5辆关键车辆"
+  - "基线广播了15辆车，造成拥塞"
+  - 解说词自动切换，跟随仿真进度
+- 更新 `App.tsx` 添加"演示模式"开关
+- 演示模式下简化界面（隐藏复杂控制，突出核心可视化）
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/components/DemoMode/DemoController.tsx`
+  - `FrontEnd/src/components/DemoMode/DemoScenarios.ts`（场景配置）
+  - `FrontEnd/src/components/DemoMode/NarratorOverlay.tsx`（解说文字）
+  - 更新的 `FrontEnd/src/App.tsx`
+- 成功标准：
+  - 点击"演示模式"后自动播放3-5个场景
+  - 关键时刻有明显视觉提示
+  - 解说文字清晰易读，跟随进度
+  - 整个演示流畅无卡顿
+  - 可用于20分钟presentation的核心部分
+
+**Codex完成说明**：
+- [x] DemoController已实现
+- [x] 预设场景已配置（缺失模型时明确禁用，不伪造结果）
+- [x] 关键时刻高亮已实现
+- [x] 演示模式验证通过（高速场景真实WebSocket对比）
+
+---
 
 #### 任务024：高速场景批量训练（500轮）
 **状态**：🟡 进行中（流水线已完成，正式GPU训练待执行）

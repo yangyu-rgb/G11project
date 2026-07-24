@@ -13,7 +13,7 @@ from src.models.ppo_agent import PPOAgent
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
 MIN_SIMULATION_SPEED = 0.25
-MAX_SIMULATION_SPEED = 4.0
+MAX_SIMULATION_SPEED = 5.0
 
 app = FastAPI(
     title="G11project API",
@@ -131,7 +131,11 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
             if playing and not complete:
                 snapshot = environment.snapshot()
                 if hasattr(agent, "predict_raw_with_attention"):
+                    decision_started = time.perf_counter()
                     raw_action, raw_attention = agent.predict_raw_with_attention(observation)
+                    environment.record_decision_latency(
+                        (time.perf_counter() - decision_started) * 1000
+                    )
                 else:
                     raw_action = agent.predict_raw(observation)
                     raw_attention = None
@@ -268,7 +272,11 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
                     raise RuntimeError("comparison environments are no longer synchronized")
 
                 if hasattr(agent, "predict_raw_with_attention"):
+                    decision_started = time.perf_counter()
                     raw_action, raw_attention = agent.predict_raw_with_attention(ai_observation)
+                    ai_environment.record_decision_latency(
+                        (time.perf_counter() - decision_started) * 1000
+                    )
                 else:
                     raw_action = agent.predict_raw(ai_observation)
                     raw_attention = None

@@ -1,0 +1,9 @@
+run_mode: smoke
+layers: [2, 4, 6]
+heads: [4, 8, 12]
+dimensions: [128, 256, 512]
+ffn_ratios: [2, 4]
+training_scenarios: 5
+episodes_per_scenario: 20
+smoke_limit: 2
+benchmark_repeats: 1

@@ -17,7 +17,18 @@ import numpy as np
 from gymnasium import spaces
 
 from src.environment.network_model import Priority, SimpleNetworkModel
-from src.environment.reward_calculator import RewardBreakdown, RewardWeights, calculate_reward
+from src.environment.reward_calculator import (
+    RewardBreakdown,
+    RewardWeights,
+    SegmentedLatency,
+    calculate_reward,
+)
+from src.models.utils import (
+    padded_history,
+    relative_event_features,
+    relative_vehicle_features,
+    time_to_collision_seconds,
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +38,7 @@ class VehicleSnapshot:
     y: float
     speed: float
     angle: float
+    lane_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,6 +89,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         network_mode: Literal["simple", "3gpp"] = "simple",
         network_scenario: Literal["highway", "urban"] = "highway",
         network_options: Mapping[str, float] | None = None,
+        feature_mode: Literal["basic", "enhanced"] = "basic",
+        history_window: int = 5,
+        ttc_max_seconds: float = 30.0,
         seed: int | None = None,
         render_mode: str | None = None,
     ) -> None:
@@ -91,6 +106,12 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("safety_window_ms must be positive")
         if render_mode not in (None, "ansi"):
             raise ValueError("render_mode must be None or 'ansi'")
+        if feature_mode not in ("basic", "enhanced"):
+            raise ValueError("feature_mode must be 'basic' or 'enhanced'")
+        if history_window != 5:
+            raise ValueError("the enhanced feature schema requires history_window=5")
+        if ttc_max_seconds <= 0:
+            raise ValueError("ttc_max_seconds must be positive")
 
         self.scenario_directory = Path(scenario_directory).expanduser().resolve()
         self.episode_steps = episode_steps
@@ -106,6 +127,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.network_mode = network_mode
         self.network_scenario = network_scenario
         self._network_options = dict(network_options or {})
+        self.feature_mode = feature_mode
+        self.history_window = history_window
+        self.ttc_max_seconds = ttc_max_seconds
         self.render_mode = render_mode
         self._initial_seed = seed
 
@@ -133,10 +157,14 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         }
         self._events_by_step = self._assign_events_to_steps()
 
+        self.vehicle_feature_dim = 5 if feature_mode == "basic" else 33
         self.observation_space = spaces.Dict(
             {
                 "vehicles": spaces.Box(
-                    low=-1.0, high=1.0, shape=(max_vehicles, 5), dtype=np.float32
+                    low=-1.0,
+                    high=1.0,
+                    shape=(max_vehicles, self.vehicle_feature_dim),
+                    dtype=np.float32,
                 ),
                 "vehicle_mask": spaces.MultiBinary(max_vehicles),
                 "events": spaces.Box(low=-1.0, high=1.0, shape=(max_events, 4), dtype=np.float32),
@@ -151,6 +179,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self._current_load = 0.0
         self._network_model = self._create_network_model(seed)
         self._closed = False
+        self._pending_decision_latency_ms = 0.0
+        self._coverage_opportunities: dict[str, int] = {}
+        self._coverage_successes: dict[str, int] = {}
 
     def _create_network_model(self, seed: int | None) -> SimpleNetworkModel:
         return SimpleNetworkModel(
@@ -176,6 +207,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                         y=float(element.attrib["y"]),
                         speed=float(element.attrib["speed"]),
                         angle=float(element.attrib["angle"]),
+                        lane_id=element.attrib.get("lane", ""),
                     )
                     for element in timestep.findall("vehicle")
                 )
@@ -239,6 +271,154 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             dtype=np.float32,
         )
 
+    @staticmethod
+    def _lane_number(lane_id: str) -> float:
+        if not lane_id:
+            return -1.0
+        try:
+            value = int(lane_id.rsplit("_", 1)[-1])
+        except ValueError:
+            return -1.0
+        return float(np.clip(value / 5.0, 0.0, 1.0))
+
+    def _vehicle_history(self, vehicle_id: str) -> tuple[tuple[float, float, float], ...]:
+        values: list[tuple[float, float, float]] = []
+        start = max(0, self._step_index - self.history_window + 1)
+        for frame in self.frames[start : self._step_index + 1]:
+            snapshot = next(
+                (vehicle for vehicle in frame.vehicles if vehicle.vehicle_id == vehicle_id), None
+            )
+            if snapshot is not None:
+                values.append((snapshot.x, snapshot.y, snapshot.speed))
+        return padded_history(values, self.history_window)
+
+    def _enhanced_vehicle_features(
+        self,
+        vehicle: VehicleSnapshot,
+        frame: TrajectoryFrame,
+        active_events: tuple[EmergencyEvent, ...],
+    ) -> np.ndarray:
+        basic = self._vehicle_features(vehicle).tolist()
+        others = [item for item in frame.vehicles if item.vehicle_id != vehicle.vehicle_id]
+        nearest = min(
+            others,
+            key=lambda item: math.dist((vehicle.x, vehicle.y), (item.x, item.y)),
+            default=None,
+        )
+        vehicle_relative = (
+            relative_vehicle_features(
+                x=vehicle.x,
+                y=vehicle.y,
+                speed=vehicle.speed,
+                angle=vehicle.angle,
+                lane_id=vehicle.lane_id,
+                other_x=nearest.x,
+                other_y=nearest.y,
+                other_speed=nearest.speed,
+                other_angle=nearest.angle,
+                other_lane_id=nearest.lane_id,
+            )
+            if nearest is not None
+            else (0.0, 0.0, 0.0, 0.0)
+        )
+        nearest_event = min(
+            active_events,
+            key=lambda event: math.dist((vehicle.x, vehicle.y), (event.x, event.y)),
+            default=None,
+        )
+        event_relative = (
+            relative_event_features(
+                x=vehicle.x,
+                y=vehicle.y,
+                angle=vehicle.angle,
+                event_x=nearest_event.x,
+                event_y=nearest_event.y,
+                affected_radius_m=self.critical_radius_m,
+            )
+            if nearest_event is not None
+            else (0.0, 0.0, 0.0)
+        )
+        history = self._vehicle_history(vehicle.vehicle_id)
+        time_delta = max(
+            self.frames[self._step_index].timestamp
+            - self.frames[max(0, self._step_index - 1)].timestamp,
+            1e-6,
+        )
+        acceleration = (history[-1][2] - history[-2][2]) / time_delta
+        ttc = (
+            time_to_collision_seconds(
+                x=vehicle.x,
+                y=vehicle.y,
+                speed=vehicle.speed,
+                angle=vehicle.angle,
+                event_x=nearest_event.x,
+                event_y=nearest_event.y,
+                maximum_seconds=self.ttc_max_seconds,
+            )
+            if nearest_event is not None
+            else self.ttc_max_seconds
+        )
+        recent_lanes: list[str] = []
+        for frame_value in self.frames[max(0, self._step_index - 4) : self._step_index + 1]:
+            item = next(
+                (
+                    candidate
+                    for candidate in frame_value.vehicles
+                    if candidate.vehicle_id == vehicle.vehicle_id
+                ),
+                None,
+            )
+            if item is not None:
+                recent_lanes.append(item.lane_id)
+        lane_changes = sum(a != b for a, b in zip(recent_lanes, recent_lanes[1:], strict=False))
+        lane_frequency = lane_changes / max(len(recent_lanes) - 1, 1)
+        trajectory = [
+            coordinate
+            for x, y, _ in history
+            for coordinate in (
+                float(np.clip(2 * x / self.road_length_m - 1, -1, 1)),
+                float(np.clip(y / self.lateral_extent_m, -1, 1)),
+            )
+        ]
+        speed_changes = [0.0]
+        speed_changes.extend(
+            float(np.clip((current[2] - previous[2]) / 40.0, -1, 1))
+            for previous, current in zip(history, history[1:], strict=False)
+        )
+        heading_x = math.sin(math.radians(vehicle.angle))
+        heading_y = math.cos(math.radians(vehicle.angle))
+        front_count = 0
+        rear_count = 0
+        for other in others:
+            if not vehicle.lane_id or other.lane_id != vehicle.lane_id:
+                continue
+            delta_x, delta_y = other.x - vehicle.x, other.y - vehicle.y
+            distance = math.hypot(delta_x, delta_y)
+            if distance > 100:
+                continue
+            if delta_x * heading_x + delta_y * heading_y >= 0:
+                front_count += 1
+            else:
+                rear_count += 1
+        values = (
+            basic
+            + list(vehicle_relative)
+            + list(event_relative)
+            + [
+                float(np.clip(acceleration / 10.0, -1, 1)),
+                float(np.clip(ttc / self.ttc_max_seconds, 0, 1)),
+                lane_frequency,
+            ]
+            + trajectory
+            + speed_changes
+            + [
+                self._lane_number(vehicle.lane_id),
+                min(front_count / 10, 1),
+                min(rear_count / 10, 1),
+            ]
+        )
+        return np.asarray(values, dtype=np.float32)
+
     def _event_features(self, event: EmergencyEvent) -> np.ndarray:
         event_codes = {
             "emergency_braking": 1.0,
@@ -258,11 +438,17 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
 
     def _observation(self) -> dict[str, np.ndarray]:
         frame = self.frames[min(self._step_index, self.episode_steps - 1)]
-        vehicle_values = np.zeros((self.max_vehicles, 5), dtype=np.float32)
+        vehicle_values = np.zeros((self.max_vehicles, self.vehicle_feature_dim), dtype=np.float32)
         vehicle_mask = np.zeros(self.max_vehicles, dtype=np.int8)
         for vehicle in frame.vehicles:
             slot = self._vehicle_slots[vehicle.vehicle_id]
-            vehicle_values[slot] = self._vehicle_features(vehicle)
+            vehicle_values[slot] = (
+                self._vehicle_features(vehicle)
+                if self.feature_mode == "basic"
+                else self._enhanced_vehicle_features(
+                    vehicle, frame, self._events_by_step[self._step_index]
+                )
+            )
             vehicle_mask[slot] = 1
 
         event_values = np.zeros((self.max_events, 4), dtype=np.float32)
@@ -310,9 +496,11 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         reward_successful_ids: set[str] = set()
         reward_timely_ids: set[str] = set()
         latencies_ms: list[float] = []
+        segmented_latencies: list[SegmentedLatency] = []
         transmissions: list[dict[str, Any]] = []
         critical_ids_by_event: dict[str, list[str]] = {}
         sender_ids_by_event: dict[str, str | None] = {}
+        receiver_severities: dict[str, float] = {}
 
         for event in active_events:
             sender = self._nearest_vehicle(frame.vehicles, event)
@@ -327,6 +515,12 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             reward_critical_ids.update(
                 f"{event.event_id}:{receiver_id}" for receiver_id in event_critical_ids
             )
+            for receiver_id in event_critical_ids:
+                reward_id = f"{event.event_id}:{receiver_id}"
+                receiver_severities[reward_id] = event.severity
+                self._coverage_opportunities[receiver_id] = (
+                    self._coverage_opportunities.get(receiver_id, 0) + 1
+                )
             critical_ids_by_event[event.event_id] = sorted(event_critical_ids)
             sender_ids_by_event[event.event_id] = sender_id
             for receiver_id in sorted(selected_ids - ({sender_id} if sender_id else set())):
@@ -350,10 +544,21 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 if delivered:
                     successful_ids.add(receiver_id)
                     reward_successful_ids.add(f"{event.event_id}:{receiver_id}")
+                    if receiver_id in event_critical_ids:
+                        self._coverage_successes[receiver_id] = (
+                            self._coverage_successes.get(receiver_id, 0) + 1
+                        )
                     if result.latency_ms <= self.safety_window_ms:
                         timely_successful_ids.add(receiver_id)
                         reward_timely_ids.add(f"{event.event_id}:{receiver_id}")
                 latencies_ms.append(result.latency_ms)
+                segmented_latencies.append(
+                    SegmentedLatency(
+                        decision_ms=self._pending_decision_latency_ms,
+                        queue_ms=result.queue_delay_ms,
+                        transmission_ms=result.transmission_delay_ms,
+                    )
+                )
                 transmissions.append(
                     {
                         "event_id": event.event_id,
@@ -362,6 +567,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                         "delivered": delivered,
                         "critical": receiver_id in event_critical_ids,
                         "latency_ms": result.latency_ms,
+                        "decision_delay_ms": self._pending_decision_latency_ms,
+                        "queue_delay_ms": result.queue_delay_ms,
+                        "transmission_delay_ms": result.transmission_delay_ms,
                         "allocated_bandwidth_mbps": allocated,
                     }
                 )
@@ -384,7 +592,14 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 0,
             ),
             weights=self.reward_weights,
+            segmented_latencies=segmented_latencies,
+            receiver_severities=receiver_severities,
+            receiver_coverage_history={
+                receiver_id: self._coverage_successes.get(receiver_id, 0) / opportunities
+                for receiver_id, opportunities in self._coverage_opportunities.items()
+            },
         )
+        self._pending_decision_latency_ms = 0.0
         info = {
             "timestamp": frame.timestamp,
             "selected_receiver_ids": sorted(selected_ids),
@@ -400,9 +615,21 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             "coverage_rate": breakdown.coverage_rate,
             "overhead_penalty": breakdown.overhead_penalty,
             "miss_rate": breakdown.miss_rate,
+            "fairness_penalty": breakdown.fairness_penalty,
+            "latency_breakdown": {
+                "decision": breakdown.decision_delay_penalty,
+                "queue": breakdown.queue_delay_penalty,
+                "transmission": breakdown.transmission_delay_penalty,
+            },
             "reward": breakdown.reward,
         }
         return breakdown, info
+
+    def record_decision_latency(self, latency_ms: float) -> None:
+        """Attach externally measured policy inference time to the next transition."""
+        if not math.isfinite(latency_ms) or latency_ms < 0:
+            raise ValueError("decision latency must be finite and non-negative")
+        self._pending_decision_latency_ms = latency_ms
 
     def reset(
         self,
@@ -417,6 +644,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self._step_index = 0
         self._current_load = 0.0
         self._closed = False
+        self._pending_decision_latency_ms = 0.0
+        self._coverage_opportunities.clear()
+        self._coverage_successes.clear()
         observation = self._observation()
         return observation, {"timestamp": self.frames[0].timestamp}
 

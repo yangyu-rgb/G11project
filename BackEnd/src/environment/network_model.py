@@ -22,6 +22,9 @@ class TransmissionResult:
     latency_ms: float
     packet_loss_rate: float
     allocated_bandwidth_mbps: float
+    queue_delay_ms: float = 0.0
+    transmission_delay_ms: float = 0.0
+    propagation_delay_ms: float = 0.0
 
 
 class SimpleNetworkModel:
@@ -167,9 +170,9 @@ class SimpleNetworkModel:
         distance_m = math.dist(sender, receiver)
         propagation_delay_ms = distance_m / SPEED_OF_LIGHT_MPS * 1000
         jitter_ms = self.random_source.uniform(self.jitter_min_ms, self.jitter_max_ms)
-        latency_ms = self.base_delay_ms + propagation_delay_ms + jitter_ms
+        queue_delay_ms = 0.0
         if self.mode == "3gpp":
-            latency_ms += self.calculate_queue_delay_ms(current_load, resolved_priority)
+            queue_delay_ms = self.calculate_queue_delay_ms(current_load, resolved_priority)
             packet_loss_rate = self.calculate_packet_loss_rate(self.calculate_sinr_db(distance_m))
         else:
             packet_loss_rate = (
@@ -179,8 +182,13 @@ class SimpleNetworkModel:
         allocated_bandwidth_mbps = (
             available_bandwidth_mbps * self._PRIORITY_SHARES[resolved_priority]
         )
+        transmission_delay_ms = self.base_delay_ms + jitter_ms + propagation_delay_ms
+        latency_ms = queue_delay_ms + transmission_delay_ms
         return TransmissionResult(
             latency_ms=latency_ms,
             packet_loss_rate=packet_loss_rate,
             allocated_bandwidth_mbps=allocated_bandwidth_mbps,
+            queue_delay_ms=queue_delay_ms,
+            transmission_delay_ms=transmission_delay_ms,
+            propagation_delay_ms=propagation_delay_ms,
         )

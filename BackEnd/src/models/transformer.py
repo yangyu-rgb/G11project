@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import NamedTuple
 
 import torch
@@ -27,11 +28,18 @@ class _AttentionEncoderLayer(nn.Module):
         dropout: float,
     ) -> None:
         super().__init__()
+        attention_dim = math.ceil(d_model / num_heads) * num_heads
+        self.input_projection = (
+            nn.Identity() if attention_dim == d_model else nn.Linear(d_model, attention_dim)
+        )
         self.self_attention = nn.MultiheadAttention(
-            embed_dim=d_model,
+            embed_dim=attention_dim,
             num_heads=num_heads,
             dropout=dropout,
             batch_first=True,
+        )
+        self.output_projection = (
+            nn.Identity() if attention_dim == d_model else nn.Linear(attention_dim, d_model)
         )
         self.linear1 = nn.Linear(d_model, feedforward_dim)
         self.linear2 = nn.Linear(feedforward_dim, d_model)
@@ -45,14 +53,16 @@ class _AttentionEncoderLayer(nn.Module):
     def forward(
         self, tokens: torch.Tensor, padding_mask: torch.Tensor | None
     ) -> tuple[torch.Tensor, torch.Tensor]:
+        attention_tokens = self.input_projection(tokens)
         attention_output, attention_weights = self.self_attention(
-            tokens,
-            tokens,
-            tokens,
+            attention_tokens,
+            attention_tokens,
+            attention_tokens,
             key_padding_mask=padding_mask,
             need_weights=True,
             average_attn_weights=False,
         )
+        attention_output = self.output_projection(attention_output)
         tokens = self.norm1(tokens + self.attention_dropout(attention_output))
         feedforward_output = self.linear2(
             self.feedforward_dropout(self.activation(self.linear1(tokens)))
@@ -78,8 +88,10 @@ class EnvironmentTransformer(nn.Module):
         super().__init__()
         if vehicle_feature_dim <= 0 or event_feature_dim <= 0:
             raise ValueError("feature dimensions must be positive")
-        if d_model != 256 or num_heads != 8 or num_layers != 4:
-            raise ValueError("M1 encoder requires d_model=256, num_heads=8, num_layers=4")
+        if d_model <= 0 or d_model % 2 != 0 or num_heads <= 0 or num_layers <= 0:
+            raise ValueError("d_model must be positive and even; heads/layers must be positive")
+        if feedforward_dim <= 0:
+            raise ValueError("feedforward_dim must be positive")
         if not 0 <= dropout < 1:
             raise ValueError("dropout must be in [0, 1)")
 
