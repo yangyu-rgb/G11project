@@ -203,16 +203,16 @@ BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
 | 层级 | 技术 |
 |------|------|
 | 前端框架 | React + TypeScript + Vite |
-| 地图可视化 | Leaflet / Mapbox |
+| 地图可视化 | Leaflet + OpenStreetMap / Esri卫星图 |
 | 图表可视化 | D3.js |
-| 3D可视化 | Three.js（可选） |
+| 3D可视化 | Three.js + React Three Fiber |
 | 后端框架 | FastAPI |
 | 通信协议 | WebSocket |
 | ML框架 | PyTorch |
 | RL库 | Stable-Baselines3 |
 | 仿真工具 | SUMO |
 | 环境接口 | Gymnasium |
-| 测试框架 | Pytest（后端）, Vitest（前端） |
+| 测试框架 | Pytest（后端）, Node test + tsx（前端） |
 | 代码检查 | Ruff（后端）, ESLint（前端） |
 | CI/CD | GitHub Actions |
 

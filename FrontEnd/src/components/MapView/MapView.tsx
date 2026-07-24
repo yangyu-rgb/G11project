@@ -1,18 +1,34 @@
-import L from 'leaflet'
-import { useState } from 'react'
-import { MapContainer, Polyline, ZoomControl } from 'react-leaflet'
+import L, { type LatLngBoundsExpression } from 'leaflet'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  MapContainer,
+  Polyline,
+  TileLayer,
+  useMap,
+  useMapEvents,
+  ZoomControl,
+} from 'react-leaflet'
 
+import {
+  BASE_MAPS,
+  MAP_DETAIL_ZOOM_THRESHOLD,
+  MAP_NOTICE,
+  MAP_ORIGIN,
+  type BaseMapStyle,
+} from '../../config/mapConfig'
 import type {
-  SimulationEvent,
   AttentionWeight,
+  SimulationEvent,
   SimulationTransmission,
   SimulationVehicle,
 } from '../../types/simulation'
+import type { SceneLayout } from '../ThreeD/Road3D'
 import { AttentionHeatmap } from '../AttentionViz/AttentionHeatmap'
 import { AttentionLinks } from '../AttentionViz/AttentionLinks'
 import { EventLayer } from './EventLayer'
 import { MessageLayer } from './MessageLayer'
 import { VehicleLayer } from './VehicleLayer'
+import { toMapPosition } from './coordinates'
 
 type MapViewProps = {
   vehicles: SimulationVehicle[]
@@ -22,10 +38,65 @@ type MapViewProps = {
   headingId?: string
   title?: string
   eyebrow?: string
+  layout?: SceneLayout
+  editing?: boolean
+  onMapClick?: (latitude: number, longitude: number) => void
+  onVehicleSelect?: (vehicle: SimulationVehicle) => void
+  onEventSelect?: (event: SimulationEvent) => void
+  onTileError?: (message: string) => void
 }
 
-const ROAD_BOUNDS = L.latLngBounds([-100, 0], [260, 5000])
-const LANES = [0, 80, 160]
+function roadLines(layout: SceneLayout): [number, number][][] {
+  if (layout === 'urban') {
+    return [
+      [[0, 500], [5000, 500]],
+      [[1000, 0], [1000, 1000]],
+      [[2500, 0], [2500, 1000]],
+      [[4000, 0], [4000, 1000]],
+    ]
+  }
+  return [-3.2, -6.4, -9.6].map((y) => [[0, y], [5000, y]])
+}
+
+function FitScenarioBounds({
+  vehicles,
+  events,
+  layout,
+}: Pick<MapViewProps, 'vehicles' | 'events' | 'layout'>) {
+  const map = useMap()
+  const lastSignature = useRef('')
+  const signature = `${layout}:${vehicles.map((item) => item.id).join(',')}:${events.map((item) => item.id).join(',')}`
+
+  useEffect(() => {
+    if (signature === lastSignature.current) return
+    lastSignature.current = signature
+    const positions = [
+      ...vehicles.map((item) => toMapPosition(item.x, item.y)),
+      ...events.map((item) => toMapPosition(item.x, item.y)),
+    ]
+    if (positions.length === 0) {
+      positions.push(toMapPosition(0, -20), toMapPosition(5000, layout === 'urban' ? 1020 : 20))
+    }
+    map.fitBounds(L.latLngBounds(positions), { padding: [34, 34], maxZoom: 16, animate: false })
+  }, [events, layout, map, signature, vehicles])
+  return null
+}
+
+function MapInteraction({
+  editing,
+  onMapClick,
+  onDetailChange,
+}: Pick<MapViewProps, 'editing' | 'onMapClick'> & { onDetailChange: (visible: boolean) => void }) {
+  useMapEvents({
+    click(event) {
+      if (editing) onMapClick?.(event.latlng.lat, event.latlng.lng)
+    },
+    zoomend(event) {
+      onDetailChange(event.target.getZoom() >= MAP_DETAIL_ZOOM_THRESHOLD)
+    },
+  })
+  return null
+}
 
 export function MapView({
   vehicles,
@@ -33,20 +104,51 @@ export function MapView({
   messages,
   attentionWeights = [],
   headingId = 'map-heading',
-  title = '高速公路通信态势',
-  eyebrow = 'LIVE HIGHWAY',
+  title = '道路通信态势',
+  eyebrow = 'LIVE GEO MAP',
+  layout = 'highway',
+  editing = false,
+  onMapClick,
+  onVehicleSelect,
+  onEventSelect,
+  onTileError,
 }: MapViewProps) {
   const [attentionEnabled, setAttentionEnabled] = useState(true)
+  const [baseMap, setBaseMap] = useState<BaseMapStyle>('street')
+  const [detailsVisible, setDetailsVisible] = useState(true)
+  const tileFailureReported = useRef(false)
+  const lines = useMemo(() => roadLines(layout), [layout])
+  const defaultBounds: LatLngBoundsExpression = [toMapPosition(0, -20), toMapPosition(5000, layout === 'urban' ? 1020 : 20)]
+  const selectedBaseMap = BASE_MAPS[baseMap]
+
+  const handleTileError = () => {
+    if (tileFailureReported.current) return
+    tileFailureReported.current = true
+    if (baseMap === 'satellite') setBaseMap('street')
+    onTileError?.(`${selectedBaseMap.label}加载失败${baseMap === 'satellite' ? '，已回退街道图' : ''}`)
+  }
+
   return (
-    <section className="map-card" aria-labelledby={headingId}>
+    <section className={`map-card${editing ? ' map-card--editing' : ''}`} aria-labelledby={headingId}>
       <div className="section-heading">
-        <div><p className="eyebrow">{eyebrow}</p><h2 id={headingId}>{title}</h2></div>
+        <div><p className="eyebrow">{eyebrow}</p><h2 id={headingId}>{title}</h2><small>{MAP_NOTICE}</small></div>
         <div className="map-heading-actions">
           <div className="legend" aria-label="车辆状态图例">
             <span><i className="legend-dot normal" />正常</span>
             <span><i className="legend-dot sending" />发送</span>
             <span><i className="legend-dot receiving" />接收</span>
           </div>
+          <label className="basemap-select">
+            底图
+            <select value={baseMap} onChange={(event) => {
+              tileFailureReported.current = false
+              setBaseMap(event.target.value as BaseMapStyle)
+            }}>
+              {Object.entries(BASE_MAPS).map(([value, config]) => (
+                <option key={value} value={value}>{config.label}</option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             className={`attention-toggle${attentionEnabled ? ' attention-toggle--active' : ''}`}
@@ -59,26 +161,39 @@ export function MapView({
         </div>
       </div>
       <MapContainer
-        className="highway-map"
-        crs={L.CRS.Simple}
-        bounds={ROAD_BOUNDS}
-        maxBounds={L.latLngBounds([-350, -250], [510, 5250])}
-        minZoom={-2}
-        maxZoom={3}
+        className={`highway-map highway-map--${baseMap}`}
+        center={MAP_ORIGIN}
+        bounds={defaultBounds}
+        minZoom={11}
+        maxZoom={19}
         zoomControl={false}
-        attributionControl={false}
+        attributionControl
+        preferCanvas
       >
+        <TileLayer
+          key={baseMap}
+          url={selectedBaseMap.url}
+          attribution={selectedBaseMap.attribution}
+          maxZoom={selectedBaseMap.maxZoom}
+          eventHandlers={{ tileerror: handleTileError }}
+        />
         <ZoomControl position="bottomright" />
-        {LANES.map((y) => (
-          <Polyline key={y} positions={[[y, 0], [y, 5000]]} pathOptions={{ color: '#94a3b8', weight: 2, dashArray: '14 14' }} />
+        <FitScenarioBounds vehicles={vehicles} events={events} layout={layout} />
+        <MapInteraction editing={editing} onMapClick={onMapClick} onDetailChange={setDetailsVisible} />
+        {lines.map((line, index) => (
+          <Polyline
+            key={`${layout}-${index}`}
+            positions={line.map(([x, y]) => toMapPosition(x, y))}
+            pathOptions={{ color: '#dbeafe', weight: 2, opacity: 0.72, dashArray: '12 12' }}
+          />
         ))}
-        {attentionEnabled && <AttentionHeatmap attentionWeights={attentionWeights} vehicles={vehicles} />}
-        {attentionEnabled && (
+        {detailsVisible && attentionEnabled && <AttentionHeatmap attentionWeights={attentionWeights} vehicles={vehicles} />}
+        {detailsVisible && attentionEnabled && (
           <AttentionLinks attentionWeights={attentionWeights} events={events} vehicles={vehicles} />
         )}
-        <MessageLayer messages={messages} vehicles={vehicles} />
-        <VehicleLayer vehicles={vehicles} />
-        <EventLayer events={events} />
+        {detailsVisible && <MessageLayer messages={messages} vehicles={vehicles} />}
+        <VehicleLayer vehicles={vehicles} onVehicleSelect={onVehicleSelect} />
+        <EventLayer events={events} onEventSelect={onEventSelect} />
       </MapContainer>
     </section>
   )

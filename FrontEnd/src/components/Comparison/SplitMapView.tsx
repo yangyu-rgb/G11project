@@ -1,13 +1,17 @@
-import { MapView } from '../MapView/MapView'
 import type { StateUpdateMessage } from '../../types/simulation'
+import { SimulationViewport, type VisualizationMode } from '../SimulationViewport'
+import type { SceneLayout } from '../ThreeD/Road3D'
 
 type SplitMapViewProps = {
   label: string
   tone: 'ai' | 'baseline'
   state: StateUpdateMessage
+  visualization: VisualizationMode
+  layout: SceneLayout
+  onTileError?: (message: string) => void
 }
 
-export function SplitMapView({ label, tone, state }: SplitMapViewProps) {
+export function SplitMapView({ label, tone, state, visualization, layout, onTileError }: SplitMapViewProps) {
   return (
     <article className={`comparison-pane comparison-pane--${tone}`}>
       <div className="comparison-summary" aria-label={`${label} 当前指标`}>
@@ -22,7 +26,9 @@ export function SplitMapView({ label, tone, state }: SplitMapViewProps) {
           <div><dt>消息</dt><dd>{state.messages.length}</dd></div>
         </dl>
       </div>
-      <MapView
+      <SimulationViewport
+        visualization={visualization}
+        layout={layout}
         headingId={`comparison-${tone}-map-heading`}
         eyebrow={tone === 'ai' ? 'AI LIVE MAP' : 'BASELINE LIVE MAP'}
         title={`${label}通信态势`}
@@ -30,6 +36,7 @@ export function SplitMapView({ label, tone, state }: SplitMapViewProps) {
         events={state.events}
         messages={state.messages}
         attentionWeights={state.attention_weights ?? []}
+        onTileError={onTileError}
       />
     </article>
   )

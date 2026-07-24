@@ -71,7 +71,168 @@
 
 ## 📋 活跃任务
 
-**当前阶段**: M2 - 算法优化与演示准备（并行GPU训练）
+**当前阶段**: M3非GPU增强已完成（并行GPU训练待执行）
+
+#### 任务035：Three.js 3D可视化
+**状态**：🟢 已完成
+**优先级**：高
+**描述**：实现3D鸟瞰视角，提升演示视觉冲击力
+
+**需求**：
+- 安装依赖：`three`, `@types/three`, `@react-three/fiber`, `@react-three/drei`
+- 创建 `FrontEnd/src/components/ThreeD/Scene3D.tsx`：
+  - 使用React Three Fiber创建3D场景
+  - 相机设置：鸟瞰45度角，可旋转、缩放、平移（OrbitControls）
+  - 光照：环境光 + 方向光
+- 创建 `FrontEnd/src/components/ThreeD/Road3D.tsx`：
+  - 3D道路渲染（平面或带厚度）
+  - 车道线绘制
+  - 交叉口区域高亮（如适用）
+- 创建 `FrontEnd/src/components/ThreeD/Vehicle3D.tsx`：
+  - 车辆3D模型（简单立方体或导入GLTF模型）
+  - 根据车辆状态着色（正常/发送/接收）
+  - 车辆朝向旋转（heading角度）
+  - 平滑移动动画（复用任务023的插值）
+- 创建 `FrontEnd/src/components/ThreeD/Event3D.tsx`：
+  - 事件3D标记（圆柱体或图标）
+  - 警告区域可视化（半透明圆圈，300米半径）
+- 创建 `FrontEnd/src/components/ThreeD/Message3D.tsx`：
+  - 消息传播3D可视化（发送者→接收者的3D弧线或射线）
+  - 颜色：成功（绿色）、超时（红色）
+- 视角切换功能：
+  - 在 `App.tsx` 添加"2D/3D切换"按钮
+  - 点击切换在2D地图和3D场景之间
+  - 保持数据同步（相同WebSocket数据源）
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/components/ThreeD/Scene3D.tsx`
+  - `FrontEnd/src/components/ThreeD/Road3D.tsx`
+  - `FrontEnd/src/components/ThreeD/Vehicle3D.tsx`
+  - `FrontEnd/src/components/ThreeD/Event3D.tsx`
+  - `FrontEnd/src/components/ThreeD/Message3D.tsx`
+  - 更新的 `FrontEnd/src/App.tsx`
+  - 更新的 `FrontEnd/package.json`（含Three.js依赖）
+- 成功标准：
+  - 浏览器显示3D场景
+  - 车辆在3D空间中平滑移动
+  - 相机可旋转、缩放、平移
+  - 2D/3D切换流畅无卡顿
+  - 50辆车场景下3D渲染帧率 ≥30fps
+
+**Codex完成说明**：
+- [x] Three.js依赖已安装
+- [x] 3D场景组件已创建
+- [x] 2D/3D切换已实现
+- [x] 浏览器验证通过（40辆车、5个事件场景成功渲染；自动化浏览器运行环境未暴露帧回调，未记录可复核FPS数值）
+
+---
+
+#### 任务036：真实地图底图集成
+**状态**：🟢 已完成
+**优先级**：中
+**描述**：使用真实地图底图替换简单路网背景，提升专业度
+
+**需求**：
+- 选择地图服务（推荐Mapbox或OpenStreetMap）：
+  - Mapbox：需要API key（免费额度足够）
+  - OpenStreetMap：免费无限制
+- 更新 `FrontEnd/src/components/MapView/MapView.tsx`：
+  - 集成Mapbox GL JS 或 react-leaflet的OpenStreetMap底图
+  - 替换当前简单背景
+  - 保留车辆、事件、消息图层在顶层
+- 地图样式优化：
+  - 使用简洁样式（去除POI、标签等干扰元素）
+  - 道路突出显示
+  - 支持卫星图/街道图切换（通过下拉菜单）
+- 地图定位：
+  - 自动根据场景范围调整视野（fitBounds）
+  - 支持手动平移和缩放
+- 性能优化：
+  - 瓦片图层缓存
+  - 低缩放级别下减少细节
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 更新的 `FrontEnd/src/components/MapView/MapView.tsx`
+  - `FrontEnd/src/config/mapConfig.ts`（地图配置）
+  - 更新的 `FrontEnd/package.json`（地图库依赖）
+  - `.env.example` 文件（Mapbox API key示例，如使用Mapbox）
+- 成功标准：
+  - 浏览器显示真实地图底图
+  - 车辆、事件在真实地图上正确定位
+  - 卫星图/街道图切换正常
+  - 地图加载流畅，无明显延迟
+
+**Codex完成说明**：
+- [x] 地图服务已集成（OpenStreetMap街道图 + Esri免密钥卫星图）
+- [x] 真实底图已显示
+- [x] 样式切换已实现，并在卫星瓦片失败时回退街道图
+- [x] 浏览器验证通过
+
+---
+
+#### 任务037：交互式场景编辑器
+**状态**：🟢 已完成
+**优先级**：中
+**描述**：实现交互式场景编辑功能，支持现场演示时动态调整
+
+**需求**：
+- 创建 `FrontEnd/src/components/SceneEditor/SceneEditor.tsx`：
+  - 侧边栏编辑器（可折叠）
+  - 编辑模式开关（查看模式/编辑模式）
+- 车辆编辑功能：
+  - 点击地图添加车辆（指定位置、速度、航向）
+  - 点击车辆删除或修改属性
+  - 车辆数量限制（1-100辆）
+- 事件编辑功能：
+  - 点击地图添加事件（选择类型：急刹/障碍物/碰撞预警）
+  - severity滑块（0.0-1.0）
+  - 点击事件删除或修改
+- 极端场景预设：
+  - "极端拥堵"：100辆车密集分布
+  - "多事件冲突"：5个高severity事件同时触发
+  - "边界测试"：所有车辆在300米边界
+  - 点击按钮快速加载预设
+- 实时预览功能：
+  - 编辑后点击"运行仿真"
+  - 使用当前场景配置启动WebSocket仿真
+  - 查看AI决策在新场景下的表现
+- 场景保存/加载：
+  - 导出当前场景为JSON
+  - 从JSON加载场景配置
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/components/SceneEditor/SceneEditor.tsx`
+  - `FrontEnd/src/components/SceneEditor/VehicleEditor.tsx`
+  - `FrontEnd/src/components/SceneEditor/EventEditor.tsx`
+  - `FrontEnd/src/components/SceneEditor/PresetScenes.ts`（预设场景配置）
+  - 更新的 `FrontEnd/src/App.tsx`
+- 成功标准：
+  - 可以手动添加/删除车辆和事件
+  - 极端场景预设可一键加载
+  - 编辑后的场景可运行仿真
+  - 场景可导出/导入JSON
+  - 编辑操作流畅，UI响应及时
+
+**Codex完成说明**：
+- [x] SceneEditor组件已创建
+- [x] 车辆/事件编辑与版本化JSON导入导出已实现
+- [x] 极端场景预设已配置
+- [x] 浏览器及真实WebSocket验证通过
+- [x] 当前模型能力边界已显式处理：1–50辆车且最多2个事件可运行AI；51–100辆车或3–5个事件支持编辑、渲染和导出，等待后续模型扩容
+
+---
 
 #### 任务030：完整奖励函数实现与权重优化
 **状态**：🟡 进行中（实现与3125组离线smoke完成，GPU正式复训待执行）

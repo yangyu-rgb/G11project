@@ -11,7 +11,10 @@ import {
 } from './vehicleInterpolation'
 import './VehicleLayer.css'
 
-type VehicleLayerProps = { vehicles: SimulationVehicle[] }
+type VehicleLayerProps = {
+  vehicles: SimulationVehicle[]
+  onVehicleSelect?: (vehicle: SimulationVehicle) => void
+}
 
 const labels: Record<VehicleStatus, string> = {
   normal: '正常',
@@ -19,9 +22,12 @@ const labels: Record<VehicleStatus, string> = {
   receiving: '接收消息',
 }
 
-type VehicleMarkerProps = { vehicle: SimulationVehicle }
+type VehicleMarkerProps = {
+  vehicle: SimulationVehicle
+  onSelect?: (vehicle: SimulationVehicle) => void
+}
 
-const VehicleMarker = memo(function VehicleMarker({ vehicle }: VehicleMarkerProps) {
+const VehicleMarker = memo(function VehicleMarker({ vehicle, onSelect }: VehicleMarkerProps) {
   const markerRef = useRef<L.Marker | null>(null)
   const icon = useMemo(
     () => L.divIcon({
@@ -50,6 +56,7 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle }: VehicleMarkerProp
       keyboard
       position={toMapPosition(vehicle.x, vehicle.y)}
       title={`${vehicle.id}，${labels[vehicle.status]}`}
+      eventHandlers={onSelect ? { click: () => onSelect(vehicle) } : undefined}
     >
       <Tooltip direction="top">
         <strong>{vehicle.id}</strong><br />
@@ -58,7 +65,7 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle }: VehicleMarkerProp
       </Tooltip>
     </Marker>
   )
-}, ({ vehicle: previous }, { vehicle: next }) => (
+}, ({ vehicle: previous, onSelect: previousSelect }, { vehicle: next, onSelect: nextSelect }) => (
   previous.id === next.id
   && previous.x === next.x
   && previous.y === next.y
@@ -66,6 +73,7 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle }: VehicleMarkerProp
   && previous.vy === next.vy
   && previous.heading === next.heading
   && previous.status === next.status
+  && previousSelect === nextSelect
 ))
 
 function prefersReducedMotion(): boolean {
@@ -73,7 +81,7 @@ function prefersReducedMotion(): boolean {
     && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-export function VehicleLayer({ vehicles }: VehicleLayerProps) {
+export function VehicleLayer({ vehicles, onVehicleSelect }: VehicleLayerProps) {
   const [displayedVehicles, setDisplayedVehicles] = useState(vehicles)
   const displayedRef = useRef(vehicles)
   const animationFrameRef = useRef<number | null>(null)
@@ -119,6 +127,6 @@ export function VehicleLayer({ vehicles }: VehicleLayerProps) {
   }, [vehicles])
 
   return displayedVehicles.map((vehicle) => (
-    <VehicleMarker key={vehicle.id} vehicle={vehicle} />
+    <VehicleMarker key={vehicle.id} vehicle={vehicle} onSelect={onVehicleSelect} />
   ))
 }

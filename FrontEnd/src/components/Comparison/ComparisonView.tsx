@@ -1,9 +1,14 @@
 import type { ComparisonBaseline, ComparisonPair } from '../../types/simulation'
+import type { VisualizationMode } from '../SimulationViewport'
+import type { SceneLayout } from '../ThreeD/Road3D'
 import { SplitMapView } from './SplitMapView'
 
 type ComparisonViewProps = {
   pair: ComparisonPair | null
   baseline: ComparisonBaseline
+  visualization: VisualizationMode
+  layout: SceneLayout
+  onTileError?: (message: string) => void
 }
 
 const BASELINE_LABELS: Record<ComparisonBaseline, string> = {
@@ -12,7 +17,7 @@ const BASELINE_LABELS: Record<ComparisonBaseline, string> = {
   urgency: '紧急度基线',
 }
 
-export function ComparisonView({ pair, baseline }: ComparisonViewProps) {
+export function ComparisonView({ pair, baseline, visualization, layout, onTileError }: ComparisonViewProps) {
   if (!pair) {
     return (
       <section className="comparison-empty" aria-live="polite">
@@ -25,8 +30,10 @@ export function ComparisonView({ pair, baseline }: ComparisonViewProps) {
 
   return (
     <section className="comparison-view" aria-label="AI与基线同步对比">
-      <SplitMapView label="AI（PPO）" tone="ai" state={pair.ai} />
-      <SplitMapView label={BASELINE_LABELS[baseline]} tone="baseline" state={pair.baseline} />
+      <SplitMapView label="AI（PPO）" tone="ai" state={pair.ai} visualization={visualization}
+        layout={layout} onTileError={onTileError} />
+      <SplitMapView label={BASELINE_LABELS[baseline]} tone="baseline" state={pair.baseline}
+        visualization={visualization} layout={layout} onTileError={onTileError} />
     </section>
   )
 }

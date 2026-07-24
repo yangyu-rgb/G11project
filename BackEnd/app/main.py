@@ -6,6 +6,7 @@ import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from app.api.router import api_router
+from app.api.routes.scenarios import resolve_editor_scenario
 from app.comparison import build_baseline_action, validate_baseline
 from app.simulation_service import build_state_update, summarize_attention
 from src.environment.v2x_env import V2XEnv
@@ -47,6 +48,8 @@ async def simulation_websocket(websocket: WebSocket) -> None:
 
 
 def _resolve_simulation_path(raw_path: str, *, kind: str) -> Path:
+    if kind == "scenario" and raw_path.startswith("editor:"):
+        return resolve_editor_scenario(raw_path)
     path = Path(raw_path).expanduser()
     if not path.is_absolute():
         path = BACKEND_DIRECTORY / path

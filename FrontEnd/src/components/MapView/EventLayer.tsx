@@ -4,7 +4,10 @@ import { Marker, Tooltip } from 'react-leaflet'
 import type { SimulationEvent } from '../../types/simulation'
 import { toMapPosition } from './coordinates'
 
-type EventLayerProps = { events: SimulationEvent[] }
+type EventLayerProps = {
+  events: SimulationEvent[]
+  onEventSelect?: (event: SimulationEvent) => void
+}
 
 const warningIcon = L.divIcon({
   className: 'emergency-event-icon',
@@ -13,11 +16,22 @@ const warningIcon = L.divIcon({
   iconSize: [32, 32],
 })
 
-export function EventLayer({ events }: EventLayerProps) {
+export function EventLayer({ events, onEventSelect }: EventLayerProps) {
+  const labels: Record<string, string> = {
+    emergency_brake: '急刹事件',
+    emergency_braking: '急刹事件',
+    obstacle: '障碍物',
+    collision_warning: '碰撞预警',
+  }
   return events.map((event) => (
-    <Marker key={event.id} position={toMapPosition(event.x, event.y)} icon={warningIcon}>
+    <Marker
+      key={event.id}
+      position={toMapPosition(event.x, event.y)}
+      icon={warningIcon}
+      eventHandlers={onEventSelect ? { click: () => onEventSelect(event) } : undefined}
+    >
       <Tooltip direction="top" offset={[0, -14]}>
-        <strong>{event.type === 'emergency_brake' ? '急刹事件' : event.type}</strong><br />
+        <strong>{labels[event.type] ?? event.type}</strong><br />
         时间：{event.timestamp.toFixed(1)}s · 严重度：{event.severity.toFixed(2)}
       </Tooltip>
     </Marker>

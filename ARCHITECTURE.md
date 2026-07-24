@@ -244,14 +244,16 @@ calculate_transmission(
 
 **路径**: `BackEnd/app/main.py`
 
-**状态**: M0基础骨架已实现
+**状态**: M3演示接口已实现
 
 **当前接口**:
 
 - `GET /api/v1/health`: 健康检查。
-- `WS /ws/simulation`: 每秒发送M0测试消息，支持客户端断开后重新连接。
+- `POST /api/v1/scenarios/preview`: 校验编辑场景并生成临时轨迹，返回可供仿真使用的场景引用。
+- `WS /ws/simulation/run`: 运行单模型仿真并推送车辆、事件、消息、指标、注意力和决策状态。
+- `WS /ws/simulation/compare`: 同步运行AI与指定基线，推送配对状态。
 
-当前WebSocket消息格式：
+保留M0测试消息兼容；正式演示使用结构化 `state_update`、控制与完成消息。
 
 ```json
 {
@@ -261,12 +263,7 @@ calculate_transmission(
 }
 ```
 
-**计划接口**:
-
-- `GET /api/v1/status`: 查询系统状态。
-- `POST /api/v1/scenario`: 加载或创建场景。
-- `POST /api/v1/control`: 播放、暂停和重置仿真。
-- 保持 `WS /ws/simulation` 路径不变，将内容扩展为车辆、事件、消息、指标、注意力权重和调度决策。
+场景编辑API只保存到系统临时目录并定期清理；不改变正式数据集或实验结果。当前AI模型最多运行50辆车和2个事件，更大编辑场景只用于渲染、导入导出和后续模型扩容验证。
 
 ---
 
@@ -276,23 +273,25 @@ calculate_transmission(
 
 **路径**: `FrontEnd/src/`
 
-**状态**: M1 mock可视化已实现
+**状态**: M3演示可视化已实现
 
-- `App.tsx`: 展示连接状态、mock指标和高速公路通信态势。
-- `hooks/useWebSocket.ts`: 管理连接、消息解析、断开状态和2秒自动重连。
-- `components/MapView/`: 三车道、车辆、急刹事件和消息传播动画。
-- `components/MetricsPanel/`: 实时时延、覆盖率和通信开销卡片。
-- `data/mockSimulation.ts`: 本轮5车、1事件和3条消息的本地演示数据。
+- `App.tsx`: 统一管理真实仿真、AI/基线对比、演示模式、2D/3D切换和场景编辑入口。
+- `hooks/useWebSocket.ts`: 管理结构化仿真状态、控制消息、断线与重连。
+- `components/MapView/`: 在OpenStreetMap或卫星底图上叠加车辆、事件、消息和注意力图层。
+- `components/ThreeD/`: 使用React Three Fiber渲染鸟瞰道路、车辆、事件范围与消息弧线。
+- `components/SceneEditor/`: 编辑1–100辆车与0–5个事件，支持预设、JSON导入导出和能力门禁。
+- `components/MetricsPanel/`、`DecisionPanel/`、`Comparison/`: 展示指标、决策依据和同步对比。
 
-### 3.2 后续计划组件
+### 3.2 当前组件边界
 
 ```text
 components/
 ├── AttentionViz/        # 注意力热力图及关联线
 ├── DecisionPanel/       # 候选车辆和资源分配
-├── MetricsPanel/        # 时序图和事件统计
-├── ComparisonView/      # AI与基线同步对比
-└── Scene3D/             # Three.js可选增强
+├── MetricsPanel/        # 实时指标与时序图
+├── Comparison/          # AI与基线同步对比
+├── SceneEditor/         # 场景编辑、预设与导入导出
+└── ThreeD/              # Three.js三维场景
 ```
 
 在组件数量增长前不提前引入全局状态库。需要跨多个页面共享仿真状态时，再由React Context和Zustand中选择一种方案。
@@ -378,9 +377,9 @@ python BackEnd/src/training/train_ppo.py \
 | 层级 | 技术 | 当前状态 |
 |------|------|----------|
 | 前端框架 | React + TypeScript + Vite | ✅ 已搭建 |
-| 地图可视化 | Leaflet | ✅ M1 mock地图已实现 |
-| 图表可视化 | D3.js | 待集成 |
-| 3D可视化 | Three.js | 可选，待实现 |
+| 地图可视化 | Leaflet + OSM/Esri | ✅ M3真实底图与坐标投影已实现 |
+| 图表可视化 | D3.js | ✅ 时序指标已实现 |
+| 3D可视化 | Three.js + React Three Fiber | ✅ M3鸟瞰场景已实现 |
 | 后端框架 | FastAPI | ✅ 基础骨架已实现 |
 | 通信协议 | WebSocket | ✅ M0基础通信已实现 |
 | 环境编码 | PyTorch Transformer | ✅ M1基础版已实现 |
@@ -389,7 +388,7 @@ python BackEnd/src/training/train_ppo.py \
 | 网络抽象 | Python简化模型 | ✅ M1版本已实现 |
 | 环境接口 | Gymnasium | ✅ M1离线Wrapper已实现 |
 | 后端测试 | Pytest | ✅ 已配置 |
-| 前端测试 | 尚未选定 | 待配置 |
+| 前端测试 | Node test + tsx | ✅ 场景编辑与坐标测试已配置 |
 | 代码检查 | Ruff + ESLint | ✅ 已配置 |
 | 持续集成 | GitHub Actions | ✅ 已配置 |
 
