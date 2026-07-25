@@ -479,6 +479,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
 
     def _execute_action(self, action: np.ndarray) -> tuple[RewardBreakdown, dict[str, Any]]:
         frame = self.frames[self._step_index]
+        decision_latency_ms = self._pending_decision_latency_ms
         active_events = self._events_by_step[self._step_index]
         selected_slots = np.flatnonzero(action[: self.max_vehicles])
         active_by_id = {vehicle.vehicle_id: vehicle for vehicle in frame.vehicles}
@@ -621,6 +622,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 "queue": breakdown.queue_delay_penalty,
                 "transmission": breakdown.transmission_delay_penalty,
             },
+            "decision_latency_ms": decision_latency_ms,
             "reward": breakdown.reward,
         }
         return breakdown, info

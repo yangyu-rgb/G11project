@@ -6,6 +6,8 @@ import type {
   SimulationTransmission,
   SimulationVehicle,
 } from '../types/simulation'
+import type { AnimationChannel } from '../engine/AnimationEngine'
+import type { CameraCommand } from '../engine/CameraController'
 import { MapView } from './MapView/MapView'
 import type { SceneLayout } from './ThreeD/Road3D'
 
@@ -30,6 +32,13 @@ type SimulationViewportProps = {
   onVehicleSelect?: (vehicle: SimulationVehicle) => void
   onEventSelect?: (event: SimulationEvent) => void
   onTileError?: (message: string) => void
+  animationChannel?: AnimationChannel
+  candidateIds?: string[]
+  effectMode?: 'idle' | 'event' | 'scan' | 'all'
+  cameraCommand?: CameraCommand | null
+  onManualCamera?: () => void
+  secondaryMessages?: SimulationTransmission[]
+  secondaryAnimationChannel?: AnimationChannel
 }
 
 export function SimulationViewport({ visualization, ...props }: SimulationViewportProps) {
@@ -43,6 +52,11 @@ export function SimulationViewport({ visualization, ...props }: SimulationViewpo
         headingId={props.headingId}
         title={props.title}
         eyebrow={props.eyebrow}
+        animationChannel={props.animationChannel}
+        candidateIds={props.candidateIds}
+        effectMode={props.effectMode}
+        cameraCommand={props.cameraCommand}
+        onManualCamera={props.onManualCamera}
       />
     </Suspense>
   }

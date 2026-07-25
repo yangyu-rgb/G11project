@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
+import { animationEngine } from '../engine/AnimationEngine'
+
 import type {
   ComparisonPair,
   ControlAction,
@@ -72,6 +74,9 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     let active = true
     let reconnectTimer: number | null = null
     comparisonCacheRef.current = createComparisonUpdateCache()
+    const requestedSpeed = Number(new URLSearchParams(path.split('?')[1] ?? '').get('speed') ?? 1)
+    animationEngine.setKeyframeInterval(1000 / Math.max(0.25, requestedSpeed))
+    animationEngine.setPaused(false)
 
     const connect = () => {
       if (!active) return
@@ -80,6 +85,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
       socketRef.current = socket
 
       socket.onopen = () => {
+        animationEngine.setConnected(true)
         setStatus('connected')
         setErrorMessage(null)
       }
@@ -92,29 +98,41 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
           if (parsed.type === 'state_update') {
             if (parsed.method) {
               const pair = cacheComparisonUpdate(comparisonCacheRef.current, parsed)
-              if (pair) setComparisonPair(pair)
+              if (pair) {
+                animationEngine.pushComparison(pair.ai, pair.baseline)
+                setComparisonPair(pair)
+              }
             } else {
+              animationEngine.pushTarget('single', parsed)
               setStateUpdate(parsed)
             }
           }
-          if (parsed.type === 'control_ack') setControlState(parsed)
+          if (parsed.type === 'control_ack') {
+            setControlState(parsed)
+            animationEngine.setPaused(!parsed.playing)
+            animationEngine.setKeyframeInterval(1000 / parsed.speed)
+          }
           if (parsed.type === 'error') {
             setErrorMessage(parsed.message)
             setStatus('error')
           }
-          if (parsed.type === 'simulation_complete') setCompleted(true)
+          if (parsed.type === 'simulation_complete') {
+            setCompleted(true)
+          }
         } catch (error) {
           setErrorMessage(error instanceof Error ? error.message : 'WebSocket消息解析失败')
           setStatus('error')
         }
       }
       socket.onerror = () => {
+        animationEngine.setConnected(false)
         setErrorMessage('无法连接仿真服务，请确认后端、场景和模型均已准备好')
         setStatus('error')
       }
       socket.onclose = () => {
         if (socketRef.current === socket) socketRef.current = null
         if (!active) return
+        animationEngine.setConnected(false)
         setStatus('disconnected')
         if (autoReconnect) reconnectTimer = window.setTimeout(connect, RECONNECT_DELAY_MS)
       }
@@ -141,6 +159,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
       setComparisonPair(null)
       comparisonCacheRef.current = createComparisonUpdateCache()
       setCompleted(false)
+      animationEngine.clear()
     }
     return true
   }, [])
@@ -153,6 +172,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     setControlState(null)
     setErrorMessage(null)
     setCompleted(false)
+    animationEngine.clear()
   }, [])
 
   return {

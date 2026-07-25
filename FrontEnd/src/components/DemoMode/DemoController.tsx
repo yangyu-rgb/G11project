@@ -1,31 +1,24 @@
 import { ChevronLeft, ChevronRight, Pause, Play, Repeat2 } from 'lucide-react'
 
 import type { DemoScenario } from './DemoScenarios'
+import { NARRATIVE_DURATION_MS, type NarrativeStageConfig } from './NarrativeStages'
 
 type DemoControllerProps = {
   scenarios: DemoScenario[]
   activeIndex: number
   playing: boolean
   loop: boolean
-  speed: number
+  stage: NarrativeStageConfig
+  elapsedMs: number
   onSelect: (index: number) => void
   onPlayPause: () => void
+  onStageMove: (direction: -1 | 1) => void
   onLoopChange: (loop: boolean) => void
-  onSpeedChange: (speed: number) => void
 }
 
-export function DemoController({ scenarios, activeIndex, playing, loop, speed, onSelect, onPlayPause, onLoopChange, onSpeedChange }: DemoControllerProps) {
+export function DemoController({ scenarios, activeIndex, playing, loop, stage, elapsedMs, onSelect, onPlayPause, onStageMove, onLoopChange }: DemoControllerProps) {
   const active = scenarios[activeIndex]
-  const move = (direction: number) => {
-    const availableIndexes = scenarios
-      .map((scenario, index) => ({ scenario, index }))
-      .filter((item) => item.scenario.available)
-      .map((item) => item.index)
-    if (!availableIndexes.length) return
-    const position = availableIndexes.indexOf(activeIndex)
-    const normalizedPosition = position < 0 ? 0 : position
-    onSelect(availableIndexes[(normalizedPosition + direction + availableIndexes.length) % availableIndexes.length])
-  }
+  const progress = Math.min(100, (elapsedMs / NARRATIVE_DURATION_MS) * 100)
   return (
     <section className="demo-controller" aria-label="自动演示控制器">
       <div className="demo-scenario-copy">
@@ -44,18 +37,17 @@ export function DemoController({ scenarios, activeIndex, playing, loop, speed, o
         ))}
       </div>
       <div className="demo-actions">
-        <button type="button" onClick={() => move(-1)} aria-label="上一个场景"><ChevronLeft /></button>
+        <button type="button" onClick={() => onStageMove(-1)} aria-label="上一个叙事阶段"><ChevronLeft /></button>
         <button type="button" className="demo-play" onClick={onPlayPause} disabled={!active?.available}>
           {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}{playing ? '暂停' : '播放'}
         </button>
-        <button type="button" onClick={() => move(1)} aria-label="下一个场景"><ChevronRight /></button>
+        <button type="button" onClick={() => onStageMove(1)} aria-label="下一个叙事阶段"><ChevronRight /></button>
         <button type="button" className={loop ? 'demo-loop demo-loop--active' : 'demo-loop'}
           aria-pressed={loop} onClick={() => onLoopChange(!loop)}><Repeat2 aria-hidden="true" />循环</button>
-        {[1, 2, 5].map((option) => (
-          <button key={option} type="button" aria-pressed={speed === option}
-            className={speed === option ? 'demo-speed demo-speed--active' : 'demo-speed'}
-            onClick={() => onSpeedChange(option)}>{option}x</button>
-        ))}
+      </div>
+      <div className="narrative-progress" aria-label={`当前${stage.title}，${Math.floor(elapsedMs / 1000)}秒，共60秒`}>
+        <div><strong>{stage.shortTitle}</strong><span>{Math.floor(elapsedMs / 1000)} / 60s</span></div>
+        <progress max="100" value={progress}>{progress.toFixed(0)}%</progress>
       </div>
     </section>
   )

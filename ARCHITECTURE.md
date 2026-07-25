@@ -249,11 +249,12 @@ calculate_transmission(
 **当前接口**:
 
 - `GET /api/v1/health`: 健康检查。
+- `GET /api/v1/demo/scenarios`: 返回可用演示场景、模型可用性和场景文件中的真实事件元数据。
 - `POST /api/v1/scenarios/preview`: 校验编辑场景并生成临时轨迹，返回可供仿真使用的场景引用。
 - `WS /ws/simulation/run`: 运行单模型仿真并推送车辆、事件、消息、指标、注意力和决策状态。
 - `WS /ws/simulation/compare`: 同步运行AI与指定基线，推送配对状态。
 
-保留M0测试消息兼容；正式演示使用结构化 `state_update`、控制与完成消息。
+保留M0测试消息兼容；正式演示使用结构化 `state_update`、控制与完成消息。AI决策可选携带`inference_time_ms`；基线消息不伪造推理耗时。
 
 ```json
 {
@@ -273,12 +274,17 @@ calculate_transmission(
 
 **路径**: `FrontEnd/src/`
 
-**状态**: M3演示可视化已实现
+**状态**: M3连续动画与叙事演示已实现，目标浏览器性能验收待执行
 
 - `App.tsx`: 统一管理真实仿真、AI/基线对比、演示模式、2D/3D切换和场景编辑入口。
-- `hooks/useWebSocket.ts`: 管理结构化仿真状态、控制消息、断线与重连。
+- `hooks/useWebSocket.ts`: 管理结构化仿真状态、控制消息、断线与重连，并将WebSocket状态作为关键帧写入动画引擎。
+- `engine/AnimationEngine.ts`、`Interpolator.ts`: 用单一`requestAnimationFrame`循环在网络关键帧之间完成非线性物理插值、时间缩放和断线滑行。
+- `engine/ParticleSystem.ts`: 使用有界预分配池驱动2D Canvas和3D Points消息粒子，避免逐粒子React状态和频繁GC。
+- `engine/CameraController.ts`: 管理事件聚焦、3D飞行、送达拉远和完成回到2D的镜头状态，并在用户手动操作后停止接管。
 - `components/MapView/`: 在OpenStreetMap或卫星底图上叠加车辆、事件、消息和注意力图层。
 - `components/ThreeD/`: 使用React Three Fiber渲染鸟瞰道路、车辆、事件范围与消息弧线。
+- `components/effects/`: 提供2D/3D冲击波、雷达扫描和候选车辆高亮，并遵循减少动态效果偏好。
+- `components/DemoMode/`: 使用独立60秒墙钟时间线组织八阶段叙事；动画速度与后端0.25倍演示速度分离。
 - `components/SceneEditor/`: 编辑1–100辆车与0–5个事件，支持预设、JSON导入导出和能力门禁。
 - `components/MetricsPanel/`、`DecisionPanel/`、`Comparison/`: 展示指标、决策依据和同步对比。
 
@@ -290,11 +296,13 @@ components/
 ├── DecisionPanel/       # 候选车辆和资源分配
 ├── MetricsPanel/        # 实时指标与时序图
 ├── Comparison/          # AI与基线同步对比
+├── DemoMode/            # 八阶段叙事、控制器和真实状态解说
+├── effects/             # 2D/3D冲击波与雷达扫描
 ├── SceneEditor/         # 场景编辑、预设与导入导出
 └── ThreeD/              # Three.js三维场景
 ```
 
-在组件数量增长前不提前引入全局状态库。需要跨多个页面共享仿真状态时，再由React Context和Zustand中选择一种方案。
+高频动画状态由独立引擎的订阅接口管理，低频界面和业务状态继续留在React中，不新增全局状态库。任务038–043不改变既有`state_update`必填字段；真实推理耗时和演示事件元数据均为向后兼容的可选扩展。
 
 ---
 
@@ -381,14 +389,14 @@ python BackEnd/src/training/train_ppo.py \
 | 图表可视化 | D3.js | ✅ 时序指标已实现 |
 | 3D可视化 | Three.js + React Three Fiber | ✅ M3鸟瞰场景已实现 |
 | 后端框架 | FastAPI | ✅ 基础骨架已实现 |
-| 通信协议 | WebSocket | ✅ M0基础通信已实现 |
+| 通信协议 | WebSocket | ✅ 结构化仿真、同步对比和动画关键帧已实现 |
 | 环境编码 | PyTorch Transformer | ✅ M1基础版已实现 |
 | RL调度 | Stable-Baselines3 PPO | ✅ M1基础版已实现 |
 | 交通仿真 | SUMO + TraCI | ✅ 场景生成与验证已实现 |
 | 网络抽象 | Python简化模型 | ✅ M1版本已实现 |
 | 环境接口 | Gymnasium | ✅ M1离线Wrapper已实现 |
 | 后端测试 | Pytest | ✅ 已配置 |
-| 前端测试 | Node test + tsx | ✅ 场景编辑与坐标测试已配置 |
+| 前端测试 | Node test + tsx | ✅ 动画引擎、粒子池、叙事时间、场景编辑与坐标测试已配置 |
 | 代码检查 | Ruff + ESLint | ✅ 已配置 |
 | 持续集成 | GitHub Actions | ✅ 已配置 |
 

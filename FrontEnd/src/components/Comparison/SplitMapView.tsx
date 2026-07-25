@@ -36,7 +36,9 @@ export function SplitMapView({ label, tone, state, visualization, layout, onTile
         events={state.events}
         messages={state.messages}
         attentionWeights={state.attention_weights ?? []}
+        candidateIds={state.decision.candidate_vehicles?.map((vehicle) => vehicle.id) ?? []}
         onTileError={onTileError}
+        animationChannel={tone === 'ai' ? 'comparison-ai' : 'comparison-baseline'}
       />
     </article>
   )

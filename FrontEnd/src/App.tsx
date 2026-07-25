@@ -1,11 +1,12 @@
-import { Box, Map as MapIcon, MonitorPlay, PenTool, Presentation } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Box, Camera, Map as MapIcon, MonitorPlay, PenTool, Presentation } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ComparisonView } from './components/ComparisonView/ComparisonView'
 import { SimulationControl } from './components/ControlPanel/SimulationControl'
 import { DemoController } from './components/DemoMode/DemoController'
 import { FALLBACK_DEMO_SCENARIOS, type DemoScenario } from './components/DemoMode/DemoScenarios'
 import { NarratorOverlay } from './components/DemoMode/NarratorOverlay'
+import { NarrativeStage, useNarrativeTimeline } from './components/DemoMode/NarrativeStages'
 import { DecisionPanel } from './components/DecisionPanel/DecisionPanel'
 import { fromMapPosition } from './components/MapView/coordinates'
 import { RealtimeMetrics } from './components/MetricsPanel/RealtimeMetrics'
@@ -23,12 +24,15 @@ import { SimulationViewport, type VisualizationMode } from './components/Simulat
 import type { SceneLayout } from './components/ThreeD/Road3D'
 import { LoadingSkeleton } from './components/common/LoadingSkeleton'
 import { Toast } from './components/common/Toast'
+import { animationEngine } from './engine/AnimationEngine'
+import { cameraController, type CameraCommand } from './engine/CameraController'
 import { useWebSocket } from './hooks/useWebSocket'
 import {
   EMPTY_METRICS,
   type ComparisonBaseline,
   type ControlAction,
   type MetricHistoryPoint,
+  type StateUpdateMessage,
 } from './types/simulation'
 
 type HealthResponse = {
@@ -64,7 +68,11 @@ export default function App() {
   const [demoScenarios, setDemoScenarios] = useState<DemoScenario[]>(FALLBACK_DEMO_SCENARIOS)
   const [demoIndex, setDemoIndex] = useState(0)
   const [demoLoop, setDemoLoop] = useState(true)
+  const [demoPlaying, setDemoPlaying] = useState(false)
+  const [demoEvidence, setDemoEvidence] = useState<StateUpdateMessage | null>(null)
   const [visualization, setVisualization] = useState<VisualizationMode>('2d')
+  const [autoCamera, setAutoCamera] = useState(true)
+  const [cameraCommand, setCameraCommand] = useState<CameraCommand | null>(null)
   const [sceneLayout, setSceneLayout] = useState<SceneLayout>('highway')
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorEditing, setEditorEditing] = useState(false)
@@ -73,6 +81,11 @@ export default function App() {
   const [editorSelected, setEditorSelected] = useState<SelectedEntity>(null)
   const [editorRunning, setEditorRunning] = useState(false)
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'error' } | null>(null)
+  const narrative = useNarrativeTimeline(demoMode, demoPlaying)
+  const previousNarrativeStage = useRef<NarrativeStage | null>(null)
+  const seenLiveEvents = useRef(new Set<string>())
+  const demoEvidenceRef = useRef<StateUpdateMessage | null>(null)
+  const baselineEvidenceRef = useRef<StateUpdateMessage | null>(null)
   const {
     message,
     stateUpdate,
@@ -121,6 +134,76 @@ export default function App() {
   }, [activeState])
 
   useEffect(() => {
+    if (activeState && (activeState.events.length > 0 || activeState.messages.length > 0
+      || (activeState.decision.candidate_vehicles?.length ?? 0) > 0)) {
+      setDemoEvidence(activeState)
+      demoEvidenceRef.current = activeState
+    }
+    if (comparisonPair?.baseline && comparisonPair.baseline.messages.length > 0) {
+      baselineEvidenceRef.current = comparisonPair.baseline
+    }
+  }, [activeState, comparisonPair])
+
+  useEffect(() => cameraController.subscribe((command) => {
+    setCameraCommand(command)
+    setVisualization(command.visualization)
+  }), [])
+
+  useEffect(() => cameraController.setEnabled(autoCamera), [autoCamera])
+
+  useEffect(() => {
+    if (!demoMode) cameraController.observe(activeState, completed)
+  }, [activeState, completed, demoMode])
+
+  useEffect(() => {
+    if (demoMode || !activeState?.events.length) return
+    const unseen = activeState.events.some((event) => {
+      const key = `${event.id}:${event.timestamp}`
+      if (seenLiveEvents.current.has(key)) return false
+      seenLiveEvents.current.add(key)
+      return true
+    })
+    if (!unseen || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    animationEngine.setTimeScale(0.3)
+    const restore = window.setTimeout(() => animationEngine.setTimeScale(1, 500), 2000)
+    return () => window.clearTimeout(restore)
+  }, [activeState, demoMode])
+
+  useEffect(() => {
+    if (!demoMode || previousNarrativeStage.current === narrative.stage.stage) return
+    previousNarrativeStage.current = narrative.stage.stage
+    const event = demoScenarios[demoIndex]?.events?.[0]
+    if (narrative.stage.stage === NarrativeStage.EVENT_TRIGGERED) {
+      if (event) cameraController.focusEvent(event)
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        animationEngine.setTimeScale(0.3)
+        const restore = window.setTimeout(() => animationEngine.setTimeScale(1, 500), 2000)
+        return () => window.clearTimeout(restore)
+      }
+    }
+    if (narrative.stage.stage === NarrativeStage.SUCCESS) cameraController.showGlobal()
+    if (narrative.stage.stage === NarrativeStage.MESSAGES_FLYING
+      || narrative.stage.stage === NarrativeStage.COMPARISON) {
+      const replay = () => {
+        const ai = demoEvidenceRef.current
+        const baselineState = baselineEvidenceRef.current
+        if (ai?.messages.length) animationEngine.replayMessages('comparison-ai', ai.messages)
+        if (baselineState?.messages.length) animationEngine.replayMessages('comparison-baseline', baselineState.messages)
+      }
+      replay()
+      const interval = window.setInterval(replay, 1900)
+      return () => window.clearInterval(interval)
+    }
+  }, [demoIndex, demoMode, demoScenarios, narrative.stage.stage])
+
+  useEffect(() => {
+    if (narrative.complete) {
+      setDemoPlaying(false)
+      cameraController.reset()
+    }
+  }, [narrative.complete])
+
+  useEffect(() => {
     if (!simulationPath) return
     if (status === 'connected') setToast({ message: '仿真已连接，开始接收实时状态', tone: 'success' })
     if (errorMessage) setToast({ message: errorMessage, tone: 'error' })
@@ -138,7 +221,7 @@ export default function App() {
     const query = new URLSearchParams({
       scenario: selectedScenario?.scenario ?? DEFAULT_SCENARIO,
       model: selectedScenario?.model ?? DEFAULT_MODEL,
-      speed: String(requestedSpeed),
+      speed: String(demoMode ? 0.25 : requestedSpeed),
       run_id: String(nextRunId),
     })
     clearState()
@@ -163,7 +246,7 @@ export default function App() {
   const runSimulation = () => runSelectedSimulation()
 
   useEffect(() => {
-    if (!demoMode || !completed || !demoLoop) return
+    if (!demoMode || !narrative.complete || !demoLoop) return
     const available = demoScenarios
       .map((scenario, index) => ({ scenario, index }))
       .filter((item) => item.scenario.available)
@@ -172,10 +255,15 @@ export default function App() {
     if (!next || next.index === demoIndex && available.length === 1) return
     const timer = window.setTimeout(() => {
       setDemoIndex(next.index)
+      narrative.reset()
+      setDemoEvidence(null)
+      demoEvidenceRef.current = null
+      baselineEvidenceRef.current = null
+      setDemoPlaying(true)
       runSelectedSimulation(next.scenario)
     }, 1200)
     return () => window.clearTimeout(timer)
-  }, [completed, demoIndex, demoLoop, demoMode, demoScenarios, runSelectedSimulation])
+  }, [demoIndex, demoLoop, demoMode, demoScenarios, narrative, runSelectedSimulation])
 
   const changeMode = (mode: DisplayMode) => {
     if (mode === displayMode) return
@@ -193,6 +281,27 @@ export default function App() {
     if (action === 'set_speed' && speed !== undefined) setRequestedSpeed(speed)
     if (action === 'reset') setMetricHistory([])
     sendControl(action, speed)
+  }
+
+  const toggleDemoPlayback = () => {
+    if (demoPlaying) {
+      if (status === 'connected' && !completed) sendControl('pause')
+      animationEngine.setPaused(true)
+      setDemoPlaying(false)
+      return
+    }
+    if (!simulationPath || narrative.complete) {
+      narrative.reset()
+      setDemoEvidence(null)
+      demoEvidenceRef.current = null
+      baselineEvidenceRef.current = null
+      cameraController.reset()
+      runSelectedSimulation()
+    } else if (status === 'connected' && !completed) {
+      sendControl('play')
+    }
+    animationEngine.setPaused(false)
+    setDemoPlaying(true)
   }
 
   const openEditor = () => {
@@ -305,6 +414,18 @@ export default function App() {
   const viewportVehicles = editorOpen && !activeState ? editorVehicles : stateUpdate?.vehicles ?? []
   const viewportEvents = editorOpen && !activeState ? editorEvents : stateUpdate?.events ?? []
   const viewportMessages = editorOpen && !activeState ? [] : stateUpdate?.messages ?? []
+  const narrativeStageIndex = Object.values(NarrativeStage).indexOf(narrative.stage.stage)
+  const previewEvent = demoScenarios[demoIndex]?.events?.[0]
+  const narrativeEvents = demoMode && narrativeStageIndex >= 2
+    ? (activeState?.events.length ? activeState.events : previewEvent ? [previewEvent] : [])
+    : activeState?.events ?? []
+  const narrativeState = activeState && demoEvidence
+    ? { ...activeState, events: narrativeEvents, messages: demoEvidence.messages, decision: demoEvidence.decision }
+    : activeState
+  const demoEffectMode = narrative.stage.stage === NarrativeStage.EVENT_TRIGGERED
+    ? 'event' : narrative.stage.stage === NarrativeStage.AI_SCANNING ? 'scan' : 'idle'
+  const comparisonStage = demoMode && narrative.stage.stage === NarrativeStage.COMPARISON
+  const overlayComparison = comparisonStage && narrative.elapsedMs < 52_000
 
   return (
     <main className="app-shell">
@@ -317,21 +438,26 @@ export default function App() {
         <div className="header-actions">
         <div className="visualization-switch" role="group" aria-label="二维或三维视图">
           <button type="button" className={visualization === '2d' ? 'active' : ''}
-            aria-pressed={visualization === '2d'} onClick={() => setVisualization('2d')}>
+            aria-pressed={visualization === '2d'} onClick={() => { cameraController.userOverride(); setVisualization('2d') }}>
             <MapIcon aria-hidden="true" />2D
           </button>
           <button type="button" className={visualization === '3d' ? 'active' : ''}
-            aria-pressed={visualization === '3d'} onClick={() => setVisualization('3d')}>
+            aria-pressed={visualization === '3d'} onClick={() => { cameraController.userOverride(); setVisualization('3d') }}>
             <Box aria-hidden="true" />3D
           </button>
         </div>
+        <button type="button" className={autoCamera ? 'camera-toggle camera-toggle--active' : 'camera-toggle'}
+          aria-pressed={autoCamera} onClick={() => setAutoCamera((enabled) => !enabled)}>
+          <Camera aria-hidden="true" />自动镜头 {autoCamera ? '开' : '关'}
+        </button>
         <button type="button" className={editorOpen ? 'editor-toggle editor-toggle--active' : 'editor-toggle'}
           aria-pressed={editorOpen} onClick={editorOpen ? closeEditor : openEditor}>
           <PenTool aria-hidden="true" />{editorOpen ? '退出编辑' : '场景编辑'}
         </button>
         <button type="button" className={demoMode ? 'presentation-toggle presentation-toggle--active' : 'presentation-toggle'}
           aria-pressed={demoMode} onClick={() => {
-            setEditorOpen(false); setEditorEditing(false); setDemoMode((value) => !value); stopAndClear()
+            setEditorOpen(false); setEditorEditing(false); setDemoPlaying(false); narrative.reset()
+            setDemoMode((value) => !value); cameraController.reset(); stopAndClear()
           }}>
           {demoMode ? <MonitorPlay aria-hidden="true" /> : <Presentation aria-hidden="true" />}
           {demoMode ? '退出演示' : '演示模式'}
@@ -348,10 +474,10 @@ export default function App() {
       </header>
 
       {demoMode && <DemoController scenarios={demoScenarios} activeIndex={demoIndex}
-        playing={playing} loop={demoLoop} speed={currentSpeed}
-        onSelect={(index) => { setDemoIndex(index); stopAndClear() }}
-        onPlayPause={() => status === 'connected' ? controlSimulation(playing ? 'pause' : 'play') : runSelectedSimulation()}
-        onLoopChange={setDemoLoop} onSpeedChange={(speed) => controlSimulation('set_speed', speed)} />}
+        playing={demoPlaying} loop={demoLoop} stage={narrative.stage} elapsedMs={narrative.elapsedMs}
+        onSelect={(index) => { setDemoIndex(index); setDemoPlaying(false); narrative.reset(); stopAndClear() }}
+        onPlayPause={toggleDemoPlayback} onStageMove={narrative.seekStage}
+        onLoopChange={setDemoLoop} />}
 
       {!demoMode && !editorOpen && <section className="view-mode-panel" aria-labelledby="view-mode-heading">
         <div>
@@ -413,21 +539,29 @@ export default function App() {
         </div>
       )}
 
-      {demoMode && <NarratorOverlay scenario={demoScenarios[demoIndex]} state={activeState} comparison={comparisonPair} />}
+      {demoMode && <NarratorOverlay scenario={demoScenarios[demoIndex]} state={narrativeState}
+        comparison={comparisonPair} stage={narrative.stage} event={narrativeEvents[0]} />}
 
       <RealtimeMetrics metrics={activeState?.metrics ?? EMPTY_METRICS} history={metricHistory} />
       <div className="simulation-workspace">
-        {simulationPath && !activeState && !errorMessage ? <LoadingSkeleton /> : displayMode === 'comparison' ? (
+        {simulationPath && !activeState && !errorMessage ? <LoadingSkeleton /> : displayMode === 'comparison' && (!demoMode || comparisonStage) ? (
           <ComparisonView pair={comparisonPair} baseline={baseline} visualization={visualization}
-            layout={sceneLayout} onTileError={(message) => setToast({ message, tone: 'error' })} />
+            layout={sceneLayout} overlay={overlayComparison} effectMode={demoMode ? demoEffectMode : 'all'}
+            cameraCommand={cameraCommand} onManualCamera={() => cameraController.userOverride()}
+            onTileError={(message) => setToast({ message, tone: 'error' })} />
         ) : (
           <SimulationViewport
             visualization={visualization}
             layout={sceneLayout}
-            vehicles={viewportVehicles}
-            events={viewportEvents}
-            messages={viewportMessages}
-            attentionWeights={stateUpdate?.attention_weights ?? []}
+            vehicles={demoMode ? activeState?.vehicles ?? [] : viewportVehicles}
+            events={demoMode ? narrativeEvents : viewportEvents}
+            messages={demoMode ? narrativeState?.messages ?? [] : viewportMessages}
+            attentionWeights={(demoMode ? activeState : stateUpdate)?.attention_weights ?? []}
+            candidateIds={(demoMode ? narrativeState : stateUpdate)?.decision.candidate_vehicles?.map((vehicle) => vehicle.id) ?? []}
+            animationChannel={demoMode && displayMode === 'comparison' ? 'comparison-ai' : 'single'}
+            effectMode={demoMode ? demoEffectMode : 'all'}
+            cameraCommand={cameraCommand}
+            onManualCamera={() => cameraController.userOverride()}
             editing={editorOpen && editorEditing}
             onMapClick={handleEditorMapClick}
             onVehicleSelect={(vehicle) => editorOpen && setEditorSelected({ kind: 'vehicle', id: vehicle.id })}

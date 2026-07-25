@@ -1,18 +1,15 @@
 import L from 'leaflet'
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef } from 'react'
 import { Marker, Tooltip } from 'react-leaflet'
 
+import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
 import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
-import { smoothstep } from '../../utils/interpolation'
 import { toMapPosition } from './coordinates'
-import {
-  interpolateVehicles,
-  VEHICLE_INTERPOLATION_DURATION_MS,
-} from './vehicleInterpolation'
 import './VehicleLayer.css'
 
 type VehicleLayerProps = {
   vehicles: SimulationVehicle[]
+  animationChannel?: AnimationChannel
   onVehicleSelect?: (vehicle: SimulationVehicle) => void
 }
 
@@ -24,29 +21,34 @@ const labels: Record<VehicleStatus, string> = {
 
 type VehicleMarkerProps = {
   vehicle: SimulationVehicle
+  animationChannel: AnimationChannel
   onSelect?: (vehicle: SimulationVehicle) => void
 }
 
-const VehicleMarker = memo(function VehicleMarker({ vehicle, onSelect }: VehicleMarkerProps) {
+const VehicleMarker = memo(function VehicleMarker({ vehicle, animationChannel, onSelect }: VehicleMarkerProps) {
   const markerRef = useRef<L.Marker | null>(null)
   const icon = useMemo(
     () => L.divIcon({
       className: 'vehicle-marker-icon',
-      html: `<span class="vehicle-marker__body vehicle-marker__body--${vehicle.status}"><span class="vehicle-marker__arrow"></span></span>`,
-      iconAnchor: [11, 11],
-      iconSize: [22, 22],
+      html: `<span class="vehicle-marker__effects vehicle-marker__effects--${vehicle.status}"></span><span class="vehicle-marker__body vehicle-marker__body--${vehicle.status}"><span class="vehicle-marker__glass"></span><span class="vehicle-marker__arrow"></span><span class="vehicle-marker__brake-light"></span></span>`,
+      iconAnchor: [16, 12],
+      iconSize: [32, 24],
       tooltipAnchor: [0, -12],
     }),
     [vehicle.status],
   )
   const speedKmh = Math.hypot(vehicle.vx, vehicle.vy) * 3.6
 
-  useEffect(() => {
-    const arrow = markerRef.current
-      ?.getElement()
-      ?.querySelector<HTMLElement>('.vehicle-marker__arrow')
-    arrow?.style.setProperty('--vehicle-heading', `${vehicle.heading}deg`)
-  }, [vehicle.heading, vehicle.status])
+  useEffect(() => animationEngine.subscribe(animationChannel, (frame) => {
+    const animated = frame.vehicles.find((item) => item.id === vehicle.id)
+    const marker = markerRef.current
+    if (!animated || !marker) return
+    marker.setLatLng(toMapPosition(animated.x, animated.y))
+    const element = marker.getElement()
+    element?.style.setProperty('--vehicle-heading', `${animated.heading}deg`)
+    element?.style.setProperty('--vehicle-pitch', `${-animated.pitch}deg`)
+    if (element) element.dataset.motion = animated.motion
+  }), [animationChannel, vehicle.id])
 
   return (
     <Marker
@@ -65,7 +67,7 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle, onSelect }: Vehicle
       </Tooltip>
     </Marker>
   )
-}, ({ vehicle: previous, onSelect: previousSelect }, { vehicle: next, onSelect: nextSelect }) => (
+}, ({ vehicle: previous, animationChannel: previousChannel, onSelect: previousSelect }, { vehicle: next, animationChannel: nextChannel, onSelect: nextSelect }) => (
   previous.id === next.id
   && previous.x === next.x
   && previous.y === next.y
@@ -73,60 +75,12 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle, onSelect }: Vehicle
   && previous.vy === next.vy
   && previous.heading === next.heading
   && previous.status === next.status
+  && previousChannel === nextChannel
   && previousSelect === nextSelect
 ))
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined'
-    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
-export function VehicleLayer({ vehicles, onVehicleSelect }: VehicleLayerProps) {
-  const [displayedVehicles, setDisplayedVehicles] = useState(vehicles)
-  const displayedRef = useRef(vehicles)
-  const animationFrameRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    if (animationFrameRef.current !== null) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
-    }
-
-    if (prefersReducedMotion() || displayedRef.current.length === 0) {
-      displayedRef.current = vehicles
-      setDisplayedVehicles(vehicles)
-      return
-    }
-
-    const starts = displayedRef.current
-    const startedAt = performance.now()
-
-    const renderFrame = (now: number) => {
-      const progress = (now - startedAt) / VEHICLE_INTERPOLATION_DURATION_MS
-      const nextVehicles = progress >= 1
-        ? vehicles
-        : interpolateVehicles(starts, vehicles, smoothstep(0, 1, progress))
-
-      displayedRef.current = nextVehicles
-      setDisplayedVehicles(nextVehicles)
-
-      if (progress < 1) {
-        animationFrameRef.current = requestAnimationFrame(renderFrame)
-      } else {
-        animationFrameRef.current = null
-      }
-    }
-
-    animationFrameRef.current = requestAnimationFrame(renderFrame)
-    return () => {
-      if (animationFrameRef.current !== null) {
-        cancelAnimationFrame(animationFrameRef.current)
-        animationFrameRef.current = null
-      }
-    }
-  }, [vehicles])
-
-  return displayedVehicles.map((vehicle) => (
-    <VehicleMarker key={vehicle.id} vehicle={vehicle} onSelect={onVehicleSelect} />
+export function VehicleLayer({ vehicles, animationChannel = 'single', onVehicleSelect }: VehicleLayerProps) {
+  return vehicles.map((vehicle) => (
+    <VehicleMarker key={vehicle.id} vehicle={vehicle} animationChannel={animationChannel} onSelect={onVehicleSelect} />
   ))
 }

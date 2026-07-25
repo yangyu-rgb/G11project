@@ -54,6 +54,7 @@ export type SimulationDecision = {
   candidate_vehicles?: CandidateVehicle[]
   selected_vehicles?: string[]
   selection_reason?: Record<string, string>
+  inference_time_ms?: number
 }
 
 export type TestMessage = {

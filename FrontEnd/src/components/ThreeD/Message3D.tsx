@@ -1,40 +1,58 @@
-import { QuadraticBezierLine } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
+import { useEffect, useMemo, useRef } from 'react'
+import { BufferAttribute, BufferGeometry, Color, Points } from 'three'
 
+import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import { ParticleSystem, type ParticleTone } from '../../engine/ParticleSystem'
 import type { SimulationTransmission, SimulationVehicle } from '../../types/simulation'
-import { toScenePosition } from './sceneCoordinates'
+import { SCENE_SCALE } from './sceneCoordinates'
 
 type Message3DProps = {
   messages: SimulationTransmission[]
   vehicles: SimulationVehicle[]
+  animationChannel?: AnimationChannel
+  tone?: ParticleTone
 }
 
-export function Message3D({ messages, vehicles }: Message3DProps) {
-  const byId = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]))
+const MAX_PARTICLES = 1500
 
-  return messages.map((message, index) => {
-    const sender = byId.get(message.from)
-    const receiver = byId.get(message.to)
-    if (!sender || !receiver) return null
-    const start = toScenePosition(sender.x, sender.y)
-    const end = toScenePosition(receiver.x, receiver.y)
-    start[1] = 0.7
-    end[1] = 0.7
-    const midpoint: [number, number, number] = [
-      (start[0] + end[0]) / 2,
-      2.4 + Math.hypot(end[0] - start[0], end[2] - start[2]) * 0.08,
-      (start[2] + end[2]) / 2,
-    ]
-    return (
-      <QuadraticBezierLine
-        key={`${message.from}-${message.to}-${index}`}
-        start={start}
-        end={end}
-        mid={midpoint}
-        color={message.status === 'success' ? '#34d399' : '#fb7185'}
-        lineWidth={2.2}
-        transparent
-        opacity={0.88}
-      />
-    )
+export function Message3D({ animationChannel = 'single', tone = 'ai' }: Message3DProps) {
+  const points = useRef<Points>(null)
+  const system = useRef(new ParticleSystem(MAX_PARTICLES))
+  const geometry = useMemo(() => {
+    const value = new BufferGeometry()
+    value.setAttribute('position', new BufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3))
+    value.setAttribute('color', new BufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3))
+    value.setDrawRange(0, 0)
+    return value
+  }, [])
+
+  useEffect(() => () => {
+    system.current.clear()
+    geometry.dispose()
+  }, [geometry])
+
+  useFrame(() => {
+    const frame = animationEngine.getSnapshot(animationChannel)
+    if (!frame) return
+    system.current.ingest(frame.messages, frame.vehicles, frame.timestamp, frame.animationTimeMs, tone)
+    const particles = system.current.update(frame.animationTimeMs).slice(0, MAX_PARTICLES)
+    const positions = geometry.getAttribute('position') as BufferAttribute
+    const colors = geometry.getAttribute('color') as BufferAttribute
+    particles.forEach((particle, index) => {
+      positions.setXYZ(index, particle.x * SCENE_SCALE, 0.72 + particle.height * SCENE_SCALE, particle.y * SCENE_SCALE)
+      const color = new Color(particle.color).multiplyScalar(Math.max(0.3, particle.alpha))
+      colors.setXYZ(index, color.r, color.g, color.b)
+    })
+    geometry.setDrawRange(0, particles.length)
+    positions.needsUpdate = true
+    colors.needsUpdate = true
   })
+
+  return (
+    <points ref={points} geometry={geometry}>
+      <pointsMaterial size={tone === 'ai' ? 0.22 : 0.13} vertexColors transparent opacity={tone === 'ai' ? 0.95 : 0.45}
+        depthWrite={false} sizeAttenuation />
+    </points>
+  )
 }

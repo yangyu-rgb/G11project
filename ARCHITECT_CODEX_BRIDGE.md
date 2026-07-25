@@ -71,7 +71,333 @@
 
 ## 📋 活跃任务
 
-**当前阶段**: M3非GPU增强已完成（并行GPU训练待执行）
+**当前阶段**: M3动画重构 + GPU训练待执行
+
+> ⚠️ **任务038是其余动画任务的前置依赖**，必须先完成038，再执行039-043。
+
+#### 任务038：60fps连续动画引擎（核心基础）
+**状态**：🟡 进行中（实现与自动化检查完成，目标浏览器性能验收待执行）
+**优先级**：高（其余动画任务的前置）
+**描述**：将动画引擎与WebSocket数据更新完全解耦，实现真正的60fps连续动画，彻底消除"PPT切换"感
+
+**核心问题**：
+当前系统本质是"状态跳跃"——WebSocket推送一帧，前端渲染一帧，即使有150ms插值，帧与帧之间仍不连续。目标是：**WebSocket只负责提供关键帧数据，动画引擎在关键帧之间自主插值，始终以60fps运行**。
+
+**需求**：
+- 创建 `FrontEnd/src/engine/AnimationEngine.ts`：
+  - 独立的动画循环，使用 `requestAnimationFrame`，始终以60fps运行
+  - 维护"当前渲染状态"（插值后）和"目标状态"（WebSocket最新数据）
+  - 每帧根据时间差自动计算插值位置，不等待WebSocket
+  - 全局时间缩放系数 `timeScale`（默认1.0，慢动作时设为0.3）
+  - 提供 `subscribe` / `unsubscribe` 接口供组件订阅动画帧
+- 创建 `FrontEnd/src/engine/Interpolator.ts`：
+  - **非线性插值**（使用三次贝塞尔或缓动函数，而非线性lerp）
+  - `interpolatePosition(from, to, t)`：位置插值
+  - `interpolateAngle(from, to, t)`：角度最短路径插值（避免绕远圈）
+  - `interpolatePhysics(vehicle, dt)`：物理插值
+    - 正常行驶：平滑Ease-In-Out曲线
+    - 急刹状态：指数衰减速度曲线（快速减速），车身pitch前倾
+    - 加速状态：Ease-Out曲线（快速启动后平稳）
+- 更新 `FrontEnd/src/hooks/useWebSocket.ts`：
+  - WebSocket数据只更新"目标状态缓冲"，不直接触发渲染
+  - 与AnimationEngine解耦
+- 更新所有使用车辆位置的组件（VehicleLayer、Vehicle3D等）：
+  - 改为订阅AnimationEngine的插值状态，而非直接使用WebSocket数据
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/engine/AnimationEngine.ts`
+  - `FrontEnd/src/engine/Interpolator.ts`
+  - 更新的 `FrontEnd/src/hooks/useWebSocket.ts`
+- 成功标准：
+  - **浏览器DevTools Performance面板**：帧间隔稳定在16-17ms（60fps）
+  - WebSocket推送频率降到5fps时，动画仍然流畅（插值填补空隙）
+  - WebSocket断开后，车辆继续平滑减速至停止（不突然静止）
+  - 急刹车辆有明显的减速曲线（非线性，有"冲劲"感）
+  - `timeScale = 0.3` 时所有动画整体慢放，不影响UI交互
+
+**Codex完成说明**：
+- [x] AnimationEngine已创建：单一`requestAnimationFrame`循环、关键帧缓冲、暂停/断线滑行和全局时间缩放
+- [x] Interpolator已创建：非线性位置、最短航向角、急刹前倾和指数减速
+- [x] WebSocket只写入目标关键帧，2D/3D车辆直接订阅插值状态，不再依赖React逐帧重渲染
+- [x] 自动化验证覆盖5fps关键帧间插值、断线减速和`timeScale=0.3`
+- [ ] 浏览器验证：1920×1080 Chrome Performance面板记录稳定帧间隔（当前浏览器连接不可用）
+
+---
+
+#### 任务039：Tesla式车辆视觉升级
+**状态**：🟡 进行中（实现完成，目标浏览器视觉与帧率验收待执行）
+**优先级**：高
+**描述**：将车辆从简单圆点升级为Tesla风格低多边形轮廓车辆，带状态光效
+
+**需求**：
+- 更新 `FrontEnd/src/components/MapView/VehicleLayer.tsx`（2D版本）：
+  - 车辆形状：圆角矩形轮廓（车身比例约2:1，带车头方向箭头）
+  - 实现方式：SVG图标或Canvas绘制
+  - **状态视觉**：
+    - 正常行驶：白色/浅灰轮廓，无填充或极浅半透明填充
+    - 发送中：蓝色轮廓 + 脉冲扩散光环（1秒周期，向外扩散消失）
+    - 接收中：绿色轮廓 + 向内收缩光环（表示"正在接收"）
+    - 急刹中：红色轮廓 + 车身前倾（heading微调-5度） + 刹车灯（车尾红点）
+  - 车辆朝向随heading实时旋转（使用任务038的角度插值）
+- 更新 `FrontEnd/src/components/ThreeD/Vehicle3D.tsx`（3D版本）：
+  - Tesla式低多边形车辆模型（自行用Three.js几何体构建，无需外部模型文件）
+    - 车身：圆角长方体（BoxGeometry + 圆角）
+    - 车顶：较小的圆角长方体叠加
+    - 车轮：4个扁圆柱（CylinderGeometry）
+  - 发光材质（MeshStandardMaterial + emissive，颜色随状态变化）
+  - 急刹时：车身沿X轴旋转前倾3-5度（带回弹动画）
+- 创建 `FrontEnd/src/components/common/VehicleStatusEffects.tsx`：
+  - 脉冲光环组件（2D SVG + 3D环形光）
+  - 状态色彩映射配置
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 更新的 `FrontEnd/src/components/MapView/VehicleLayer.tsx`
+  - 更新的 `FrontEnd/src/components/ThreeD/Vehicle3D.tsx`
+  - `FrontEnd/src/components/common/VehicleStatusEffects.tsx`
+- 成功标准：
+  - 车辆有明确的朝向箭头，随heading平滑旋转
+  - 发送/接收状态光环清晰可辨
+  - 急刹时车身前倾动画可见（哪怕轻微）
+  - 50辆车场景下渲染帧率仍≥60fps（借助任务038的动画引擎）
+
+**Codex完成说明**：
+- [x] 2D车辆升级为2:1圆角车身、车窗、车头方向箭头和刹车灯
+- [x] 3D低多边形车身、车顶及四轮模型已实现
+- [x] 发送、接收、急刹状态色和2D/3D光环已统一
+- [x] 急刹前倾由动画引擎状态驱动并有自动化物理测试
+- [ ] 目标浏览器50车60fps和主观清晰度验收待执行
+
+---
+
+#### 任务040：粒子流消息动画
+**状态**：🟡 进行中（实现完成，目标浏览器视觉与帧率验收待执行）
+**优先级**：高
+**描述**：用粒子流替换现有的静态连线，实现信息"流动"的视觉感
+
+**需求**：
+- 创建 `FrontEnd/src/engine/ParticleSystem.ts`：
+  - 粒子池管理（预分配，避免GC）
+  - 每条消息传播：20-30个粒子沿弧线轨迹运动
+  - 弧线路径：从发送者到接收者的贝塞尔曲线（控制点在中间偏上，有弧度感）
+  - 粒子运动：匀速沿弧线，头部粒子稍快（有"追赶"感）
+  - 粒子生命周期：从发送者出发，到达接收者后触发"送达动效"消失
+  - 全部在AnimationEngine的60fps循环中更新
+- 更新 `FrontEnd/src/components/MapView/MessageLayer.tsx`（2D版本）：
+  - 使用Canvas或SVG渲染粒子
+  - 粒子外观：小圆点（半径2-3px），颜色随消息状态变化
+    - 传输中：蓝色粒子流
+    - 送达成功：最后一帧绿色闪烁
+    - 超时/丢包：粒子变红并消散
+  - 送达时接收车辆触发绿色脉冲（复用任务039的光环组件）
+- 更新 `FrontEnd/src/components/ThreeD/Message3D.tsx`（3D版本）：
+  - 3D空间中的粒子流（使用Three.js Points或实例化Mesh）
+  - 弧线在3D空间中有高度（粒子先升高再降落，类似抛物线）
+  - 粒子在3D中有轻微发光（通过emissive颜色实现）
+- **对比模式的叠加效果**：
+  - AI消息：彩色饱和粒子流（蓝/绿，清晰明亮）
+  - 传统基线消息：灰色细粒子流（半透明，大量，视觉上"嘈杂"）
+  - 同屏叠加时，AI方法的精准 vs 基线的混乱一目了然
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/engine/ParticleSystem.ts`
+  - 更新的 `FrontEnd/src/components/MapView/MessageLayer.tsx`
+  - 更新的 `FrontEnd/src/components/ThreeD/Message3D.tsx`
+- 成功标准：
+  - 粒子流连续流动，无卡顿（60fps）
+  - 弧线路径清晰，不同消息路径不重叠（轻微偏移）
+  - 送达时有明显的"成功"视觉反馈
+  - 对比模式下，AI精准 vs 基线混乱对比强烈
+  - 10条并发消息时仍流畅（粒子池管理有效）
+
+**Codex完成说明**：
+- [x] ParticleSystem已创建，使用有界预分配粒子池并支持消息重放
+- [x] 2D Canvas贝塞尔粒子流已替换静态连线
+- [x] 3D Points单批次粒子流已实现
+- [x] 对比模式支持AI高饱和与基线灰色叠加，再切换左右分屏
+- [x] 自动化验证覆盖粒子池复用和容量边界
+- [ ] 目标浏览器10条并发消息流畅度验收待执行
+
+---
+
+#### 任务041：危险事件视觉效果（冲击波 + 雷达扫描）
+**状态**：🟡 进行中（实现完成，目标浏览器组合效果验收待执行）
+**优先级**：高
+**描述**：实现事件发生时的冲击波扩散、雷达扫描和慢动作效果，制造戏剧性
+
+**需求**：
+- 创建 `FrontEnd/src/components/effects/ShockwaveEffect.tsx`：
+  - 事件发生时，从事件中心向外扩散的**3层同心圆波纹**
+  - 每层间隔0.3秒出现，扩散速度从快到慢（Ease-Out）
+  - 颜色：橙红色，透明度从0.8渐变到0
+  - 波纹在最大半径（场景中的300米）处消失
+  - 2D版本：SVG圆形动画
+  - 3D版本：Three.js圆环Mesh，轻微倾斜（平贴地面）
+- 创建 `FrontEnd/src/components/effects/RadarScanEffect.tsx`：
+  - AI"扫描"时从事件点发出的**旋转雷达扇形**
+  - 扇形角度：60度，旋转一圈1.5秒
+  - 颜色：蓝色半透明扇形 + 扫描边缘亮线
+  - 扫过车辆时，车辆短暂高亮（表示"被识别"）
+  - 扫描结束后，被识别的车辆保持高亮状态（变为"候选车辆"）
+  - 扫描圈数：1-2圈（根据候选车辆数决定）
+- 实现**慢动作系统**（集成到AnimationEngine的timeScale）：
+  - 事件发生触发：`AnimationEngine.setTimeScale(0.3)`，持续2秒
+  - 2秒后平滑恢复：`setTimeScale(1.0)`，0.5秒过渡
+  - 慢动作期间：粒子、扫描、扩散波全部同步减速（因为都在AnimationEngine中）
+  - 注意：UI按钮等交互元素不受timeScale影响
+- 事件风险区域可视化更新：
+  - 原有的静态300米圆圈改为：淡色填充 + 虚线边框 + 缓慢脉冲
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/components/effects/ShockwaveEffect.tsx`
+  - `FrontEnd/src/components/effects/RadarScanEffect.tsx`
+  - 更新的 `FrontEnd/src/engine/AnimationEngine.ts`（timeScale支持）
+- 成功标准：
+  - 事件发生时冲击波3层扩散清晰可见
+  - 雷达扫描旋转流畅，扫过车辆时有高亮反应
+  - 慢动作（timeScale=0.3）使整体节奏明显放慢
+  - 慢动作恢复平滑，无突变
+  - 以上效果同时运行帧率仍≥60fps
+
+**Codex完成说明**：
+- [x] 2D/3D三层冲击波和300米风险区已实现
+- [x] 2D/3D 60度雷达扫描及真实候选车辆高亮已实现
+- [x] 事件触发0.3倍慢动作、2秒保持和0.5秒平滑恢复已集成
+- [x] `prefers-reduced-motion`下关闭非必要运动效果
+- [ ] 目标浏览器组合效果60fps验收待执行
+
+---
+
+#### 任务042：智能镜头系统（事件触发2D/3D自动切换）
+**状态**：🟡 进行中（实现完成，目标浏览器交互验收待执行）
+**优先级**：中
+**描述**：实现根据仿真状态自动控制镜头的系统，事件发生时自动切3D拉近，处理完毕回2D
+
+**需求**：
+- 创建 `FrontEnd/src/engine/CameraController.ts`：
+  - 监听仿真状态（正常行驶、事件发生、AI处理、消息送达）
+  - 状态机：
+    ```
+    IDLE(2D俯视) → EVENT_DETECTED(自动切3D + 拉近事件)
+    → AI_PROCESSING(3D + 保持聚焦)
+    → MESSAGE_DELIVERED(3D拉远 + 查看全局)
+    → COMPLETE(切回2D)
+    ```
+  - 镜头过渡：使用缓动曲线（Ease-In-Out），1-1.5秒过渡
+  - **不强制切换**：如果用户手动调整了镜头，尊重用户控制，不强制覆盖
+  - 提供"自动镜头"开关（默认开启，演示时使用）
+- **3D相机动画**（更新 `Scene3D.tsx`）：
+  - 拉近事件：相机从当前位置平滑飞行到事件上方（高度降低，角度变陡）
+  - 拉远全局：相机平滑飞回原始鸟瞰位置
+  - 飞行路径：贝塞尔曲线（不走直线，有弧度感）
+- **2D地图自动缩放**（更新 `MapView.tsx`）：
+  - 事件发生时地图自动flyTo事件位置并放大
+  - 切回2D时flyBack到全局视图
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - `FrontEnd/src/engine/CameraController.ts`
+  - 更新的 `FrontEnd/src/components/ThreeD/Scene3D.tsx`
+  - 更新的 `FrontEnd/src/components/MapView/MapView.tsx`
+- 成功标准：
+  - 事件发生时3秒内自动切3D并拉近
+  - 相机飞行路径平滑（无突变）
+  - 消息送达后自动切回2D
+  - 用户手动操作相机后，自动镜头不强制干扰
+  - 自动镜头开关有效
+
+**Codex完成说明**：
+- [x] CameraController状态机及消息送达延迟拉远已实现
+- [x] 3D相机缓动飞行和全局鸟瞰恢复已实现
+- [x] 2D地图事件聚焦和全局视图恢复已实现
+- [x] 自动镜头开关及鼠标/触控手动操作优先级已实现
+- [ ] 目标浏览器完整镜头流程和手动覆盖验收待执行
+
+---
+
+#### 任务043：分阶段叙事演示重构
+**状态**：🟡 进行中（实现完成，60秒端到端浏览器验收待执行）
+**优先级**：高
+**描述**：将现有演示模式重构为完整的分阶段叙事系统，整合所有动画效果形成一个连贯的"故事"
+
+**需求**：
+- 重构 `FrontEnd/src/components/DemoMode/DemoController.tsx`：
+  - 定义完整的叙事阶段枚举：
+    ```typescript
+    enum NarrativeStage {
+      OPENING,          // 开场：车辆正常行驶，展示全景
+      DANGER_APPROACHING,  // 危险逼近：前车减速，氛围渐紧
+      EVENT_TRIGGERED,     // 事件发生：冲击波 + 慢动作 + 切3D
+      AI_SCANNING,         // AI扫描：雷达旋转 + 候选车辆高亮
+      AI_DECIDING,         // AI决策：连线弹出 + 决策面板更新
+      MESSAGES_FLYING,     // 消息传播：粒子流飞向目标
+      SUCCESS,             // 成功：所有目标车辆收到 + 指标展示
+      COMPARISON           // 对比：叠加传统方法 → 分屏详细对比
+    }
+    ```
+  - 每个阶段的**精确时序控制**：
+    - `OPENING`：0-5秒
+    - `DANGER_APPROACHING`：5-10秒（前车减速，背景音效可选）
+    - `EVENT_TRIGGERED`：10-13秒（慢动作期间）
+    - `AI_SCANNING`：13-18秒
+    - `AI_DECIDING`：18-23秒
+    - `MESSAGES_FLYING`：23-35秒
+    - `SUCCESS`：35-45秒
+    - `COMPARISON`：45-60秒
+  - 每个阶段触发对应效果（协调任务038-042的所有组件）
+- 更新 `FrontEnd/src/components/DemoMode/NarratorOverlay.tsx`：
+  - 顶部阶段标题（大字，淡入淡出）：如「阶段1：危险发生」
+  - 事件位置浮动标签（跟随对象位置）：如「紧急制动 · severity 0.9」
+  - AI决策浮动标签：「分析12辆候选车辆 · 选定5辆 · 用时8ms」
+  - 指标底部条（简洁）：仅显示3个核心数值
+- 对比展示流程：
+  - 阶段1：叠加模式（AI亮色 + 基线灰色同屏）
+  - 演讲者点击后 → 阶段2：左右分屏详细对比
+  - 两个阶段均有对应的文字标注
+
+**验收条件**：
+- 必须通过的命令：
+  - `cd FrontEnd && npm run lint`
+  - `cd FrontEnd && npm run build`
+- 必须产生的文件：
+  - 重构的 `FrontEnd/src/components/DemoMode/DemoController.tsx`
+  - 更新的 `FrontEnd/src/components/DemoMode/NarratorOverlay.tsx`
+  - `FrontEnd/src/components/DemoMode/NarrativeStages.ts`（阶段配置）
+- 成功标准：
+  - 一键启动演示，自动按时序播放8个阶段
+  - 各阶段切换有明确的视觉提示（标题淡入淡出）
+  - 所有动画效果（冲击波、雷达、粒子流、镜头切换）在正确时机触发
+  - 演讲者可在任意阶段暂停，手动推进
+  - 对比叠加 → 分屏切换流畅
+  - 完整演示从开场到结束≤60秒（自动播放模式）
+
+**Codex完成说明**：
+- [x] 八阶段叙事状态机已实现并使用独立60秒墙钟时间线
+- [x] 0/5/10/13/18/23/35/45/60秒边界已配置并由自动化测试覆盖
+- [x] 冲击波、雷达、慢动作、粒子、自动镜头和对比叠加/分屏已按阶段整合
+- [x] 演讲者可暂停、恢复、前后切换阶段和关闭自动镜头
+- [x] 解说层只使用真实WebSocket状态、真实场景事件元数据和可选推理耗时，不引入mock结果
+- [ ] 目标浏览器完整演示端到端验收（≤60秒）待执行
+
+---
 
 #### 任务035：Three.js 3D可视化
 **状态**：🟢 已完成

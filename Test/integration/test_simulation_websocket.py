@@ -104,7 +104,9 @@ def test_simulation_websocket_streams_ten_complete_state_updates(
         "candidate_vehicles",
         "selected_vehicles",
         "selection_reason",
+        "inference_time_ms",
     }
+    assert first["decision"]["inference_time_ms"] >= 0
     assert first["decision"]["selected_vehicles"] == first["decision"]["selected_receivers"]
     assert all(
         candidate["status"] in {"candidate", "selected"}

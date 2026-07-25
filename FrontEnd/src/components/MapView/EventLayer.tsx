@@ -1,5 +1,6 @@
 import L from 'leaflet'
-import { Marker, Tooltip } from 'react-leaflet'
+import { Fragment } from 'react'
+import { Circle, Marker, Tooltip } from 'react-leaflet'
 
 import type { SimulationEvent } from '../../types/simulation'
 import { toMapPosition } from './coordinates'
@@ -24,6 +25,10 @@ export function EventLayer({ events, onEventSelect }: EventLayerProps) {
     collision_warning: '碰撞预警',
   }
   return events.map((event) => (
+    <Fragment key={event.id}>
+    <Circle center={toMapPosition(event.x, event.y)} radius={300}
+      pathOptions={{ color: '#fb6340', fillColor: '#ef4444', fillOpacity: 0.08, opacity: 0.7, dashArray: '8 8', weight: 2 }}
+      className="event-risk-zone" />
     <Marker
       key={event.id}
       position={toMapPosition(event.x, event.y)}
@@ -35,5 +40,6 @@ export function EventLayer({ events, onEventSelect }: EventLayerProps) {
         时间：{event.timestamp.toFixed(1)}s · 严重度：{event.severity.toFixed(2)}
       </Tooltip>
     </Marker>
+    </Fragment>
   ))
 }

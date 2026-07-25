@@ -191,6 +191,11 @@ def build_state_update(
             "candidate_vehicles": candidates,
             "selected_vehicles": selected_receivers,
             "selection_reason": selection_reason,
+            **(
+                {"inference_time_ms": float(info.get("decision_latency_ms", 0.0))}
+                if method in (None, "ai")
+                else {}
+            ),
         },
     }
     if method is not None:

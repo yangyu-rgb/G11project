@@ -22,9 +22,13 @@ import type {
   SimulationTransmission,
   SimulationVehicle,
 } from '../../types/simulation'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import type { CameraCommand } from '../../engine/CameraController'
 import type { SceneLayout } from '../ThreeD/Road3D'
 import { AttentionHeatmap } from '../AttentionViz/AttentionHeatmap'
 import { AttentionLinks } from '../AttentionViz/AttentionLinks'
+import { RadarScanEffect2D } from '../effects/RadarScanEffect'
+import { ShockwaveEffect2D } from '../effects/ShockwaveEffect'
 import { EventLayer } from './EventLayer'
 import { MessageLayer } from './MessageLayer'
 import { VehicleLayer } from './VehicleLayer'
@@ -44,6 +48,13 @@ type MapViewProps = {
   onVehicleSelect?: (vehicle: SimulationVehicle) => void
   onEventSelect?: (event: SimulationEvent) => void
   onTileError?: (message: string) => void
+  animationChannel?: AnimationChannel
+  candidateIds?: string[]
+  effectMode?: 'idle' | 'event' | 'scan' | 'all'
+  cameraCommand?: CameraCommand | null
+  onManualCamera?: () => void
+  secondaryMessages?: SimulationTransmission[]
+  secondaryAnimationChannel?: AnimationChannel
 }
 
 function roadLines(layout: SceneLayout): [number, number][][] {
@@ -98,6 +109,45 @@ function MapInteraction({
   return null
 }
 
+function CameraBridge({ command, vehicles, events, layout }: {
+  command: CameraCommand | null
+  vehicles: SimulationVehicle[]
+  events: SimulationEvent[]
+  layout: SceneLayout
+}) {
+  const map = useMap()
+  const lastCommand = useRef(0)
+  useEffect(() => {
+    if (!command || command.visualization !== '2d') return
+    if (lastCommand.current === command.id) return
+    lastCommand.current = command.id
+    if (command.global) {
+      const positions = [...vehicles.map((vehicle) => toMapPosition(vehicle.x, vehicle.y)),
+        ...events.map((event) => toMapPosition(event.x, event.y))]
+      if (!positions.length) positions.push(toMapPosition(0, -20), toMapPosition(5000, layout === 'urban' ? 1020 : 20))
+      map.flyToBounds(L.latLngBounds(positions), { duration: command.durationMs / 1000, padding: [34, 34], maxZoom: 16 })
+    } else if (command.event) {
+      map.flyTo(toMapPosition(command.event.x, command.event.y), 16, { duration: command.durationMs / 1000 })
+    }
+  }, [command, events, layout, map, vehicles])
+  return null
+}
+
+function ManualCameraBridge({ onManualCamera }: { onManualCamera?: () => void }) {
+  const map = useMap()
+  useEffect(() => {
+    if (!onManualCamera) return
+    const container = map.getContainer()
+    container.addEventListener('pointerdown', onManualCamera)
+    container.addEventListener('wheel', onManualCamera, { passive: true })
+    return () => {
+      container.removeEventListener('pointerdown', onManualCamera)
+      container.removeEventListener('wheel', onManualCamera)
+    }
+  }, [map, onManualCamera])
+  return null
+}
+
 export function MapView({
   vehicles,
   events,
@@ -112,6 +162,13 @@ export function MapView({
   onVehicleSelect,
   onEventSelect,
   onTileError,
+  animationChannel = 'single',
+  candidateIds = [],
+  effectMode = 'all',
+  cameraCommand = null,
+  onManualCamera,
+  secondaryMessages = [],
+  secondaryAnimationChannel,
 }: MapViewProps) {
   const [attentionEnabled, setAttentionEnabled] = useState(true)
   const [baseMap, setBaseMap] = useState<BaseMapStyle>('street')
@@ -180,6 +237,8 @@ export function MapView({
         <ZoomControl position="bottomright" />
         <FitScenarioBounds vehicles={vehicles} events={events} layout={layout} />
         <MapInteraction editing={editing} onMapClick={onMapClick} onDetailChange={setDetailsVisible} />
+        <CameraBridge command={cameraCommand} vehicles={vehicles} events={events} layout={layout} />
+        <ManualCameraBridge onManualCamera={onManualCamera} />
         {lines.map((line, index) => (
           <Polyline
             key={`${layout}-${index}`}
@@ -191,8 +250,15 @@ export function MapView({
         {detailsVisible && attentionEnabled && (
           <AttentionLinks attentionWeights={attentionWeights} events={events} vehicles={vehicles} />
         )}
-        {detailsVisible && <MessageLayer messages={messages} vehicles={vehicles} />}
-        <VehicleLayer vehicles={vehicles} onVehicleSelect={onVehicleSelect} />
+        {detailsVisible && <MessageLayer messages={messages} vehicles={vehicles}
+          animationChannel={animationChannel} tone={animationChannel === 'comparison-baseline' ? 'baseline' : 'ai'} />}
+        {detailsVisible && secondaryAnimationChannel && <MessageLayer messages={secondaryMessages} vehicles={vehicles}
+          animationChannel={secondaryAnimationChannel} tone="baseline" />}
+        <ShockwaveEffect2D events={events} animationChannel={animationChannel}
+          active={effectMode === 'event' || effectMode === 'all'} />
+        <RadarScanEffect2D events={events} vehicles={vehicles} candidateIds={candidateIds}
+          animationChannel={animationChannel} active={effectMode === 'scan' || effectMode === 'all'} />
+        <VehicleLayer vehicles={vehicles} animationChannel={animationChannel} onVehicleSelect={onVehicleSelect} />
         <EventLayer events={events} onEventSelect={onEventSelect} />
       </MapContainer>
     </section>
