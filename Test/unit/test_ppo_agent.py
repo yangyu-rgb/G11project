@@ -10,7 +10,12 @@ import numpy as np
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
-from src.models.ppo_agent import HandcraftedFeatureExtractor, PPOAgent  # noqa: E402
+from src.models.graph_transformer import GraphEnvironmentTransformer  # noqa: E402
+from src.models.ppo_agent import (  # noqa: E402
+    HandcraftedFeatureExtractor,
+    PPOAgent,
+    TransformerFeatureExtractor,
+)
 
 
 class TinyV2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
@@ -86,6 +91,34 @@ def test_ppo_agent_predicts_trains_and_round_trips_model(tmp_path: Path) -> None
     loaded_action = loaded.predict(observation)
     assert 0 <= loaded_action.priority < 3
     assert 0 <= loaded_action.bandwidth_level < 10
+
+    inference_path = agent.save_inference(tmp_path / "model_inference")
+    assert inference_path.stat().st_size < saved_path.stat().st_size
+    inference = PPOAgent.load(inference_path, environment, device="cpu")
+    assert np.array_equal(agent.predict_raw(observation), inference.predict_raw(observation))
+
+
+def test_agent_applies_transformer_search_configuration() -> None:
+    environment = TinyV2XEnv()
+    agent = PPOAgent(
+        environment,
+        n_steps=4,
+        batch_size=4,
+        n_epochs=1,
+        device="cpu",
+        transformer_config={
+            "d_model": 128,
+            "num_heads": 4,
+            "num_layers": 2,
+            "feedforward_dim": 256,
+            "variant": "graph",
+        },
+    )
+
+    extractor = agent.model.policy.features_extractor
+    assert isinstance(extractor, TransformerFeatureExtractor)
+    assert isinstance(extractor.transformer, GraphEnvironmentTransformer)
+    assert extractor.features_dim == 128 + 4 * 128 + 2
 
 
 def test_rl_only_agent_uses_handcrafted_relative_features() -> None:

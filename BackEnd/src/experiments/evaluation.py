@@ -65,6 +65,9 @@ def make_environment(
             environment.get("lateral_extent_m", 500 if domain == "urban" else 10)
         ),
         delay_normalization_ms=float(environment.get("delay_normalization_ms", 100)),
+        feature_mode=str(environment.get("feature_mode", "basic")),
+        history_window=int(environment.get("history_window", 5)),
+        ttc_max_seconds=float(environment.get("ttc_max_seconds", 30)),
         reward_mode="full",
         reward_weights=config.get("reward_weights"),
         safety_window_ms=float(config.get("safety_window_ms", 100)),

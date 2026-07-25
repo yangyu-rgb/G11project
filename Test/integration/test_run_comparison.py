@@ -13,6 +13,8 @@ import scripts.run_comparison as comparison  # noqa: E402
 
 
 def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypatch: Any) -> None:
+    calls = 0
+
     def fake_materialize(definition: Any, output: Path, *, seed: int) -> Path:
         del definition, seed
         output.mkdir(parents=True, exist_ok=True)
@@ -26,6 +28,8 @@ def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypat
         model: Path | None,
         config: dict[str, Any],
     ) -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
         del scenario, domain, seed, model, config
         score = {"ai": 0.9, "broadcast": 0.5, "distance": 0.6, "urgency": 0.7}[method]
         return {
@@ -57,3 +61,9 @@ def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypat
     assert summary["completed_result_rows"] == 8
     assert not summary["failures"]
     assert (tmp_path / "results/detailed_results.csv").is_file()
+
+    resumed = comparison.run_comparison(
+        config, tmp_path / "results", resume=True, case_runner=fake_case
+    )
+    assert resumed["completed_result_rows"] == 8
+    assert calls == 8

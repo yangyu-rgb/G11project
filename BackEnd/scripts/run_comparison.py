@@ -132,6 +132,7 @@ def run_comparison(
     config: dict[str, Any],
     output: str | Path,
     *,
+    resume: bool = False,
     case_runner: CaseRunner = run_case,
 ) -> dict[str, Any]:
     output_directory = backend_path(output)
@@ -153,6 +154,16 @@ def run_comparison(
         for definition in tests:
             for seed in map(int, config["test_seeds"]):
                 case_id = f"{domain}:{definition.scenario_id}:seed_{seed}"
+                case_path = (
+                    output_directory
+                    / "case_checkpoints"
+                    / domain
+                    / definition.scenario_id
+                    / f"seed_{seed}.json"
+                )
+                if resume and case_path.is_file():
+                    rows.extend(json.loads(case_path.read_text(encoding="utf-8"))["rows"])
+                    continue
                 try:
                     scenario_path = materialize_scenario(
                         definition,
@@ -163,6 +174,7 @@ def run_comparison(
                         / f"seed_{seed}",
                         seed=seed,
                     )
+                    case_rows = []
                     for method in METHODS:
                         metrics = case_runner(
                             scenario_path,
@@ -172,7 +184,7 @@ def run_comparison(
                             model_path if method == "ai" else None,
                             config,
                         )
-                        rows.append(
+                        case_rows.append(
                             {
                                 "case_id": case_id,
                                 "domain": domain,
@@ -182,6 +194,8 @@ def run_comparison(
                                 **metrics,
                             }
                         )
+                    atomic_write_json(case_path, {"case_id": case_id, "rows": case_rows})
+                    rows.extend(case_rows)
                 except Exception as exc:  # noqa: BLE001 - preserve the remaining matrix
                     failures.append({"case_id": case_id, "error": f"{type(exc).__name__}: {exc}"})
     write_detailed_csv(output_directory / "detailed_results.csv", rows)
@@ -203,12 +217,13 @@ def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--resume", action="store_true")
     return parser.parse_args()
 
 
 def main() -> int:
     arguments = _parse_arguments()
-    summary = run_comparison(load_yaml(arguments.config), arguments.output)
+    summary = run_comparison(load_yaml(arguments.config), arguments.output, resume=arguments.resume)
     print(json.dumps(summary, indent=2))
     return 1 if summary["failures"] else 0
 

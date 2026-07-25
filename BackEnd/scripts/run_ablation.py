@@ -7,6 +7,7 @@ import copy
 import json
 import math
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,9 +68,12 @@ def _train_ranker(
     epochs: int,
     learning_rate: float,
     seed: int,
+    transformer_config: dict[str, Any] | None = None,
 ) -> tuple[TransformerReceiverRanker, float]:
     torch.manual_seed(seed)
-    model = TransformerReceiverRanker()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    vehicle_feature_dim = int(examples[0][0]["vehicles"].shape[-1])
+    model = TransformerReceiverRanker(vehicle_feature_dim, transformer_config).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.BCEWithLogitsLoss(reduction="none")
     final_loss = math.inf
@@ -77,18 +81,28 @@ def _train_ranker(
         losses = []
         model.train()
         for observation, labels in examples:
-            logits = model(tensor_observation(observation))[0]
-            mask = torch.as_tensor(observation["vehicle_mask"]).bool()
-            loss = criterion(logits[mask], torch.as_tensor(labels)[mask]).mean()
+            tensors = {
+                key: value.to(device) for key, value in tensor_observation(observation).items()
+            }
+            logits = model(tensors)[0]
+            mask = torch.as_tensor(observation["vehicle_mask"], device=device).bool()
+            label_tensor = torch.as_tensor(labels, device=device)
+            loss = criterion(logits[mask], label_tensor[mask]).mean()
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             losses.append(float(loss.detach()))
         final_loss = float(np.mean(losses))
-    return model, final_loss
+    return model.cpu(), final_loss
 
 
-def _transformer_only_training(config: dict[str, Any], output: Path) -> Path:
+class AblationPaused(RuntimeError):
+    """Signal a normal pause between independently persisted ablation runs."""
+
+
+def _transformer_only_training(
+    config: dict[str, Any], output: Path, *, resume: bool = False, deadline: float | None = None
+) -> Path:
     domain = str(config["domain"])
     base = load_yaml(config["base_scenario_config"])
     dataset = config["dataset"]
@@ -103,6 +117,14 @@ def _transformer_only_training(config: dict[str, Any], output: Path) -> Path:
     for definition in (item for item in matrix if item.split == "train"):
         for seed in map(int, config["training_seeds"]):
             run_directory = output / definition.scenario_id / f"seed_{seed}"
+            model_path = run_directory / "model.pt"
+            summary_path = run_directory / "training_summary.json"
+            if resume and model_path.is_file() and summary_path.is_file():
+                loss = float(json.loads(summary_path.read_text(encoding="utf-8"))["loss"])
+                candidates.append((loss, model_path))
+                continue
+            if deadline is not None and time.monotonic() >= deadline - 1800:
+                raise AblationPaused
             scenario = materialize_scenario(definition, run_directory / "scenario", seed=seed)
             environment = make_environment(scenario, domain, seed, config)
             try:
@@ -114,9 +136,18 @@ def _transformer_only_training(config: dict[str, Any], output: Path) -> Path:
                 epochs=int(config["training"]["epochs"]),
                 learning_rate=float(config["training"]["learning_rate"]),
                 seed=seed,
+                transformer_config=config.get("ppo_overrides", {}).get("transformer"),
             )
-            model_path = run_directory / "model.pt"
-            save_ranker(model, model_path, {"top_k": None, "training_loss": loss})
+            save_ranker(
+                model,
+                model_path,
+                {
+                    "top_k": None,
+                    "training_loss": loss,
+                    "vehicle_feature_dim": int(examples[0][0]["vehicles"].shape[-1]),
+                    "transformer_config": config.get("ppo_overrides", {}).get("transformer"),
+                },
+            )
             atomic_write_json(run_directory / "training_summary.json", {"loss": loss})
             candidates.append((loss, model_path))
     if not candidates:
@@ -157,7 +188,12 @@ def _transformer_only_training(config: dict[str, Any], output: Path) -> Path:
 
 
 def _evaluate_variant(
-    config: dict[str, Any], output: Path, model_path: Path, variant: str
+    config: dict[str, Any],
+    output: Path,
+    model_path: Path,
+    variant: str,
+    *,
+    resume: bool = False,
 ) -> list[dict[str, Any]]:
     domain = str(config["domain"])
     base = load_yaml(config["base_scenario_config"])
@@ -175,6 +211,10 @@ def _evaluate_variant(
     rows = []
     for definition in (item for item in matrix if item.split == "test"):
         for seed in map(int, config["test_seeds"]):
+            case_path = output / "case_checkpoints" / definition.scenario_id / f"seed_{seed}.json"
+            if resume and case_path.is_file():
+                rows.append(json.loads(case_path.read_text(encoding="utf-8"))["row"])
+                continue
             scenario = materialize_scenario(
                 definition, output / "test" / definition.scenario_id / f"seed_{seed}", seed=seed
             )
@@ -188,35 +228,60 @@ def _evaluate_variant(
                 metrics = evaluate_episode(environment, provider, reset_seed=seed)
             finally:
                 environment.close()
-            rows.append(
-                {
-                    "case_id": f"{domain}:{definition.scenario_id}:seed_{seed}",
-                    "domain": domain,
-                    "scenario_id": definition.scenario_id,
-                    "seed": seed,
-                    "method": variant,
-                    **metrics,
-                }
-            )
+            row = {
+                "case_id": f"{domain}:{definition.scenario_id}:seed_{seed}",
+                "domain": domain,
+                "scenario_id": definition.scenario_id,
+                "seed": seed,
+                "method": variant,
+                **metrics,
+            }
+            atomic_write_json(case_path, {"row": row})
+            rows.append(row)
     return rows
 
 
-def run_ablation(config: dict[str, Any], output: str | Path) -> dict[str, Any]:
+def run_ablation(
+    config: dict[str, Any],
+    output: str | Path,
+    *,
+    resume: bool = False,
+    work_output: str | Path | None = None,
+    time_budget_minutes: float | None = None,
+) -> dict[str, Any]:
     output_directory = backend_path(output)
     output_directory.mkdir(parents=True, exist_ok=True)
     variant = str(config["variant"])
+    deadline = (
+        time.monotonic() + time_budget_minutes * 60 if time_budget_minutes is not None else None
+    )
     if variant == "transformer_only":
-        model_path = _transformer_only_training(config, output_directory)
+        try:
+            model_path = _transformer_only_training(
+                config, output_directory, resume=resume, deadline=deadline
+            )
+        except AblationPaused:
+            return {"status": "paused", "variant": variant}
     elif variant == "rl_only":
         batch_config = copy.deepcopy(config)
         batch_config["ppo_feature_extractor"] = "handcrafted"
-        batch_summary = run_batch(batch_config, output_directory)
+        batch_summary = run_batch(
+            batch_config,
+            output_directory,
+            resume=resume,
+            retry_failed=resume,
+            work_output=work_output,
+            time_budget_minutes=time_budget_minutes,
+            retain_per_config_best=work_output is not None,
+        )
+        if batch_summary.get("paused"):
+            return {"status": "paused", "variant": variant}
         if batch_summary["failed_runs"] or not batch_summary["champion"]:
             raise RuntimeError("RL-only batch did not produce a champion")
         model_path = output_directory / str(batch_summary["champion"]["model"])
     else:
         raise ValueError("variant must be transformer_only or rl_only")
-    rows = _evaluate_variant(config, output_directory, model_path, variant)
+    rows = _evaluate_variant(config, output_directory, model_path, variant, resume=resume)
     write_detailed_csv(output_directory / "detailed_results.csv", rows)
     renamed = [{**row, "method": "ai"} for row in rows]
     summary = {
@@ -251,10 +316,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--work-output")
+    parser.add_argument("--time-budget-minutes", type=float)
     arguments = parser.parse_args()
-    summary = run_ablation(load_yaml(arguments.config), arguments.output)
+    summary = run_ablation(
+        load_yaml(arguments.config),
+        arguments.output,
+        resume=arguments.resume,
+        work_output=arguments.work_output,
+        time_budget_minutes=arguments.time_budget_minutes,
+    )
     print(json.dumps(summary, indent=2))
-    return 0
+    return 75 if summary.get("status") == "paused" else 0
 
 
 if __name__ == "__main__":

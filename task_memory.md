@@ -201,3 +201,13 @@
 - 兼容性：所有HTTP/WebSocket路径和消息结构保持不变；`v2x_env`继续重新导出快照类型，`app.comparison`继续提供兼容导出。
 - 验证结果：前端ESLint、16项Node测试和生产构建通过；后端Ruff检查和95项pytest通过，其中新增依赖边界、播放状态、速度范围、Runtime隔离及端点构造测试。
 - 后续事项：继续完成GPU正式实验和目标Chrome动画性能验收；不因本轮结构重构扩大算法或视觉范围。
+
+## 2026-07-25｜完成Colab Pro正式实验执行层
+
+- 状态：代码、恢复机制和全流程smoke已完成；正式GPU数值仍待在Colab Pro运行。
+- 目标：让Mac用户通过Colab Pro可靠完成任务030–032、024–029，同时控制Runtime上限、Drive写入和模型存储体积。
+- 完成内容：新增Colab Notebook与统一正式流水线；训练使用`/content`临时盘并在种子边界同步Google Drive；支持9小时安全暂停、跨Runtime恢复、失败重试、commit隔离、阶段状态、空间预检查、每配置最佳模型保留和不含Adam状态的紧凑推理模型；奖励、特征和54+3组架构选择结果会冻结后自动传入高速/城市正式训练；对比、消融和泛化按case恢复。
+- 必要修复：Transformer搜索参数及Graph变体已真正注入PPO；增强特征模式贯穿评估和消融；城市SUMO事件在预定车辆失活时确定性选择仍活跃且未使用的替代车辆，避免固定种子永久失败。
+- 关键决策：不使用Keep Alive、自动点击或绕过Colab验证；单次正式运行预算540分钟；同一Drive实验目录只允许单Runtime顺序执行；正式结果未产生前不更新性能结论。
+- 验证结果：真实SUMO/PPO全流程CPU smoke依次完成奖励选择、特征选择、2个标准+1个Graph结构搜索、高速/城市2配置×2种子训练、8行四方法对比、两类消融、四向泛化及五类论文输出；Ruff lint/format通过，后端完整101项pytest通过。
+- 后续事项：将本轮代码推送后在Colab GPU Runtime打开`BackEnd/notebooks/colab_formal_training.ipynb`，先完成独立smoke，再重复执行正式阶段单元格直至`next_stage`为`null`；随后回传冠军模型和正式图表。

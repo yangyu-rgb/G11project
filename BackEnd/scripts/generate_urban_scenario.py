@@ -253,8 +253,13 @@ def build_event_schedule(
     rng: random.Random,
 ) -> list[UrbanScheduledEvent]:
     """Schedule one event of each required type on long-lived corridor vehicles."""
+    latest_event_time = max(config.event_times_s, default=0.0)
     corridor_vehicles = [
-        vehicle for vehicle in vehicles if vehicle.route_id in {"west_to_east", "east_to_west"}
+        vehicle
+        for vehicle in vehicles
+        if vehicle.route_id in {"west_to_east", "east_to_west"}
+        and config.road_length_m - vehicle.depart_position_m
+        > vehicle.depart_speed_mps * (latest_event_time + 5.0)
     ]
     if len(corridor_vehicles) < len(config.event_types):
         raise UrbanScenarioGenerationError(
@@ -468,6 +473,7 @@ def _run_simulation(
     label = f"urban-{uuid.uuid4().hex}"
     started = False
     recorded: list[dict[str, float | str]] = []
+    used_vehicle_ids: set[str] = set()
     try:
         traci.start(
             [
@@ -496,16 +502,26 @@ def _run_simulation(
             event = schedule[next_event]
             if simulation_time + config.step_length_s / 2 < event.timestamp:
                 continue
-            if event.vehicle_id not in set(connection.vehicle.getIDList()):
-                raise UrbanScenarioGenerationError(
-                    f"Scheduled vehicle '{event.vehicle_id}' is not active at {simulation_time:.2f}s."
-                )
-            x_position, y_position = connection.vehicle.getPosition(event.vehicle_id)
+            active_vehicle_ids = sorted(connection.vehicle.getIDList())
+            vehicle_id = event.vehicle_id
+            if vehicle_id not in active_vehicle_ids:
+                replacements = [
+                    candidate
+                    for candidate in active_vehicle_ids
+                    if candidate not in used_vehicle_ids
+                ]
+                if not replacements:
+                    raise UrbanScenarioGenerationError(
+                        f"No active vehicle is available at {simulation_time:.2f}s."
+                    )
+                vehicle_id = replacements[0]
+            used_vehicle_ids.add(vehicle_id)
+            x_position, y_position = connection.vehicle.getPosition(vehicle_id)
             if event.event_type == "emergency_braking":
-                current_speed = connection.vehicle.getSpeed(event.vehicle_id)
-                connection.vehicle.slowDown(event.vehicle_id, max(0.0, current_speed - 12.0), 2.0)
+                current_speed = connection.vehicle.getSpeed(vehicle_id)
+                connection.vehicle.slowDown(vehicle_id, max(0.0, current_speed - 12.0), 2.0)
             elif event.event_type == "obstacle":
-                connection.vehicle.slowDown(event.vehicle_id, 0.0, 3.0)
+                connection.vehicle.slowDown(vehicle_id, 0.0, 3.0)
             recorded.append(
                 {
                     "type": event.event_type,

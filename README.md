@@ -161,6 +161,14 @@ BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
   --output experiments/test_ppo
 ```
 
+### Google Colab Pro正式实验
+
+任务024–032的GPU训练使用
+[`BackEnd/notebooks/colab_formal_training.ipynb`](BackEnd/notebooks/colab_formal_training.ipynb)。
+Notebook负责挂载Google Drive、安装SUMO、验证CUDA，并通过统一可恢复流水线依次完成奖励、特征、架构选择、
+高速/城市批训练及后续对比、消融、泛化和论文图表。单次运行默认在9小时内安全暂停；Runtime重建后重复同一命令即可恢复。
+不要同时使用多个Colab Runtime写入同一个实验目录，也不要加入自动点击或Keep Alive代码。
+
 ### 演示模式
 
 ```bash

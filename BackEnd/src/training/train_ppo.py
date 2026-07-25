@@ -127,6 +127,7 @@ def create_agent(config: dict[str, Any], environment: Monitor) -> PPOAgent:
         device=str(ppo.get("device", "auto")),
         verbose=int(ppo.get("verbose", 1)),
         feature_extractor=str(ppo.get("feature_extractor", "transformer")),
+        transformer_config=ppo.get("transformer"),
     )
 
 

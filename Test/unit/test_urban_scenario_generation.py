@@ -39,6 +39,12 @@ def test_default_urban_config_builds_reproducible_100_vehicle_scenario() -> None
     assert all(30 / 3.6 <= vehicle.depart_speed_mps <= 60 / 3.6 for vehicle in first_vehicles)
     assert tuple(event.event_type for event in schedule) == EVENT_TYPES
     assert all(10 <= event.timestamp <= 30 for event in schedule)
+    vehicles_by_id = {vehicle.vehicle_id: vehicle for vehicle in first_vehicles}
+    assert all(
+        config.road_length_m - vehicles_by_id[event.vehicle_id].depart_position_m
+        > vehicles_by_id[event.vehicle_id].depart_speed_mps * (max(config.event_times_s) + 5)
+        for event in schedule
+    )
 
 
 def test_generated_urban_scenario_is_loadable_and_complete(tmp_path: Path) -> None:

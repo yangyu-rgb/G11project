@@ -13,6 +13,7 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
+from src.models.graph_transformer import GraphEnvironmentTransformer
 from src.models.transformer import EnvironmentTransformer
 
 
@@ -26,20 +27,48 @@ class DecodedAction:
 class TransformerFeatureExtractor(BaseFeaturesExtractor):
     """Encode padded vehicle/event observations before the actor and critic MLPs."""
 
-    def __init__(self, observation_space: gym.spaces.Dict) -> None:
+    def __init__(
+        self,
+        observation_space: gym.spaces.Dict,
+        *,
+        d_model: int = 256,
+        num_heads: int = 8,
+        num_layers: int = 4,
+        feedforward_dim: int = 1024,
+        dropout: float = 0.1,
+        variant: Literal["standard", "graph"] = "standard",
+        distance_temperature: float = 0.2,
+    ) -> None:
         vehicle_space = observation_space.spaces["vehicles"]
         event_space = observation_space.spaces["events"]
         network_space = observation_space.spaces["network_state"]
         max_vehicles, vehicle_feature_dim = vehicle_space.shape
         _, event_feature_dim = event_space.shape
         network_feature_dim = network_space.shape[0]
-        d_model = 256
         features_dim = d_model + max_vehicles * d_model + network_feature_dim
         super().__init__(observation_space, features_dim=features_dim)
         self.max_vehicles = max_vehicles
-        self.transformer = EnvironmentTransformer(
-            vehicle_feature_dim=vehicle_feature_dim,
-            event_feature_dim=event_feature_dim,
+        transformer_classes = {
+            "standard": EnvironmentTransformer,
+            "graph": GraphEnvironmentTransformer,
+        }
+        try:
+            transformer_class = transformer_classes[variant]
+        except KeyError as exc:
+            raise ValueError("variant must be 'standard' or 'graph'") from exc
+        transformer_options: dict[str, Any] = {
+            "vehicle_feature_dim": vehicle_feature_dim,
+            "event_feature_dim": event_feature_dim,
+            "d_model": d_model,
+            "num_heads": num_heads,
+            "num_layers": num_layers,
+            "feedforward_dim": feedforward_dim,
+            "dropout": dropout,
+        }
+        if variant == "graph":
+            transformer_options["distance_temperature"] = distance_temperature
+        self.transformer = transformer_class(
+            **transformer_options,
         )
         self._capture_attention_once = False
         self._captured_attention: torch.Tensor | None = None
@@ -138,6 +167,7 @@ class PPOAgent:
         device: str = "auto",
         verbose: int = 0,
         feature_extractor: Literal["transformer", "handcrafted"] = "transformer",
+        transformer_config: dict[str, Any] | None = None,
     ) -> None:
         extractor_classes = {
             "transformer": TransformerFeatureExtractor,
@@ -151,6 +181,8 @@ class PPOAgent:
             "features_extractor_class": extractor_class,
             "net_arch": {"pi": [512, 256], "vf": [512, 256]},
         }
+        if feature_extractor == "transformer" and transformer_config:
+            policy_kwargs["features_extractor_kwargs"] = dict(transformer_config)
         self.model = PPO(
             "MultiInputPolicy",
             environment,
@@ -227,6 +259,19 @@ class PPOAgent:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         self.model.save(target)
+        return target.with_suffix(".zip")
+
+    def save_inference(self, path: str | Path) -> Path:
+        """Save an SB3-compatible model without Adam moments used only for resuming."""
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        optimizer = self.model.policy.optimizer
+        optimizer_state = optimizer.state
+        try:
+            optimizer.state = type(optimizer_state)()
+            self.model.save(target)
+        finally:
+            optimizer.state = optimizer_state
         return target.with_suffix(".zip")
 
     @classmethod

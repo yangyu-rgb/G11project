@@ -41,7 +41,9 @@ def _relative_drop(
     return ((cross - within) if lower_better else (within - cross)) / abs(within)
 
 
-def run_generalization(config: dict[str, Any], output: str | Path) -> dict[str, Any]:
+def run_generalization(
+    config: dict[str, Any], output: str | Path, *, resume: bool = False
+) -> dict[str, Any]:
     output_directory = backend_path(output)
     output_directory.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
@@ -60,6 +62,16 @@ def run_generalization(config: dict[str, Any], output: str | Path) -> dict[str, 
         for definition in (item for item in definitions if item.split == "test"):
             for seed in map(int, config["test_seeds"]):
                 case_id = f"{source}_to_{target}:{definition.scenario_id}:seed_{seed}"
+                case_path = (
+                    output_directory
+                    / "case_checkpoints"
+                    / f"{source}_to_{target}"
+                    / definition.scenario_id
+                    / f"seed_{seed}.json"
+                )
+                if resume and case_path.is_file():
+                    rows.append(json.loads(case_path.read_text(encoding="utf-8"))["row"])
+                    continue
                 try:
                     scenario = materialize_scenario(
                         definition,
@@ -71,18 +83,18 @@ def run_generalization(config: dict[str, Any], output: str | Path) -> dict[str, 
                         seed=seed,
                     )
                     metrics = run_case(scenario, target, seed, "ai", model, config)
-                    rows.append(
-                        {
-                            "case_id": case_id,
-                            "domain": target,
-                            "scenario_id": definition.scenario_id,
-                            "seed": seed,
-                            "method": f"{source}_to_{target}",
-                            "source_domain": source,
-                            "target_domain": target,
-                            **metrics,
-                        }
-                    )
+                    row = {
+                        "case_id": case_id,
+                        "domain": target,
+                        "scenario_id": definition.scenario_id,
+                        "seed": seed,
+                        "method": f"{source}_to_{target}",
+                        "source_domain": source,
+                        "target_domain": target,
+                        **metrics,
+                    }
+                    atomic_write_json(case_path, {"case_id": case_id, "row": row})
+                    rows.append(row)
                 except Exception as exc:  # noqa: BLE001 - keep independent cases running
                     failures.append({"case_id": case_id, "error": f"{type(exc).__name__}: {exc}"})
     write_detailed_csv(output_directory / "detailed_results.csv", rows)
@@ -125,8 +137,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/comparison_test.yaml")
     parser.add_argument("--output", required=True)
+    parser.add_argument("--resume", action="store_true")
     arguments = parser.parse_args()
-    summary = run_generalization(load_yaml(arguments.config), arguments.output)
+    summary = run_generalization(
+        load_yaml(arguments.config), arguments.output, resume=arguments.resume
+    )
     print(json.dumps(summary, indent=2))
     return 1 if summary["failures"] else 0
 

@@ -6,8 +6,11 @@ import argparse
 import copy
 import csv
 import json
+import os
 import shutil
 import sys
+import time
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -117,7 +120,10 @@ def train_one_run(
         else {}
     )
     completed = int(progress.get("episodes_completed", 0))
-    best_validation = float(progress.get("best_validation_mean", "-inf"))
+    raw_best_validation = progress.get("best_validation_mean", "-inf")
+    best_validation = (
+        float(raw_best_validation) if raw_best_validation is not None else float("-inf")
+    )
     stale_episodes = int(progress.get("stale_episodes", 0))
     training = config["batch"]
     episode_budget = int(training["episodes_per_config"])
@@ -137,7 +143,13 @@ def train_one_run(
             {**config, "tensorboard_log": run_directory / "tensorboard"}, environment
         )
     try:
+        paused = False
         while completed < episode_budget and stale_episodes < patience:
+            deadline = config.get("runtime", {}).get("deadline_monotonic")
+            reserve_seconds = float(config.get("runtime", {}).get("reserve_seconds", 1800))
+            if deadline is not None and time.monotonic() >= float(deadline) - reserve_seconds:
+                paused = True
+                break
             requested = min(validation_interval, episode_budget - completed)
             tracker = EpisodeRewardTracker(requested)
             episode_steps = int(config["environment"]["episode_steps"])
@@ -176,6 +188,18 @@ def train_one_run(
                     "stale_episodes": stale_episodes,
                 },
             )
+        if paused:
+            summary = {
+                "status": "paused",
+                "episodes_requested": episode_budget,
+                "episodes_completed": completed,
+                "best_validation_mean": (
+                    best_validation if best_validation != float("-inf") else None
+                ),
+                "stale_episodes": stale_episodes,
+            }
+            atomic_write_json(progress_path, summary)
+            return summary
         rewards = []
         if log_path.is_file():
             with log_path.open(encoding="utf-8") as stream:
@@ -193,6 +217,11 @@ def train_one_run(
         atomic_write_json(progress_path, summary)
         if latest_path.exists():
             latest_path.unlink()
+        if config.get("storage", {}).get("compact_completed_models", False):
+            compact_path = best_path.with_name("model_best_compact")
+            compact_agent = PPOAgent.load(best_path, environment, device="cpu")
+            compact_zip = compact_agent.save_inference(compact_path)
+            os.replace(compact_zip, best_path)
         return summary
     finally:
         environment.close()
@@ -223,6 +252,8 @@ def _resolved_training_config(
     config["ppo"]["feature_extractor"] = batch_config.get(
         "ppo_feature_extractor", config["ppo"].get("feature_extractor", "transformer")
     )
+    config["environment"].update(batch_config.get("environment_overrides", {}))
+    config["ppo"].update(batch_config.get("ppo_overrides", {}))
     config["evaluation"] = {"safety_window_ms": batch_config["safety_window_ms"]}
     config["batch"] = batch_config["training"]
     return config
@@ -281,6 +312,9 @@ def run_batch(
     retry_failed: bool = False,
     shard_index: int = 0,
     shard_count: int = 1,
+    work_output: str | Path | None = None,
+    time_budget_minutes: float | None = None,
+    retain_per_config_best: bool = False,
     train_runner: TrainRunner = train_one_run,
 ) -> dict[str, Any]:
     domain = str(config["domain"])
@@ -295,6 +329,13 @@ def run_batch(
     )
     output_directory = backend_path(output)
     output_directory.mkdir(parents=True, exist_ok=True)
+    work_directory = backend_path(work_output) if work_output is not None else output_directory
+    work_directory.mkdir(parents=True, exist_ok=True)
+    deadline = (
+        time.monotonic() + float(time_budget_minutes) * 60
+        if time_budget_minutes is not None
+        else None
+    )
     atomic_write_json(
         output_directory / "dataset_manifest.json",
         [
@@ -311,22 +352,35 @@ def run_batch(
     seeds = [int(value) for value in config["training_seeds"]]
     jobs = [(scenario, seed) for scenario in train_definitions for seed in seeds]
     jobs = [job for index, job in enumerate(jobs) if index % shard_count == shard_index]
-    completed_runs: list[dict[str, Any]] = []
-    failed_runs: list[dict[str, Any]] = []
+    paused = False
     for scenario, seed in jobs:
-        run_directory = output_directory / scenario.scenario_id / f"seed_{seed}"
-        status_path = run_directory / "status.json"
+        persistent_run_directory = output_directory / scenario.scenario_id / f"seed_{seed}"
+        status_path = persistent_run_directory / "status.json"
         if resume and status_path.is_file():
             previous = json.loads(status_path.read_text(encoding="utf-8"))
             if previous.get("status") == "completed":
-                completed_runs.append(previous)
                 continue
             if previous.get("status") == "failed" and not retry_failed:
-                failed_runs.append(previous)
                 continue
+        if deadline is not None and time.monotonic() >= deadline - 1800:
+            paused = True
+            break
+        run_directory = work_directory / scenario.scenario_id / f"seed_{seed}"
+        if work_directory != output_directory:
+            if run_directory.exists():
+                shutil.rmtree(run_directory)
+            if persistent_run_directory.exists():
+                shutil.copytree(persistent_run_directory, run_directory)
         try:
             scenario_path = materialize_scenario(scenario, run_directory / "scenario", seed=seed)
             training_config = _resolved_training_config(config, scenario, scenario_path, seed)
+            training_config["runtime"] = {
+                "deadline_monotonic": deadline,
+                "reserve_seconds": 1800,
+            }
+            training_config["storage"] = {
+                "compact_completed_models": work_directory != output_directory,
+            }
             config_path = run_directory / "resolved_training.yaml"
             config_path.write_text(
                 yaml.safe_dump(training_config, sort_keys=False), encoding="utf-8"
@@ -339,8 +393,15 @@ def run_batch(
                 "config_sha256": sha256_file(config_path),
                 "model_path": str(run_directory / "model_best.zip"),
             }
-            atomic_write_json(status_path, status)
-            completed_runs.append(status)
+            atomic_write_json(run_directory / "status.json", status)
+            if work_directory != output_directory:
+                _replace_directory(run_directory, persistent_run_directory)
+                status["model_path"] = str(persistent_run_directory / "model_best.zip")
+                atomic_write_json(status_path, status)
+                shutil.rmtree(run_directory, ignore_errors=True)
+            if result.get("status") == "paused":
+                paused = True
+                break
         except Exception as exc:  # noqa: BLE001 - one failed run must not stop the batch
             status = {
                 "status": "failed",
@@ -349,18 +410,12 @@ def run_batch(
                 "error": f"{type(exc).__name__}: {exc}",
             }
             atomic_write_json(status_path, status)
-            failed_runs.append(status)
-        atomic_write_json(
-            output_directory / "summary.json",
-            {
-                "run_mode": config.get("run_mode", "formal"),
-                "domain": domain,
-                "expected_runs": len(jobs),
-                "completed_runs": len(completed_runs),
-                "failed_runs": failed_runs,
-                "git": git_metadata(),
-            },
-        )
+            if work_directory != output_directory:
+                shutil.rmtree(run_directory, ignore_errors=True)
+        _write_partial_summary(config, output_directory, jobs, paused=False)
+    if retain_per_config_best:
+        _retain_best_seed_per_config(output_directory, train_definitions, seeds)
+    completed_runs, failed_runs = _collect_run_statuses(output_directory, jobs)
     convergence_threshold = float(config["success"]["reward_threshold"])
     converged = sum(
         float(item.get("mean_final_reward") or float("-inf")) > convergence_threshold
@@ -372,7 +427,7 @@ def run_batch(
         for item in completed_runs
         if item.get("model_path") and Path(str(item["model_path"])).is_file()
     ]
-    if candidates:
+    if candidates and len(completed_runs) == len(jobs):
         if config.get("champion_selection", {}).get("enabled", False):
             champion = _select_on_independent_validation(
                 candidates, config, matrix, output_directory
@@ -402,6 +457,7 @@ def run_batch(
         "expected_runs": len(jobs),
         "completed_runs": len(completed_runs),
         "failed_runs": failed_runs,
+        "paused": paused,
         "converged_runs": converged,
         "convergence_rate": converged / len(completed_runs) if completed_runs else 0.0,
         "champion": (
@@ -419,6 +475,84 @@ def run_batch(
     return summary
 
 
+def _replace_directory(source: Path, destination: Path) -> None:
+    """Replace one persisted run only after its complete local copy is available."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp-{uuid.uuid4().hex}")
+    shutil.copytree(source, temporary)
+    if destination.exists():
+        shutil.rmtree(destination)
+    os.replace(temporary, destination)
+
+
+def _collect_run_statuses(
+    output_directory: Path, jobs: list[tuple[ScenarioDefinition, int]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    completed: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
+    for scenario, seed in jobs:
+        path = output_directory / scenario.scenario_id / f"seed_{seed}" / "status.json"
+        if not path.is_file():
+            continue
+        value = json.loads(path.read_text(encoding="utf-8"))
+        if value.get("status") == "completed":
+            completed.append(value)
+        elif value.get("status") == "failed":
+            failed.append(value)
+    return completed, failed
+
+
+def _write_partial_summary(
+    config: dict[str, Any],
+    output_directory: Path,
+    jobs: list[tuple[ScenarioDefinition, int]],
+    *,
+    paused: bool,
+) -> None:
+    completed, failed = _collect_run_statuses(output_directory, jobs)
+    atomic_write_json(
+        output_directory / "summary.json",
+        {
+            "run_mode": config.get("run_mode", "formal"),
+            "domain": config["domain"],
+            "expected_runs": len(jobs),
+            "completed_runs": len(completed),
+            "failed_runs": failed,
+            "paused": paused,
+            "git": git_metadata(),
+        },
+    )
+
+
+def _retain_best_seed_per_config(
+    output_directory: Path,
+    definitions: list[ScenarioDefinition],
+    seeds: list[int],
+) -> None:
+    for scenario in definitions:
+        statuses = []
+        for seed in seeds:
+            status_path = output_directory / scenario.scenario_id / f"seed_{seed}" / "status.json"
+            if status_path.is_file():
+                status = json.loads(status_path.read_text(encoding="utf-8"))
+                if status.get("status") == "completed":
+                    statuses.append((status_path, status))
+        if len(statuses) != len(seeds):
+            continue
+        selected_path, _ = max(
+            statuses,
+            key=lambda item: float(item[1].get("best_validation_mean", float("-inf"))),
+        )
+        for status_path, status in statuses:
+            retained = status_path == selected_path
+            model_path = status_path.parent / "model_best.zip"
+            if not retained and model_path.exists():
+                model_path.unlink()
+            status["model_retained"] = retained
+            status["model_path"] = str(model_path) if retained else None
+            atomic_write_json(status_path, status)
+
+
 def _parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
@@ -427,6 +561,20 @@ def _parse_arguments() -> argparse.Namespace:
     parser.add_argument("--retry-failed", action="store_true")
     parser.add_argument("--shard-index", type=int, default=0)
     parser.add_argument("--shard-count", type=int, default=1)
+    parser.add_argument(
+        "--work-output",
+        help="optional fast local scratch directory; --output remains the persistent store",
+    )
+    parser.add_argument(
+        "--time-budget-minutes",
+        type=float,
+        help="pause safely before this invocation exceeds its runtime budget",
+    )
+    parser.add_argument(
+        "--retain-per-config-best",
+        action="store_true",
+        help="after all seeds finish, retain only the best model for each configuration",
+    )
     parser.add_argument(
         "--smoke",
         action="store_true",
@@ -468,9 +616,14 @@ def main() -> int:
         retry_failed=arguments.retry_failed,
         shard_index=arguments.shard_index,
         shard_count=arguments.shard_count,
+        work_output=arguments.work_output,
+        time_budget_minutes=arguments.time_budget_minutes,
+        retain_per_config_best=arguments.retain_per_config_best,
     )
     print(json.dumps(summary, indent=2))
-    return 1 if summary["failed_runs"] else 0
+    if summary["failed_runs"]:
+        return 1
+    return 75 if summary.get("paused") else 0
 
 
 if __name__ == "__main__":

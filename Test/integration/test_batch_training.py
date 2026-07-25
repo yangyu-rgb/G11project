@@ -104,3 +104,54 @@ def test_batch_resume_skips_completed_runs(tmp_path: Path, monkeypatch: pytest.M
     batch_module.run_batch(config, tmp_path / "batch", resume=True, train_runner=fake_train)
 
     assert calls == 4
+
+
+def test_batch_uses_scratch_and_retains_one_model_per_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_materialize(definition: Any, output: Path, *, seed: int) -> Path:
+        del definition, seed
+        output.mkdir(parents=True, exist_ok=True)
+        return output
+
+    def fake_train(
+        config: dict[str, Any], scenario: Path, output: Path, resume: bool
+    ) -> dict[str, Any]:
+        del config, scenario, resume
+        seed = int(output.name.removeprefix("seed_"))
+        (output / "model_best.zip").write_bytes(str(seed).encode())
+        return {
+            "status": "completed",
+            "mean_final_reward": seed / 10,
+            "best_validation_mean": seed / 10,
+        }
+
+    monkeypatch.setattr(batch_module, "materialize_scenario", fake_materialize)
+    persistent = tmp_path / "drive"
+    batch_module.run_batch(
+        _config(tmp_path),
+        persistent,
+        work_output=tmp_path / "scratch",
+        retain_per_config_best=True,
+        train_runner=fake_train,
+    )
+
+    assert len(list(persistent.glob("config_*/seed_*/model_best.zip"))) == 2
+    for config_directory in persistent.glob("config_*"):
+        retained = [
+            json.loads(path.read_text())["model_retained"]
+            for path in config_directory.glob("seed_*/status.json")
+        ]
+        assert retained.count(True) == 1
+
+
+def test_batch_time_budget_pauses_before_starting_a_new_run(tmp_path: Path) -> None:
+    summary = batch_module.run_batch(
+        _config(tmp_path),
+        tmp_path / "batch",
+        time_budget_minutes=1,
+    )
+
+    assert summary["paused"] is True
+    assert summary["completed_runs"] == 0
+    assert summary["failed_runs"] == []
