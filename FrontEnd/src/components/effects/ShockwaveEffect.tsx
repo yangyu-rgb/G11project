@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { easeOutCubic } from '../../engine/Interpolator'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationEvent } from '../../types/simulation'
 import { toMapPosition } from '../MapView/coordinates'
 
@@ -19,6 +20,7 @@ function reducedMotion(): boolean {
 }
 
 export function ShockwaveEffect2D({ events, animationChannel = 'single', active = true }: EffectProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const map = useMap()
   const triggered = useRef(new Map<string, TriggeredEvent>())
 
@@ -29,7 +31,7 @@ export function ShockwaveEffect2D({ events, animationChannel = 'single', active 
       const key = `${event.id}:${event.timestamp}`
       if (!triggered.current.has(key)) triggered.current.set(key, { ...event, startedAt: now })
     }
-  }, [active, animationChannel, events])
+  }, [active, animationChannel, animationEngine, events])
 
   useEffect(() => {
     const effects = triggered.current
@@ -80,6 +82,6 @@ export function ShockwaveEffect2D({ events, animationChannel = 'single', active 
       map.off('resize', resize)
       canvas.remove()
     }
-  }, [animationChannel, map])
+  }, [animationChannel, animationEngine, map])
   return null
 }

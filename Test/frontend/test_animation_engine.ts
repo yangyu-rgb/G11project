@@ -9,6 +9,8 @@ import {
   interpolatePhysics,
 } from '../../FrontEnd/src/engine/Interpolator'
 import { ParticleSystem } from '../../FrontEnd/src/engine/ParticleSystem'
+import { buildSimulationEndpoint } from '../../FrontEnd/src/hooks/useSimulationSession'
+import { createAnimationRuntime } from '../../FrontEnd/src/runtime/AnimationRuntimeContext'
 import {
   NarrativeStage,
   narrativeStageAt,
@@ -60,6 +62,15 @@ describe('continuous animation engine', () => {
     assert.equal(engine.getTimeScale(), 0.3)
     assert.equal(engine.getSnapshot('single')?.animationTimeMs, 5.1)
   })
+
+  it('keeps injected animation runtimes isolated', () => {
+    const first = createAnimationRuntime()
+    const second = createAnimationRuntime()
+    first.animation.pushTarget('single', update(0, 10))
+    assert(first.animation.getSnapshot('single'))
+    assert.equal(second.animation.getSnapshot('single'), null)
+    assert.notEqual(first.camera, second.camera)
+  })
 })
 
 describe('particle pool and narrative timing', () => {
@@ -81,5 +92,20 @@ describe('particle pool and narrative timing', () => {
     assert.equal(narrativeStageAt(10_000).stage, NarrativeStage.EVENT_TRIGGERED)
     assert.equal(narrativeStageAt(45_000).stage, NarrativeStage.COMPARISON)
     assert.equal(narrativeStageAt(59_999).stage, NarrativeStage.COMPARISON)
+  })
+
+  it('builds stable single and comparison WebSocket endpoints', () => {
+    const base = {
+      scenario: 'experiments/test_scenario',
+      model: 'experiments/test_ppo/model.zip',
+      speed: 0.25,
+      mode: 'single' as const,
+      baseline: 'broadcast' as const,
+    }
+    assert.match(buildSimulationEndpoint(base, 3), /^\/ws\/simulation\/run\?/)
+    const comparison = buildSimulationEndpoint({ ...base, mode: 'comparison' }, 4)
+    assert.match(comparison, /^\/ws\/simulation\/compare\?/)
+    assert.match(comparison, /speed=0.25/)
+    assert.match(comparison, /baseline=broadcast/)
   })
 })

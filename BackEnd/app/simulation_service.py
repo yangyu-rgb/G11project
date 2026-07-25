@@ -7,7 +7,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from src.environment.v2x_env import EmergencyEvent, SimulationSnapshot
+from src.environment.simulation_types import EmergencyEvent, SimulationSnapshot
 
 ATTENTION_LINK_THRESHOLD = 0.6
 ATTENTION_TOP_K = 10

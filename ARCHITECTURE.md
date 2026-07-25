@@ -246,6 +246,8 @@ calculate_transmission(
 
 **状态**: M3演示接口已实现
 
+`app/main.py`只负责FastAPI入口、WebSocket传输和资源生命周期；播放状态、控制校验和AI单步执行由`app/simulation_session.py`复用。不可变车辆、事件和仿真快照定义位于环境共享类型模块，序列化服务不再依赖完整Gym环境实现。
+
 **当前接口**:
 
 - `GET /api/v1/health`: 健康检查。
@@ -266,6 +268,8 @@ calculate_transmission(
 
 场景编辑API只保存到系统临时目录并定期清理；不改变正式数据集或实验结果。当前AI模型最多运行50辆车和2个事件，更大编辑场景只用于渲染、导入导出和后续模型扩容验证。
 
+后端依赖方向固定为`app → src`：API层可组合环境、模型和评估能力，`BackEnd/src/`中的训练、实验、环境与评估模块不得反向导入`app`。实时演示与离线实验共用`src/evaluation/baselines.py`中的基线动作构造；`app.comparison`仅保留兼容转发。
+
 ---
 
 ## 3. 前端架构
@@ -276,8 +280,11 @@ calculate_transmission(
 
 **状态**: M3连续动画与叙事演示已实现，目标浏览器性能验收待执行
 
-- `App.tsx`: 统一管理真实仿真、AI/基线对比、演示模式、2D/3D切换和场景编辑入口。
+- `App.tsx`: 只组合真实仿真、演示、2D/3D视图和场景编辑界面，不再直接管理WebSocket或动画全局单例。
+- `hooks/useSimulationSession.ts`: 管理运行端点、单模型/对比模式、播放控制、连接状态和指标历史。
+- `hooks/useDemoPresentation.ts`: 管理八阶段时间线、真实证据缓存、慢动作、消息重放和智能镜头协调。
 - `hooks/useWebSocket.ts`: 管理结构化仿真状态、控制消息、断线与重连，并将WebSocket状态作为关键帧写入动画引擎。
+- `runtime/AnimationRuntimeContext.tsx`: 注入动画与镜头实例；组件只依赖Runtime接口，可在测试或未来多实例场景中替换。
 - `engine/AnimationEngine.ts`、`Interpolator.ts`: 用单一`requestAnimationFrame`循环在网络关键帧之间完成非线性物理插值、时间缩放和断线滑行。
 - `engine/ParticleSystem.ts`: 使用有界预分配池驱动2D Canvas和3D Points消息粒子，避免逐粒子React状态和频繁GC。
 - `engine/CameraController.ts`: 管理事件聚焦、3D飞行、送达拉远和完成回到2D的镜头状态，并在用户手动操作后停止接管。
@@ -292,7 +299,7 @@ calculate_transmission(
 
 ```text
 components/
-├── AttentionViz/        # 注意力热力图及关联线
+├── MapView/             # 地图、注意力、车辆、事件和消息图层
 ├── DecisionPanel/       # 候选车辆和资源分配
 ├── MetricsPanel/        # 实时指标与时序图
 ├── Comparison/          # AI与基线同步对比
@@ -302,7 +309,7 @@ components/
 └── ThreeD/              # Three.js三维场景
 ```
 
-高频动画状态由独立引擎的订阅接口管理，低频界面和业务状态继续留在React中，不新增全局状态库。任务038–043不改变既有`state_update`必填字段；真实推理耗时和演示事件元数据均为向后兼容的可选扩展。
+高频动画状态由Runtime注入的独立引擎管理，低频界面和业务状态继续留在React Hook中，不新增全局状态库。依赖方向为`App/组件 → Session或Presentation Hook → Runtime/Engine`，组件不得直接引用模块级动画或镜头单例。任务038–043不改变既有`state_update`必填字段；真实推理耗时和演示事件元数据均为向后兼容的可选扩展。
 
 ---
 

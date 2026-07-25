@@ -2,12 +2,14 @@ import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 import type { Mesh } from 'three'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { easeOutCubic } from '../../engine/Interpolator'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationEvent } from '../../types/simulation'
 import { SCENE_SCALE, toScenePosition } from '../ThreeD/sceneCoordinates'
 
 function Shockwave3DItem({ event, animationChannel }: { event: SimulationEvent; animationChannel: AnimationChannel }) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const rings = useRef<Array<Mesh | null>>([])
   const startedAt = useRef(animationEngine.getSnapshot(animationChannel)?.animationTimeMs ?? 0)
   const [x, , z] = toScenePosition(event.x, event.y)

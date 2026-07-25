@@ -2,7 +2,8 @@ import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 import type { Mesh } from 'three'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationEvent, SimulationVehicle } from '../../types/simulation'
 import { SCENE_SCALE, toScenePosition } from '../ThreeD/sceneCoordinates'
 
@@ -13,6 +14,7 @@ export function RadarScanEffect3D({ events, vehicles, candidateIds = [], animati
   animationChannel?: AnimationChannel
   active?: boolean
 }) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const sweep = useRef<Mesh>(null)
   const startedAt = useRef(animationEngine.getSnapshot(animationChannel)?.animationTimeMs ?? 0)
   const event = events[0]

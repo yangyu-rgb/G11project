@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export enum NarrativeStage {
   OPENING = 'opening',
@@ -57,19 +57,19 @@ export function useNarrativeTimeline(active: boolean, playing: boolean) {
     return () => window.clearInterval(timer)
   }, [active, playing])
 
-  const seekStage = (direction: -1 | 1) => {
+  const seekStage = useCallback((direction: -1 | 1) => {
     const current = narrativeStageAt(elapsedRef.current)
     const index = NARRATIVE_STAGES.findIndex((stage) => stage.stage === current.stage)
     const target = NARRATIVE_STAGES[Math.min(NARRATIVE_STAGES.length - 1, Math.max(0, index + direction))]
     elapsedRef.current = target.startMs
     setElapsedMs(target.startMs)
-  }
+  }, [])
 
-  const reset = () => {
+  const reset = useCallback(() => {
     elapsedRef.current = 0
     previousTick.current = null
     setElapsedMs(0)
-  }
+  }, [])
 
   return useMemo(() => ({
     elapsedMs,
@@ -77,5 +77,5 @@ export function useNarrativeTimeline(active: boolean, playing: boolean) {
     seekStage,
     reset,
     complete: elapsedMs >= NARRATIVE_DURATION_MS,
-  }), [elapsedMs])
+  }), [elapsedMs, reset, seekStage])
 }

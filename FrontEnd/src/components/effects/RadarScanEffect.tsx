@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationEvent, SimulationVehicle } from '../../types/simulation'
 import { toMapPosition } from '../MapView/coordinates'
 
@@ -14,6 +15,7 @@ type RadarProps = {
 }
 
 export function RadarScanEffect2D({ events, vehicles, candidateIds = [], animationChannel = 'single', active = true }: RadarProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const map = useMap()
   const startedAt = useRef<number | null>(null)
   const recognized = useRef(new Set<string>())
@@ -25,7 +27,7 @@ export function RadarScanEffect2D({ events, vehicles, candidateIds = [], animati
       startedAt.current = null
       recognized.current.clear()
     }
-  }, [active, animationChannel, events.length])
+  }, [active, animationChannel, animationEngine, events.length])
 
   useEffect(() => {
     const canvas = document.createElement('canvas')
@@ -86,6 +88,6 @@ export function RadarScanEffect2D({ events, vehicles, candidateIds = [], animati
       map.off('resize', resize)
       canvas.remove()
     }
-  }, [active, animationChannel, candidateIds, events, map, vehicles])
+  }, [active, animationChannel, animationEngine, candidateIds, events, map, vehicles])
   return null
 }

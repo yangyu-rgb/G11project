@@ -2,20 +2,21 @@ import asyncio
 import time
 from pathlib import Path
 
-import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from app.api.router import api_router
 from app.api.routes.scenarios import resolve_editor_scenario
 from app.comparison import build_baseline_action, validate_baseline
-from app.simulation_service import build_state_update, summarize_attention
+from app.simulation_service import build_state_update
+from app.simulation_session import (
+    PlaybackController,
+    SessionControlError,
+    step_ai,
+)
 from src.environment.v2x_env import V2XEnv
 from src.models.ppo_agent import PPOAgent
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
-MIN_SIMULATION_SPEED = 0.25
-MAX_SIMULATION_SPEED = 5.0
-
 app = FastAPI(
     title="G11project API",
     version="0.1.0",
@@ -71,19 +72,6 @@ def _load_agent(model_path: Path, environment: V2XEnv) -> PPOAgent:
 _state_update = build_state_update
 
 
-async def _send_control_ack(
-    websocket: WebSocket, action: str, *, playing: bool, speed: float
-) -> None:
-    await websocket.send_json(
-        {
-            "type": "control_ack",
-            "action": action,
-            "playing": playing,
-            "speed": speed,
-        }
-    )
-
-
 async def _send_simulation_error(websocket: WebSocket, code: str, message: str) -> None:
     await websocket.send_json({"type": "error", "code": code, "message": message})
 
@@ -104,14 +92,12 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
         return
 
     try:
-        speed = float(websocket.query_params.get("speed", "1"))
-        if not MIN_SIMULATION_SPEED <= speed <= MAX_SIMULATION_SPEED:
-            raise ValueError
-    except ValueError:
+        playback = PlaybackController.create(websocket.query_params.get("speed", "1"))
+    except SessionControlError as exc:
         await _send_simulation_error(
             websocket,
-            "invalid_speed",
-            f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}",
+            exc.code,
+            exc.message,
         )
         await websocket.close(code=1008)
         return
@@ -127,91 +113,42 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
 
-    playing = True
-    complete = False
     try:
         while True:
-            if playing and not complete:
+            if playback.playing and not playback.complete:
                 snapshot = environment.snapshot()
-                if hasattr(agent, "predict_raw_with_attention"):
-                    decision_started = time.perf_counter()
-                    raw_action, raw_attention = agent.predict_raw_with_attention(observation)
-                    environment.record_decision_latency(
-                        (time.perf_counter() - decision_started) * 1000
-                    )
-                else:
-                    raw_action = agent.predict_raw(observation)
-                    raw_attention = None
-                action = np.asarray(raw_action, dtype=np.int64)
-                attention_weights, attention_by_vehicle = summarize_attention(
-                    raw_attention,
-                    observation,
-                    environment.vehicle_ids,
-                    snapshot.events,
-                )
-                observation, _, terminated, truncated, info = environment.step(action)
+                result = step_ai(agent, environment, observation, snapshot)
+                observation = result.observation
                 await websocket.send_json(
                     _state_update(
                         snapshot,
-                        action,
-                        info,
-                        attention_weights=attention_weights,
-                        attention_by_vehicle=attention_by_vehicle,
+                        result.action,
+                        result.info,
+                        attention_weights=result.attention_weights,
+                        attention_by_vehicle=result.attention_by_vehicle,
                     )
                 )
-                complete = terminated or truncated
-                if complete:
-                    playing = False
+                if result.terminated or result.truncated:
+                    playback.mark_complete()
                     await websocket.send_json(
                         {"type": "simulation_complete", "timestamp": snapshot.timestamp}
                     )
 
-            timeout = None if not playing else 1.0 / speed
             try:
-                command = await asyncio.wait_for(websocket.receive_json(), timeout=timeout)
+                command = await asyncio.wait_for(websocket.receive_json(), timeout=playback.timeout)
             except TimeoutError:
                 continue
 
-            if command.get("type") != "control":
-                await _send_simulation_error(
-                    websocket, "invalid_control", "control message type must be 'control'"
-                )
-                continue
-            action_name = command.get("action")
-            if action_name == "play":
-                if complete:
-                    await _send_simulation_error(
-                        websocket,
-                        "simulation_complete",
-                        "reset the simulation before playing it again",
-                    )
-                    continue
-                playing = True
-            elif action_name == "pause":
-                playing = False
-            elif action_name == "reset":
+            def reset() -> None:
+                nonlocal observation
                 observation, _ = environment.reset()
-                complete = False
-                playing = False
-            elif action_name == "set_speed":
-                try:
-                    requested_speed = float(command["speed"])
-                    if not MIN_SIMULATION_SPEED <= requested_speed <= MAX_SIMULATION_SPEED:
-                        raise ValueError
-                    speed = requested_speed
-                except (KeyError, TypeError, ValueError):
-                    await _send_simulation_error(
-                        websocket,
-                        "invalid_speed",
-                        f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}",
-                    )
-                    continue
-            else:
-                await _send_simulation_error(
-                    websocket, "invalid_control", f"unsupported control action: {action_name}"
-                )
+
+            try:
+                acknowledgement = playback.apply(command, reset)
+            except SessionControlError as exc:
+                await _send_simulation_error(websocket, exc.code, exc.message)
                 continue
-            await _send_control_ack(websocket, action_name, playing=playing, speed=speed)
+            await websocket.send_json(acknowledgement)
     except WebSocketDisconnect:
         return
     finally:
@@ -235,11 +172,7 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
 
     try:
         baseline = validate_baseline(websocket.query_params.get("baseline", "distance"))
-        speed = float(websocket.query_params.get("speed", "1"))
-        if not MIN_SIMULATION_SPEED <= speed <= MAX_SIMULATION_SPEED:
-            raise ValueError(
-                f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}"
-            )
+        playback = PlaybackController.create(websocket.query_params.get("speed", "1"))
     except ValueError as exc:
         await _send_simulation_error(websocket, "invalid_parameters", str(exc))
         await websocket.close(code=1008)
@@ -264,35 +197,16 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
 
-    playing = True
-    complete = False
     try:
         while True:
-            if playing and not complete:
+            if playback.playing and not playback.complete:
                 ai_snapshot = ai_environment.snapshot()
                 baseline_snapshot = baseline_environment.snapshot()
                 if ai_snapshot.timestamp != baseline_snapshot.timestamp:
                     raise RuntimeError("comparison environments are no longer synchronized")
 
-                if hasattr(agent, "predict_raw_with_attention"):
-                    decision_started = time.perf_counter()
-                    raw_action, raw_attention = agent.predict_raw_with_attention(ai_observation)
-                    ai_environment.record_decision_latency(
-                        (time.perf_counter() - decision_started) * 1000
-                    )
-                else:
-                    raw_action = agent.predict_raw(ai_observation)
-                    raw_attention = None
-                ai_action = np.asarray(raw_action, dtype=np.int64)
-                attention_weights, attention_by_vehicle = summarize_attention(
-                    raw_attention,
-                    ai_observation,
-                    ai_environment.vehicle_ids,
-                    ai_snapshot.events,
-                )
-                ai_observation, _, ai_terminated, ai_truncated, ai_info = ai_environment.step(
-                    ai_action
-                )
+                ai_result = step_ai(agent, ai_environment, ai_observation, ai_snapshot)
+                ai_observation = ai_result.observation
 
                 baseline_action, baseline_reasons = build_baseline_action(
                     baseline_environment,
@@ -306,10 +220,10 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
                 await websocket.send_json(
                     _state_update(
                         ai_snapshot,
-                        ai_action,
-                        ai_info,
-                        attention_weights=attention_weights,
-                        attention_by_vehicle=attention_by_vehicle,
+                        ai_result.action,
+                        ai_result.info,
+                        attention_weights=ai_result.attention_weights,
+                        attention_by_vehicle=ai_result.attention_by_vehicle,
                         method="ai",
                     )
                 )
@@ -323,62 +237,31 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
                     )
                 )
 
-                complete = (ai_terminated or ai_truncated) and (
+                complete = (ai_result.terminated or ai_result.truncated) and (
                     baseline_terminated or baseline_truncated
                 )
                 if complete:
-                    playing = False
+                    playback.mark_complete()
                     await websocket.send_json(
                         {"type": "simulation_complete", "timestamp": ai_snapshot.timestamp}
                     )
 
-            timeout = None if not playing else 1.0 / speed
             try:
-                command = await asyncio.wait_for(websocket.receive_json(), timeout=timeout)
+                command = await asyncio.wait_for(websocket.receive_json(), timeout=playback.timeout)
             except TimeoutError:
                 continue
 
-            if command.get("type") != "control":
-                await _send_simulation_error(
-                    websocket, "invalid_control", "control message type must be 'control'"
-                )
-                continue
-            action_name = command.get("action")
-            if action_name == "play":
-                if complete:
-                    await _send_simulation_error(
-                        websocket,
-                        "simulation_complete",
-                        "reset the simulation before playing it again",
-                    )
-                    continue
-                playing = True
-            elif action_name == "pause":
-                playing = False
-            elif action_name == "reset":
+            def reset() -> None:
+                nonlocal ai_observation
                 ai_observation, _ = ai_environment.reset(seed=42)
                 baseline_environment.reset(seed=42)
-                complete = False
-                playing = False
-            elif action_name == "set_speed":
-                try:
-                    requested_speed = float(command["speed"])
-                    if not MIN_SIMULATION_SPEED <= requested_speed <= MAX_SIMULATION_SPEED:
-                        raise ValueError
-                    speed = requested_speed
-                except (KeyError, TypeError, ValueError):
-                    await _send_simulation_error(
-                        websocket,
-                        "invalid_speed",
-                        f"speed must be between {MIN_SIMULATION_SPEED} and {MAX_SIMULATION_SPEED}",
-                    )
-                    continue
-            else:
-                await _send_simulation_error(
-                    websocket, "invalid_control", f"unsupported control action: {action_name}"
-                )
+
+            try:
+                acknowledgement = playback.apply(command, reset)
+            except SessionControlError as exc:
+                await _send_simulation_error(websocket, exc.code, exc.message)
                 continue
-            await _send_control_ack(websocket, action_name, playing=playing, speed=speed)
+            await websocket.send_json(acknowledgement)
     except WebSocketDisconnect:
         return
     finally:

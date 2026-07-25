@@ -2,8 +2,9 @@ import { useFrame } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import { BufferAttribute, BufferGeometry, Color, Points } from 'three'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { ParticleSystem, type ParticleTone } from '../../engine/ParticleSystem'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationTransmission, SimulationVehicle } from '../../types/simulation'
 import { SCENE_SCALE } from './sceneCoordinates'
 
@@ -17,6 +18,7 @@ type Message3DProps = {
 const MAX_PARTICLES = 1500
 
 export function Message3D({ animationChannel = 'single', tone = 'ai' }: Message3DProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const points = useRef<Points>(null)
   const system = useRef(new ParticleSystem(MAX_PARTICLES))
   const geometry = useMemo(() => {

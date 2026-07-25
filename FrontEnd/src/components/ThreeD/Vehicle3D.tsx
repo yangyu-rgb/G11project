@@ -4,7 +4,8 @@ import { useRef, useState } from 'react'
 import { Group, MeshStandardMaterial } from 'three'
 
 import { VEHICLE_STATUS_COLORS } from '../../config/vehicleStatus'
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
 import { VehicleStatusRing3D } from '../common/VehicleStatusEffects'
 import { toSceneHeading, toScenePosition } from './sceneCoordinates'
@@ -21,6 +22,7 @@ const STATUS_COLORS: Record<VehicleStatus, string> = {
 }
 
 export function Vehicle3D({ vehicle, animationChannel = 'single' }: Vehicle3DProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const groupRef = useRef<Group>(null)
   const bodyMaterial = useRef<MeshStandardMaterial>(null)
   const [hovered, setHovered] = useState(false)

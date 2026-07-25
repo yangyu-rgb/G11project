@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { animationEngine } from '../engine/AnimationEngine'
+import { useAnimationRuntime } from '../runtime/AnimationRuntimeContext'
 
 import type {
   ComparisonPair,
@@ -55,6 +55,7 @@ function isSimulationMessage(value: unknown): value is SimulationMessage {
 }
 
 export function useWebSocket(path: string | null = '/ws/simulation', autoReconnect = true) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const socketRef = useRef<WebSocket | null>(null)
   const comparisonCacheRef = useRef<ComparisonUpdateCache>(createComparisonUpdateCache())
   const [message, setMessage] = useState<SimulationMessage | null>(null)
@@ -145,7 +146,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
       socketRef.current?.close()
       socketRef.current = null
     }
-  }, [autoReconnect, path])
+  }, [animationEngine, autoReconnect, path])
 
   const sendControl = useCallback((action: ControlAction, speed?: number) => {
     const socket = socketRef.current
@@ -162,7 +163,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
       animationEngine.clear()
     }
     return true
-  }, [])
+  }, [animationEngine])
 
   const clearState = useCallback(() => {
     setMessage(null)
@@ -173,7 +174,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     setErrorMessage(null)
     setCompleted(false)
     animationEngine.clear()
-  }, [])
+  }, [animationEngine])
 
   return {
     message,

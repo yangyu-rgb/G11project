@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useMap } from 'react-leaflet'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { ParticleSystem, type ParticleTone } from '../../engine/ParticleSystem'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationTransmission, SimulationVehicle } from '../../types/simulation'
 import { toMapPosition } from './coordinates'
 
@@ -14,6 +15,7 @@ type MessageLayerProps = {
 }
 
 export function MessageLayer({ animationChannel = 'single', tone = 'ai' }: MessageLayerProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const map = useMap()
   const system = useRef(new ParticleSystem())
 
@@ -59,7 +61,7 @@ export function MessageLayer({ animationChannel = 'single', tone = 'ai' }: Messa
       map.off('resize zoom move', resize)
       canvas.remove()
     }
-  }, [animationChannel, map, tone])
+  }, [animationChannel, animationEngine, map, tone])
 
   return null
 }

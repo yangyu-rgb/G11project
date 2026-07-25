@@ -1,6 +1,6 @@
 # TODO
 
-更新时间：2026-07-24（Asia/Hong_Kong）
+更新时间：2026-07-25（Asia/Hong_Kong）
 
 ## 当前阶段
 **M3: 动画叙事实装完成，目标浏览器性能验收与GPU实验并行待执行** (Week 10-12)
@@ -62,6 +62,7 @@
 ### 架构与文档
 - [x] 根据M1实施结果更新ARCHITECTURE.md
 - [x] 更新IMPLEMENTATION_ROADMAP.md至M3非GPU增强进度
+- [x] 2026-07-25：完成前端Runtime/Session/演示协调与后端WebSocket/评估依赖解耦
 
 ## 已完成
 

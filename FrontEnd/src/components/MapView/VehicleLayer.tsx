@@ -2,7 +2,8 @@ import L from 'leaflet'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { Marker, Tooltip } from 'react-leaflet'
 
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
 import { toMapPosition } from './coordinates'
 import './VehicleLayer.css'
@@ -26,6 +27,7 @@ type VehicleMarkerProps = {
 }
 
 const VehicleMarker = memo(function VehicleMarker({ vehicle, animationChannel, onSelect }: VehicleMarkerProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const markerRef = useRef<L.Marker | null>(null)
   const icon = useMemo(
     () => L.divIcon({
@@ -48,7 +50,7 @@ const VehicleMarker = memo(function VehicleMarker({ vehicle, animationChannel, o
     element?.style.setProperty('--vehicle-heading', `${animated.heading}deg`)
     element?.style.setProperty('--vehicle-pitch', `${-animated.pitch}deg`)
     if (element) element.dataset.motion = animated.motion
-  }), [animationChannel, vehicle.id])
+  }), [animationChannel, animationEngine, vehicle.id])
 
   return (
     <Marker

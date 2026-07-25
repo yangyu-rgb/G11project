@@ -9,8 +9,8 @@ from typing import Any, Literal
 
 import numpy as np
 
-from app.comparison import build_baseline_action
 from src.environment.v2x_env import V2XEnv
+from src.evaluation.baselines import build_baseline_action
 from src.experiments.metrics import aggregate_episode_metrics
 from src.models.ppo_agent import PPOAgent
 

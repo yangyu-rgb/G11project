@@ -233,5 +233,3 @@ export class AnimationEngine {
     this.lastFrameAt = null
   }
 }
-
-export const animationEngine = new AnimationEngine()

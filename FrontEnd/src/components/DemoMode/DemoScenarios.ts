@@ -1,18 +1,6 @@
-import type { ComparisonBaseline } from '../../types/simulation'
-import type { SimulationEvent } from '../../types/simulation'
+import type { DemoScenario } from '../../types/demo'
 
-export type DemoScenario = {
-  id: string
-  title: string
-  description: string
-  scenario: string
-  model: string
-  mode: 'single' | 'comparison'
-  baseline: ComparisonBaseline
-  available: boolean
-  missing: string[]
-  events?: SimulationEvent[]
-}
+export type { DemoScenario } from '../../types/demo'
 
 export const FALLBACK_DEMO_SCENARIOS: DemoScenario[] = [
   {

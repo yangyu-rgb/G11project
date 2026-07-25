@@ -8,7 +8,6 @@ import math
 import random
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,48 +22,18 @@ from src.environment.reward_calculator import (
     SegmentedLatency,
     calculate_reward,
 )
+from src.environment.simulation_types import (
+    EmergencyEvent,
+    SimulationSnapshot,
+    TrajectoryFrame,
+    VehicleSnapshot,
+)
 from src.models.utils import (
     padded_history,
     relative_event_features,
     relative_vehicle_features,
     time_to_collision_seconds,
 )
-
-
-@dataclass(frozen=True)
-class VehicleSnapshot:
-    vehicle_id: str
-    x: float
-    y: float
-    speed: float
-    angle: float
-    lane_id: str = ""
-
-
-@dataclass(frozen=True)
-class TrajectoryFrame:
-    timestamp: float
-    vehicles: tuple[VehicleSnapshot, ...]
-
-
-@dataclass(frozen=True)
-class EmergencyEvent:
-    event_id: str
-    event_type: str
-    x: float
-    y: float
-    timestamp: float
-    severity: float
-
-
-@dataclass(frozen=True)
-class SimulationSnapshot:
-    """Immutable view of the raw scenario state at the current environment step."""
-
-    step_index: int
-    timestamp: float
-    vehicles: tuple[VehicleSnapshot, ...]
-    events: tuple[EmergencyEvent, ...]
 
 
 class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):

@@ -116,5 +116,3 @@ export class CameraController {
     for (const listener of this.listeners) listener(value)
   }
 }
-
-export const cameraController = new CameraController()

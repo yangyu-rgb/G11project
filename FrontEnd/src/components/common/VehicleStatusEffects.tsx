@@ -3,7 +3,8 @@ import { useRef } from 'react'
 import type { Mesh } from 'three'
 
 import { VEHICLE_STATUS_COLORS } from '../../config/vehicleStatus'
-import { animationEngine, type AnimationChannel } from '../../engine/AnimationEngine'
+import type { AnimationChannel } from '../../engine/AnimationEngine'
+import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { VehicleStatus } from '../../types/simulation'
 
 type VehicleStatusRing3DProps = {
@@ -13,6 +14,7 @@ type VehicleStatusRing3DProps = {
 }
 
 export function VehicleStatusRing3D({ vehicleId, channel, status }: VehicleStatusRing3DProps) {
+  const { animation: animationEngine } = useAnimationRuntime()
   const ring = useRef<Mesh>(null)
   useFrame(() => {
     const mesh = ring.current
