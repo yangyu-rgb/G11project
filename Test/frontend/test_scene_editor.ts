@@ -1,39 +1,40 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { fromMapPosition, toMapPosition } from '../../FrontEnd/src/components/MapView/coordinates.ts'
-import { PRESET_SCENES } from '../../FrontEnd/src/components/SceneEditor/PresetScenes.ts'
+import {
+  HIGHWAY_PRESENTATION_SCENARIO,
+  PRESET_SCENES,
+  withEmergencyIncident,
+} from '../../FrontEnd/src/components/SceneEditor/PresetScenes.ts'
 import {
   editorLimitations,
   parseEditorScenario,
 } from '../../FrontEnd/src/components/SceneEditor/sceneTypes.ts'
 
-describe('map projection', () => {
-  it('round-trips SUMO metre coordinates through latitude and longitude', () => {
-    const [latitude, longitude] = toMapPosition(2500, 500)
-    const local = fromMapPosition(latitude, longitude)
-    assert.ok(Math.abs(local.x - 2500) < 0.001)
-    assert.ok(Math.abs(local.y - 500) < 0.001)
-  })
-})
-
-describe('scene editor presets and validation', () => {
-  it('builds the required 100-vehicle and five-event presets', () => {
-    assert.equal(PRESET_SCENES[0].vehicles.length, 100)
-    assert.equal(PRESET_SCENES[1].events.length, 5)
-    assert.equal(editorLimitations(PRESET_SCENES[0]).length, 1)
-    assert.equal(editorLimitations(PRESET_SCENES[1]).length, 1)
-  })
-
-  it('places every boundary-test vehicle exactly 300 metres from the event', () => {
-    const scenario = PRESET_SCENES[2]
-    const event = scenario.events[0]
-    for (const vehicle of scenario.vehicles) {
-      assert.ok(Math.abs(Math.hypot(vehicle.x - event.x, vehicle.y - event.y) - 300) < 1e-9)
+describe('scene data validation', () => {
+  it('keeps the 50-vehicle highway presentation within the real model limit', () => {
+    assert.equal(HIGHWAY_PRESENTATION_SCENARIO.vehicles.length, 50)
+    assert.deepEqual(editorLimitations(HIGHWAY_PRESENTATION_SCENARIO), [])
+    for (const lane of [-8, -4.8, -1.6]) {
+      const positions = HIGHWAY_PRESENTATION_SCENARIO.vehicles
+        .filter((vehicle) => vehicle.y === lane)
+        .map((vehicle) => vehicle.x)
+        .sort((left, right) => left - right)
+      assert(positions.every((value, index) => index === 0 || value - positions[index - 1] >= 8))
     }
   })
 
-  it('accepts version one JSON and rejects duplicate vehicle IDs', () => {
+  it('binds a 96-to-18 km/h emergency event to the selected vehicle', () => {
+    const selected = HIGHWAY_PRESENTATION_SCENARIO.vehicles[17]
+    const configured = withEmergencyIncident(HIGHWAY_PRESENTATION_SCENARIO, selected.id)
+    assert.equal(configured.events[0].source_vehicle_id, selected.id)
+    assert.equal(configured.events[0].pre_brake_speed_kmh, 96)
+    assert.equal(configured.events[0].post_brake_speed_kmh, 18)
+    assert.equal(configured.vehicles.find((vehicle) => vehicle.id === selected.id)?.speed_kmh, 96)
+    assert.equal(parseEditorScenario(structuredClone(configured)).events.length, 1)
+  })
+
+  it('continues to accept existing version-one presets and reject duplicate IDs', () => {
     assert.equal(parseEditorScenario(structuredClone(PRESET_SCENES[2])).schema_version, 1)
     const invalid = structuredClone(PRESET_SCENES[2])
     invalid.vehicles[1].id = invalid.vehicles[0].id

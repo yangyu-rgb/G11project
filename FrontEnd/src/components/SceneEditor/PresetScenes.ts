@@ -65,3 +65,42 @@ export const DEFAULT_EDITOR_SCENARIO: EditorScenario = {
     timestamp: 2, severity: 0.9,
   }],
 }
+
+const presentationLanes = [-8, -4.8, -1.6] as const
+
+export const HIGHWAY_PRESENTATION_SCENARIO: EditorScenario = {
+  schema_version: 1,
+  name: '高速公路选择性V2X演示',
+  vehicles: Array.from({ length: 50 }, (_, index) => {
+    const lane = index % presentationLanes.length
+    const lanePosition = Math.floor(index / presentationLanes.length)
+    return vehicle(index, 820 + lanePosition * 26 + lane * 7, presentationLanes[lane])
+  }).map((item, index) => ({ ...item, speed_kmh: 88 + (index % 5) * 4 })),
+  events: [],
+}
+
+export function withEmergencyIncident(
+  scenario: EditorScenario,
+  vehicleId: string,
+): EditorScenario {
+  const source = scenario.vehicles.find((vehicleItem) => vehicleItem.id === vehicleId)
+  if (!source) throw new Error('请选择有效的事故车辆')
+  return {
+    ...scenario,
+    name: `${scenario.name}-${vehicleId}`,
+    vehicles: scenario.vehicles.map((vehicleItem) => (
+      vehicleItem.id === vehicleId ? { ...vehicleItem, speed_kmh: 96 } : vehicleItem
+    )),
+    events: [{
+      id: 'event_emergency_braking',
+      type: 'emergency_braking',
+      x: source.x,
+      y: source.y,
+      timestamp: 2,
+      severity: 0.9,
+      source_vehicle_id: vehicleId,
+      pre_brake_speed_kmh: 96,
+      post_brake_speed_kmh: 18,
+    }],
+  }
+}

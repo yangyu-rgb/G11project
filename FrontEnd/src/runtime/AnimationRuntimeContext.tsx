@@ -2,17 +2,14 @@
 import { createContext, useContext, type ReactNode } from 'react'
 
 import { AnimationEngine } from '../engine/AnimationEngine'
-import { CameraController } from '../engine/CameraController'
 
 export type AnimationRuntime = {
   animation: AnimationEngine
-  camera: CameraController
 }
 
 export function createAnimationRuntime(): AnimationRuntime {
   return {
     animation: new AnimationEngine(),
-    camera: new CameraController(),
   }
 }
 

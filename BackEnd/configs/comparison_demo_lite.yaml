@@ -1,0 +1,43 @@
+run_mode: demo_lite
+domains: [highway]
+safety_window_ms: 100
+
+base_scenario_configs:
+  highway: configs/scenarios/highway_emergency.yaml
+
+# The demo-lite orchestrator replaces this with its independent Drive root.
+models:
+  highway: experiments/demo_lite/highway_batch/champion/model_best.zip
+
+dataset:
+  train_configs: 4
+  validation_configs: 2
+  test_configs: 5
+test_seeds: [1701, 1801]
+
+environment:
+  episode_steps: 10
+  max_vehicles: 50
+  max_events: 2
+  critical_radius_m: 300
+  road_length_m: 5000
+  lateral_extent_m: 10
+  delay_normalization_ms: 100
+  feature_mode: basic
+
+network:
+  highway_mode: simple
+  carrier_frequency_ghz: 5.9
+  transmit_power_dbm: 23
+  noise_floor_dbm: -94
+  sinr_midpoint_db: 5
+  sinr_scale_db: 2
+  max_queue_delay_ms: 50
+
+reward_weights:
+  effective_delivery: 0.25
+  coverage: 0.30
+  latency: 0.20
+  overhead: 0.10
+  missed: 0.10
+  fairness: 0.05

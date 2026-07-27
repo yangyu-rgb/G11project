@@ -169,13 +169,22 @@ Notebook负责挂载Google Drive、安装SUMO、验证CUDA，并通过统一可�
 高速/城市批训练及后续对比、消融、泛化和论文图表。单次运行默认在9小时内安全暂停；Runtime重建后重复同一命令即可恢复。
 不要同时使用多个Colab Runtime写入同一个实验目录，也不要加入自动点击或Keep Alive代码。
 
+### Google Colab课程演示轻量实验
+
+若只需要为课程展示生成高速场景的初步比较结果，使用
+[`BackEnd/notebooks/colab_demo_lite_training.ipynb`](BackEnd/notebooks/colab_demo_lite_training.ipynb)。
+该入口固定轻量Transformer和默认奖励，跳过奖励/特征/架构搜索、城市训练、消融与泛化，只运行
+4配置×2种子的高速训练以及5个锁定测试配置×2种子×4方法的40行比较。结果写入独立的
+`G11project-demo-lite` Drive目录，不读取或覆盖`G11project-formal`进度。所有输出必须标注为
+highway-only preliminary course-demo results，不得作为论文级正式结论。
+
 ### 演示模式
 
 ```bash
 ./start.sh
 ```
 
-打开前端后点击“运行仿真”，即可加载默认高速场景和PPO模型。普通模式支持播放、暂停、重置和倍速；演示模式以固定0.25倍后端速度采集真实状态，并用独立60秒时间线依次展示危险发生、AI扫描与决策、粒子消息传播、成功指标和AI/基线对比。演讲者可暂停或手动推进阶段，也可关闭自动镜头后自行操作2D/3D视角。页面不会用mock结果替代缺失的正式模型或实验数据。
+打开前端后先在三维高速场景中选择事故车，再点击“开始演示”。系统会为同一事故预载PPO选择性通信与全量广播结果，并按38秒五幕时间线自动展示正常行驶、急刹事故、传统广播、AI精准通知和总结对比。演示支持暂停、重播和重新选择事故车；后端不可用时会明确标注“规则降级演示”，不会把规则结果冒充为模型结果。
 
 M2城市100车场景可单独生成并开始训练：
 
@@ -211,9 +220,8 @@ BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
 | 层级 | 技术 |
 |------|------|
 | 前端框架 | React + TypeScript + Vite |
-| 地图可视化 | Leaflet + OpenStreetMap / Esri卫星图 |
-| 图表可视化 | D3.js |
-| 3D可视化 | Three.js + React Three Fiber |
+| 3D高速场景 | Three.js + React Three Fiber |
+| 指标与界面 | React + CSS |
 | 后端框架 | FastAPI |
 | 通信协议 | WebSocket |
 | ML框架 | PyTorch |

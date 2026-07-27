@@ -18,6 +18,9 @@ export type EditorEvent = {
   y: number
   timestamp: number
   severity: number
+  source_vehicle_id?: string
+  pre_brake_speed_kmh?: number
+  post_brake_speed_kmh?: number
 }
 
 export type EditorScenario = {
@@ -104,6 +107,14 @@ export function parseEditorScenario(value: unknown): EditorScenario {
       || !finiteNumber(item.severity) || item.timestamp < 0 || item.timestamp > 9
       || item.severity < 0 || item.severity > 1) {
       throw new Error('事件字段或数值范围不合法')
+    }
+    const source = item.source_vehicle_id
+    const before = item.pre_brake_speed_kmh
+    const after = item.post_brake_speed_kmh
+    const hasIncidentData = source !== undefined || before !== undefined || after !== undefined
+    if (hasIncidentData && (!safeId(source) || !finiteNumber(before) || !finiteNumber(after)
+      || before < 0 || before > 150 || after < 0 || after >= before)) {
+      throw new Error('事故车辆或减速参数不合法')
     }
     return item as EditorEvent
   })

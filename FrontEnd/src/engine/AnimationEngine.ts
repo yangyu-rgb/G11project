@@ -1,7 +1,8 @@
 import type { StateUpdateMessage } from '../types/simulation'
 import {
   coastVehicle,
-  interpolatePhysics,
+  interpolateTrajectory,
+  predictVehicle,
   type AnimatedVehicle,
 } from './Interpolator'
 
@@ -20,6 +21,16 @@ type ChannelState = {
   frame: AnimatedFrame
   startedAt: number
   durationMs: number
+  previousTimestamp: number
+  keyframes: StateUpdateMessage[]
+  replay: ReplayTimelineConfig | null
+  messageOverride: { messages: StateUpdateMessage['messages']; timestamp: number } | null
+}
+
+export type ReplayTimelineConfig = {
+  durationMs: number
+  anchorTimestamp?: number
+  anchorAtMs?: number
 }
 
 type AnimationScheduler = {
@@ -29,6 +40,7 @@ type AnimationScheduler = {
 }
 
 const FRAME_INTERVAL_MS = 1000 / 60
+const MAX_LIVE_EXTRAPOLATION_MS = 500
 
 function defaultScheduler(): AnimationScheduler | null {
   if (typeof window === 'undefined') return null
@@ -69,6 +81,7 @@ export class AnimationEngine {
   private timeScale = 1
   private scaleTransition: { from: number; to: number; startedAt: number; durationMs: number } | null = null
   private replaySequence = 0
+  private replayElapsedMs = 0
 
   constructor(scheduler: AnimationScheduler | null = defaultScheduler()) {
     this.scheduler = scheduler
@@ -93,6 +106,10 @@ export class AnimationEngine {
       frame: { ...update, vehicles: initialVehicles, animationTimeMs: this.animationTimeMs },
       startedAt: this.animationTimeMs,
       durationMs: this.keyframeIntervalMs,
+      previousTimestamp: previous?.raw.timestamp ?? update.timestamp,
+      keyframes: appendKeyframe(previous?.keyframes ?? [], update),
+      replay: null,
+      messageOverride: previous?.messageOverride ?? null,
     })
     this.connected = true
     this.paused = false
@@ -108,8 +125,45 @@ export class AnimationEngine {
     const state = this.channels.get(channel)
     if (!state || messages.length === 0) return
     const timestamp = state.raw.timestamp + (++this.replaySequence / 1000)
-    state.raw = { ...state.raw, timestamp, messages }
+    state.messageOverride = { messages, timestamp }
     state.frame = { ...state.frame, timestamp, messages }
+  }
+
+  loadReplay(
+    channel: AnimationChannel,
+    frames: readonly StateUpdateMessage[],
+    config: ReplayTimelineConfig,
+  ): void {
+    const keyframes = [...frames].sort((left, right) => left.timestamp - right.timestamp)
+      .filter((frame, index, ordered) => index === 0 || frame.timestamp !== ordered[index - 1].timestamp)
+    if (keyframes.length < 2) return
+    const initial = keyframes[0]
+    const vehicles = initial.vehicles.map(animatedInitial)
+    this.channels.set(channel, {
+      raw: initial,
+      from: vehicles,
+      frame: { ...initial, vehicles, animationTimeMs: this.animationTimeMs },
+      startedAt: this.animationTimeMs,
+      durationMs: this.keyframeIntervalMs,
+      previousTimestamp: initial.timestamp,
+      keyframes,
+      replay: {
+        durationMs: Math.max(1, config.durationMs),
+        anchorTimestamp: config.anchorTimestamp,
+        anchorAtMs: config.anchorAtMs,
+      },
+      messageOverride: null,
+    })
+    this.replayElapsedMs = 0
+    this.start(this.scheduler?.now() ?? 0)
+  }
+
+  setReplayElapsed(elapsedMs: number): void {
+    this.replayElapsedMs = Math.max(0, elapsedMs)
+  }
+
+  getReplayElapsed(): number {
+    return this.replayElapsedMs
   }
 
   subscribe(channel: AnimationChannel, listener: FrameListener): () => void {
@@ -165,7 +219,10 @@ export class AnimationEngine {
 
   clear(channel?: AnimationChannel): void {
     if (channel) this.channels.delete(channel)
-    else this.channels.clear()
+    else {
+      this.channels.clear()
+      this.replayElapsedMs = 0
+    }
     this.stopIfIdle()
   }
 
@@ -187,17 +244,38 @@ export class AnimationEngine {
     this.updateScale(now)
     const scaledDelta = this.paused ? 0 : realDelta * this.timeScale
     this.animationTimeMs += scaledDelta
+    if (!this.paused && [...this.channels.values()].some((state) => state.replay)) {
+      this.replayElapsedMs += scaledDelta
+    }
 
     for (const [channel, state] of this.channels) {
+      if (state.replay) {
+        state.frame = sampleReplay(state, this.replayElapsedMs, this.animationTimeMs)
+        for (const listener of this.listeners.get(channel) ?? []) listener(state.frame)
+        continue
+      }
       const braking = brakingVehicleIds(state.raw)
       const elapsed = this.animationTimeMs - state.startedAt
       const amount = state.durationMs <= 0 ? 1 : Math.min(1, elapsed / state.durationMs)
-      let vehicles = state.raw.vehicles.map((target, index) => interpolatePhysics(
+      const simulationDuration = Math.max(
+        0.001,
+        state.raw.timestamp - state.previousTimestamp,
+      )
+      let vehicles = state.raw.vehicles.map((target, index) => interpolateTrajectory(
         state.from[index] ?? target,
         target,
         amount,
+        simulationDuration,
         braking.has(target.id),
       ))
+      if (elapsed > state.durationMs && elapsed <= state.durationMs + MAX_LIVE_EXTRAPOLATION_MS) {
+        const rate = simulationDuration / Math.max(0.001, state.durationMs / 1000)
+        vehicles = vehicles.map((vehicle) => predictVehicle(
+          vehicle,
+          (elapsed - state.durationMs) / 1000,
+          rate,
+        ))
+      }
       if (!this.connected && !this.paused) {
         vehicles = state.frame.vehicles.map((vehicle) => coastVehicle(vehicle, scaledDelta / 1000))
       }
@@ -231,5 +309,66 @@ export class AnimationEngine {
     this.scheduler.cancel(this.requestHandle)
     this.requestHandle = null
     this.lastFrameAt = null
+  }
+}
+
+function appendKeyframe(
+  frames: readonly StateUpdateMessage[],
+  update: StateUpdateMessage,
+): StateUpdateMessage[] {
+  return [...frames.filter((frame) => frame.timestamp !== update.timestamp), update]
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .slice(-16)
+}
+
+function replayTimestamp(
+  frames: readonly StateUpdateMessage[],
+  elapsedMs: number,
+  config: ReplayTimelineConfig,
+): number {
+  const first = frames[0].timestamp
+  const last = frames[frames.length - 1].timestamp
+  const progressMs = Math.min(config.durationMs, Math.max(0, elapsedMs))
+  const anchorTimestamp = config.anchorTimestamp
+  const anchorAtMs = config.anchorAtMs
+  if (anchorTimestamp === undefined || anchorAtMs === undefined
+    || anchorTimestamp <= first || anchorTimestamp >= last
+    || anchorAtMs <= 0 || anchorAtMs >= config.durationMs) {
+    return first + (last - first) * (progressMs / config.durationMs)
+  }
+  if (progressMs <= anchorAtMs) {
+    return first + (anchorTimestamp - first) * (progressMs / anchorAtMs)
+  }
+  return anchorTimestamp + (last - anchorTimestamp)
+    * ((progressMs - anchorAtMs) / (config.durationMs - anchorAtMs))
+}
+
+function sampleReplay(
+  state: ChannelState,
+  elapsedMs: number,
+  animationTimeMs: number,
+): AnimatedFrame {
+  const timestamp = replayTimestamp(state.keyframes, elapsedMs, state.replay as ReplayTimelineConfig)
+  let upperIndex = state.keyframes.findIndex((frame) => frame.timestamp >= timestamp)
+  if (upperIndex < 0) upperIndex = state.keyframes.length - 1
+  const lowerIndex = Math.max(0, upperIndex - 1)
+  const lower = state.keyframes[lowerIndex]
+  const upper = state.keyframes[upperIndex]
+  const duration = Math.max(0.001, upper.timestamp - lower.timestamp)
+  const amount = lower === upper ? 1 : (timestamp - lower.timestamp) / duration
+  const lowerById = new Map(lower.vehicles.map((vehicle) => [vehicle.id, vehicle]))
+  const vehicles = upper.vehicles.map((vehicle) => {
+    const previous = lowerById.get(vehicle.id) ?? vehicle
+    return interpolateTrajectory(previous, vehicle, amount, duration, false)
+  })
+  const base = amount < 0.5 ? lower : upper
+  const override = state.messageOverride
+  state.raw = base
+  return {
+    ...base,
+    timestamp: override?.timestamp ?? timestamp,
+    messages: override?.messages ?? base.messages,
+    vehicles,
+    animationTimeMs,
   }
 }

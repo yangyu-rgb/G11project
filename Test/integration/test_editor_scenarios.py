@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import json
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
@@ -108,3 +110,76 @@ def test_editor_scenario_runs_through_existing_websocket(
     assert all(update["type"] == "state_update" for update in updates)
     assert updates[0]["vehicles"][0]["id"] == "vehicle_0"
     assert complete["type"] == "simulation_complete"
+
+
+def test_bound_incident_brakes_selected_vehicle_without_overlap(
+    editor_scenario_root: Path,
+) -> None:
+    payload = _payload(vehicle_count=6)
+    payload["vehicles"] = [
+        {
+            "id": f"vehicle_{index}",
+            "x": 1000 + index * 24,
+            "y": -4.8,
+            "speed_kmh": 96,
+            "heading": 90,
+        }
+        for index in range(6)
+    ]
+    payload["events"][0].update(
+        {
+            "timestamp": 2,
+            "source_vehicle_id": "vehicle_3",
+            "pre_brake_speed_kmh": 96,
+            "post_brake_speed_kmh": 18,
+        }
+    )
+
+    result = TestClient(app).post("/api/v1/scenarios/preview", json=payload).json()
+    scenario_path = scenario_routes.resolve_editor_scenario(result["scenario_ref"])
+    root = ET.parse(scenario_path / "trajectory.xml").getroot()
+    frames = root.findall("timestep")
+    selected_speeds = [
+        float(
+            next(
+                item for item in frame.findall("vehicle") if item.attrib["id"] == "vehicle_3"
+            ).attrib["speed"]
+        )
+        for frame in frames
+    ]
+    assert selected_speeds[2] == pytest.approx(96 / 3.6, abs=0.001)
+    assert selected_speeds[4] == pytest.approx(18 / 3.6, abs=0.001)
+
+    for frame in frames:
+        positions = sorted(float(item.attrib["x"]) for item in frame.findall("vehicle"))
+        assert all(right - left >= 8 for left, right in zip(positions, positions[1:], strict=False))
+
+    event = json.loads((scenario_path / "events.json").read_text(encoding="utf-8"))[0]
+    source_at_event = next(
+        item for item in frames[2].findall("vehicle") if item.attrib["id"] == "vehicle_3"
+    )
+    assert event["x"] == pytest.approx(float(source_at_event.attrib["x"]))
+    assert "source_vehicle_id" not in event
+
+
+def test_bound_incident_rejects_unknown_source_and_unsafe_spacing() -> None:
+    unknown = _payload()
+    unknown["events"][0].update(
+        {
+            "source_vehicle_id": "missing",
+            "pre_brake_speed_kmh": 96,
+            "post_brake_speed_kmh": 18,
+        }
+    )
+    assert TestClient(app).post("/api/v1/scenarios/preview", json=unknown).status_code == 422
+
+    overlapping = _payload()
+    overlapping["vehicles"][1]["x"] = overlapping["vehicles"][0]["x"] + 5
+    overlapping["events"][0].update(
+        {
+            "source_vehicle_id": "vehicle_0",
+            "pre_brake_speed_kmh": 96,
+            "post_brake_speed_kmh": 18,
+        }
+    )
+    assert TestClient(app).post("/api/v1/scenarios/preview", json=overlapping).status_code == 422

@@ -8,11 +8,13 @@ import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationVehicle, VehicleStatus } from '../../types/simulation'
 import { VehicleStatusRing3D } from '../common/VehicleStatusEffects'
+import type { SceneLayout } from './Road3D'
 import { toSceneHeading, toScenePosition } from './sceneCoordinates'
 
 type Vehicle3DProps = {
   vehicle: SimulationVehicle
   animationChannel?: AnimationChannel
+  layout?: SceneLayout
 }
 
 const STATUS_COLORS: Record<VehicleStatus, string> = {
@@ -21,22 +23,22 @@ const STATUS_COLORS: Record<VehicleStatus, string> = {
   receiving: VEHICLE_STATUS_COLORS.receiving,
 }
 
-export function Vehicle3D({ vehicle, animationChannel = 'single' }: Vehicle3DProps) {
+export function Vehicle3D({ vehicle, animationChannel = 'single', layout = 'custom' }: Vehicle3DProps) {
   const { animation: animationEngine } = useAnimationRuntime()
   const groupRef = useRef<Group>(null)
   const bodyMaterial = useRef<MeshStandardMaterial>(null)
   const [hovered, setHovered] = useState(false)
-  const target = toScenePosition(vehicle.x, vehicle.y)
-  const targetHeading = toSceneHeading(vehicle.heading)
+  const target = toScenePosition(vehicle.x, vehicle.y, layout)
+  const targetHeading = toSceneHeading(vehicle.heading, layout)
 
   useFrame(() => {
     const group = groupRef.current
     if (!group) return
     const rendered = animationEngine.getVehicle(animationChannel, vehicle.id) ?? { ...vehicle, pitch: 0, motion: 'cruising' as const }
-    const position = toScenePosition(rendered.x, rendered.y)
+    const position = toScenePosition(rendered.x, rendered.y, layout)
     group.position.x = position[0]
     group.position.z = position[2]
-    group.rotation.y = toSceneHeading(rendered.heading)
+    group.rotation.y = toSceneHeading(rendered.heading, layout)
     group.rotation.x = (-rendered.pitch * Math.PI) / 180
     const material = bodyMaterial.current
     if (material) {
@@ -59,7 +61,7 @@ export function Vehicle3D({ vehicle, animationChannel = 'single' }: Vehicle3DPro
         <boxGeometry args={[1.08, 0.32, 0.48]} />
         <meshStandardMaterial ref={bodyMaterial} color={STATUS_COLORS[vehicle.status]} roughness={0.3} metalness={0.35} />
       </mesh>
-      <mesh position={[-0.04, 0.5, 0]}>
+      <mesh position={[0.08, 0.5, 0]}>
         <boxGeometry args={[0.52, 0.2, 0.4]} />
         <meshStandardMaterial color="#dbeafe" roughness={0.25} metalness={0.1} />
       </mesh>
@@ -69,6 +71,18 @@ export function Vehicle3D({ vehicle, animationChannel = 'single' }: Vehicle3DPro
           <meshStandardMaterial color="#020617" roughness={0.8} />
         </mesh>
       )))}
+      {[-0.14, 0.14].map((z) => (
+        <mesh key={`headlight-${z}`} position={[0.548, 0.3, z]}>
+          <boxGeometry args={[0.018, 0.08, 0.09]} />
+          <meshBasicMaterial color="#fef3c7" />
+        </mesh>
+      ))}
+      {[-0.14, 0.14].map((z) => (
+        <mesh key={`tail-light-${z}`} position={[-0.548, 0.29, z]}>
+          <boxGeometry args={[0.018, 0.08, 0.09]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+      ))}
       <VehicleStatusRing3D vehicleId={vehicle.id} channel={animationChannel} status={vehicle.status} />
       {hovered && (
         <Html center position={[0, 1.15, 0]} className="scene-tooltip">

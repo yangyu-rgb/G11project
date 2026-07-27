@@ -10,7 +10,6 @@ import random
 import shutil
 import subprocess
 import sys
-import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -249,58 +248,70 @@ def _prepare_output_directory(output_directory: Path) -> ScenarioArtifacts:
 
 
 def _write_network(config: ScenarioConfig, artifacts: ScenarioArtifacts) -> None:
-    netconvert = _find_binary("netconvert")
-    if netconvert is None:
-        raise ScenarioGenerationError("netconvert was not found in PATH, SUMO_HOME, or the venv.")
+    # This scenario has fixed, validated geometry. Writing its network directly
+    # avoids unstable netconvert builds (notably SUMO 1.12 on some Colab images).
+    _write_compatible_network(config, artifacts)
 
-    with tempfile.TemporaryDirectory(prefix="g11-highway-") as temporary_directory:
-        temporary_path = Path(temporary_directory)
-        nodes_path = temporary_path / "highway.nod.xml"
-        edges_path = temporary_path / "highway.edg.xml"
 
-        nodes_root = ET.Element("nodes")
-        ET.SubElement(nodes_root, "node", id="start", x="0", y="0", type="dead_end")
+def _write_compatible_network(config: ScenarioConfig, artifacts: ScenarioArtifacts) -> None:
+    """Write the validated fixed three-lane road without invoking netconvert."""
+    speed_mps = config.speed_limit_kmh / 3.6
+    lane_width_m = 3.2
+    root = ET.Element(
+        "net",
+        version="1.9",
+        junctionCornerDetail="5",
+        limitTurnSpeed="5.50",
+    )
+    ET.SubElement(
+        root,
+        "location",
+        netOffset="0.00,0.00",
+        convBoundary=f"0.00,0.00,{config.road_length_m:.2f},0.00",
+        origBoundary=f"0.00,0.00,{config.road_length_m:.2f},0.00",
+        projParameter="!",
+    )
+    edge = ET.SubElement(root, "edge", id="highway", **{"from": "start", "to": "end"}, priority="1")
+    lane_ids = []
+    for lane_index in range(config.lane_count):
+        lane_id = f"highway_{lane_index}"
+        lane_ids.append(lane_id)
+        lateral_position = -(config.lane_count - lane_index - 0.5) * lane_width_m
         ET.SubElement(
-            nodes_root,
-            "node",
-            id="end",
-            x=str(config.road_length_m),
-            y="0",
-            type="dead_end",
+            edge,
+            "lane",
+            id=lane_id,
+            index=str(lane_index),
+            speed=f"{speed_mps:.6f}",
+            length=f"{config.road_length_m:.2f}",
+            shape=(
+                f"0.00,{lateral_position:.2f} {config.road_length_m:.2f},{lateral_position:.2f}"
+            ),
         )
-        ET.ElementTree(nodes_root).write(nodes_path, encoding="utf-8", xml_declaration=True)
-
-        edges_root = ET.Element("edges")
-        ET.SubElement(
-            edges_root,
-            "edge",
-            id="highway",
-            **{
-                "from": "start",
-                "to": "end",
-                "numLanes": str(config.lane_count),
-                "speed": f"{config.speed_limit_kmh / 3.6:.6f}",
-                "priority": "1",
-            },
-        )
-        ET.ElementTree(edges_root).write(edges_path, encoding="utf-8", xml_declaration=True)
-
-        subprocess.run(
-            [
-                str(netconvert),
-                "--node-files",
-                str(nodes_path),
-                "--edge-files",
-                str(edges_path),
-                "--output-file",
-                str(artifacts.network),
-                "--no-turnarounds",
-                "true",
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+    road_width = config.lane_count * lane_width_m
+    ET.SubElement(
+        root,
+        "junction",
+        id="end",
+        type="dead_end",
+        x=f"{config.road_length_m:.2f}",
+        y="0.00",
+        incLanes=" ".join(lane_ids),
+        intLanes="",
+        shape=(f"{config.road_length_m:.2f},{-road_width:.2f} {config.road_length_m:.2f},0.00"),
+    )
+    ET.SubElement(
+        root,
+        "junction",
+        id="start",
+        type="dead_end",
+        x="0.00",
+        y="0.00",
+        incLanes="",
+        intLanes="",
+        shape=f"0.00,0.00 0.00,{-road_width:.2f}",
+    )
+    ET.ElementTree(root).write(artifacts.network, encoding="utf-8", xml_declaration=True)
 
 
 def _write_routes(vehicles: list[VehicleDefinition], artifacts: ScenarioArtifacts) -> None:

@@ -12,6 +12,7 @@ import yaml
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
+import scripts.generate_highway_scenario as highway_generator  # noqa: E402
 from scripts.generate_highway_scenario import (  # noqa: E402
     DEFAULT_CONFIG_PATH,
     MANAGED_OUTPUTS,
@@ -76,3 +77,28 @@ def test_generated_scenario_is_loadable_and_contains_required_outputs(tmp_path: 
     assert set(events[0]) == {"type", "x", "y", "timestamp", "severity"}
     assert events[0]["type"] == "emergency_braking"
     assert 10 <= events[0]["timestamp"] <= 10.1
+
+
+def test_network_writer_falls_back_when_netconvert_crashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_scenario_config(DEFAULT_CONFIG_PATH)
+    artifacts = highway_generator._prepare_output_directory(tmp_path / "fallback")
+    monkeypatch.setattr(
+        highway_generator,
+        "_find_binary",
+        lambda name: Path(f"/usr/bin/{name}"),
+    )
+
+    def crash(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise highway_generator.subprocess.CalledProcessError(-11, ["netconvert"])
+
+    monkeypatch.setattr(highway_generator.subprocess, "run", crash)
+    highway_generator._write_network(config, artifacts)
+
+    root = ET.parse(artifacts.network).getroot()
+    assert root.attrib["version"] == "1.9"
+    lanes = root.findall("./edge/lane")
+    assert len(lanes) == 3
+    assert all(float(lane.attrib["length"]) == 5000 for lane in lanes)

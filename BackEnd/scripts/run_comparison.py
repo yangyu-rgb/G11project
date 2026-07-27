@@ -30,6 +30,7 @@ from src.experiments.statistics import (  # noqa: E402
 )
 
 METHODS = ("ai", "broadcast", "distance", "urgency")
+SUPPORTED_DOMAINS = ("highway", "urban")
 PRIMARY_METRICS = (
     "mean_latency_ms",
     "effective_delivery_rate",
@@ -139,7 +140,12 @@ def run_comparison(
     output_directory.mkdir(parents=True, exist_ok=True)
     rows: list[dict[str, Any]] = []
     failures: list[dict[str, str]] = []
-    for domain in ("highway", "urban"):
+    domains = tuple(config.get("domains", SUPPORTED_DOMAINS))
+    if not domains or any(domain not in SUPPORTED_DOMAINS for domain in domains):
+        raise ValueError("domains must contain highway and/or urban")
+    if len(set(domains)) != len(domains):
+        raise ValueError("domains must not contain duplicates")
+    for domain in domains:
         base = load_yaml(config["base_scenario_configs"][domain])
         dataset = config["dataset"]
         definitions = build_scenario_matrix(
@@ -199,7 +205,9 @@ def run_comparison(
                 except Exception as exc:  # noqa: BLE001 - preserve the remaining matrix
                     failures.append({"case_id": case_id, "error": f"{type(exc).__name__}: {exc}"})
     write_detailed_csv(output_directory / "detailed_results.csv", rows)
-    expected_cases = 2 * int(config["dataset"].get("test_configs", 10)) * len(config["test_seeds"])
+    expected_cases = (
+        len(domains) * int(config["dataset"].get("test_configs", 10)) * len(config["test_seeds"])
+    )
     summary = {
         "run_mode": config.get("run_mode", "formal"),
         "expected_case_count": expected_cases,

@@ -1,0 +1,57 @@
+run_mode: demo_lite
+domain: highway
+base_training_config: configs/training_config.yaml
+base_scenario_config: configs/scenarios/highway_emergency.yaml
+safety_window_ms: 100
+
+# Course-demo protocol: eight compact candidate runs, followed by independent
+# validation-based champion selection. This is intentionally smaller than the
+# paper-oriented formal matrix and must be reported as preliminary evidence.
+dataset:
+  train_configs: 4
+  validation_configs: 2
+  test_configs: 5
+
+training_seeds: [101, 211]
+training:
+  episodes_per_config: 25
+  validation_interval_episodes: 5
+  early_stopping_patience_episodes: 10
+  evaluation_episodes: 2
+
+champion_selection:
+  enabled: true
+  shortlist_size: 4
+  evaluation_episodes: 2
+
+reward_profile: balanced
+reward_profiles:
+  balanced:
+    effective_delivery: 0.25
+    coverage: 0.30
+    latency: 0.20
+    overhead: 0.10
+    missed: 0.10
+    fairness: 0.05
+
+environment_overrides:
+  max_vehicles: 50
+  max_events: 2
+  feature_mode: basic
+
+ppo_overrides:
+  n_steps: 32
+  batch_size: 32
+  n_epochs: 5
+  verbose: 0
+  transformer:
+    variant: standard
+    num_layers: 2
+    num_heads: 4
+    d_model: 128
+    feedforward_dim: 256
+    dropout: 0.1
+
+success:
+  reward_threshold: 0.5
+  convergence_rate: 0.5

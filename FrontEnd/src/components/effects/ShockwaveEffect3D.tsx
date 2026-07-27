@@ -6,13 +6,19 @@ import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { easeOutCubic } from '../../engine/Interpolator'
 import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationEvent } from '../../types/simulation'
-import { SCENE_SCALE, toScenePosition } from '../ThreeD/sceneCoordinates'
+import type { SceneLayout } from '../ThreeD/Road3D'
+import { HIGHWAY_LANE_WIDTH, SCENE_SCALE, toScenePosition } from '../ThreeD/sceneCoordinates'
 
-function Shockwave3DItem({ event, animationChannel }: { event: SimulationEvent; animationChannel: AnimationChannel }) {
+function Shockwave3DItem({ event, animationChannel, layout }: {
+  event: SimulationEvent
+  animationChannel: AnimationChannel
+  layout: SceneLayout
+}) {
   const { animation: animationEngine } = useAnimationRuntime()
   const rings = useRef<Array<Mesh | null>>([])
   const startedAt = useRef(animationEngine.getSnapshot(animationChannel)?.animationTimeMs ?? 0)
-  const [x, , z] = toScenePosition(event.x, event.y)
+  const [x, , z] = toScenePosition(event.x, event.y, layout)
+  const maximumRadius = layout === 'highway' ? HIGHWAY_LANE_WIDTH * 0.9 : 300 * SCENE_SCALE
   useFrame(() => {
     const now = animationEngine.getSnapshot(animationChannel)?.animationTimeMs ?? 0
     const age = now - startedAt.current
@@ -21,7 +27,7 @@ function Shockwave3DItem({ event, animationChannel }: { event: SimulationEvent; 
       const progress = Math.min(1, Math.max(0, (age - index * 300) / 1500))
       const material = Array.isArray(ring.material) ? ring.material[0] : ring.material
       ring.visible = progress > 0 && progress < 1
-      ring.scale.setScalar(easeOutCubic(progress) * 300 * SCENE_SCALE)
+      ring.scale.setScalar(easeOutCubic(progress) * maximumRadius)
       material.opacity = 0.8 * (1 - progress)
     })
   })
@@ -33,12 +39,15 @@ function Shockwave3DItem({ event, animationChannel }: { event: SimulationEvent; 
   ))}</group>
 }
 
-export function ShockwaveEffect3D({ events, animationChannel = 'single', active = true }: {
+export function ShockwaveEffect3D({ events, animationChannel = 'single', active = true,
+  layout = 'custom' }: {
   events: SimulationEvent[]
   animationChannel?: AnimationChannel
   active?: boolean
+  layout?: SceneLayout
 }) {
   const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
   if (!active || reduced) return null
-  return events.map((event) => <Shockwave3DItem key={`${event.id}:${event.timestamp}`} event={event} animationChannel={animationChannel} />)
+  return events.map((event) => <Shockwave3DItem key={`${event.id}:${event.timestamp}`} event={event}
+    animationChannel={animationChannel} layout={layout} />)
 }

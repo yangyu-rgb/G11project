@@ -7,19 +7,17 @@ import {
   deriveMotion,
   interpolateAngle,
   interpolatePhysics,
+  interpolateTrajectory,
 } from '../../FrontEnd/src/engine/Interpolator'
 import { ParticleSystem } from '../../FrontEnd/src/engine/ParticleSystem'
 import { buildSimulationEndpoint } from '../../FrontEnd/src/hooks/useSimulationSession'
 import { createAnimationRuntime } from '../../FrontEnd/src/runtime/AnimationRuntimeContext'
-import {
-  NarrativeStage,
-  narrativeStageAt,
-} from '../../FrontEnd/src/components/DemoMode/NarrativeStages'
+import { stageAt } from '../../FrontEnd/src/components/Presentation/presentationTimeline'
 import type { StateUpdateMessage } from '../../FrontEnd/src/types/simulation'
 
-function update(x: number, speed: number, heading = 90): StateUpdateMessage {
+function update(x: number, speed: number, heading = 90, timestamp = x): StateUpdateMessage {
   return {
-    type: 'state_update', timestamp: x, events: [], messages: [], attention_weights: [],
+    type: 'state_update', timestamp, events: [], messages: [], attention_weights: [],
     vehicles: [{ id: 'v0', x, y: 0, vx: speed, vy: 0, heading, status: 'normal' }],
     metrics: { avg_delay_ms: 0, delivery_rate: 0, comm_overhead: 0 },
     decision: { selected_receivers: [], priority: 'low', bandwidth_allocation: [] },
@@ -69,7 +67,39 @@ describe('continuous animation engine', () => {
     first.animation.pushTarget('single', update(0, 10))
     assert(first.animation.getSnapshot('single'))
     assert.equal(second.animation.getSnapshot('single'), null)
-    assert.notEqual(first.camera, second.camera)
+    assert.notEqual(first.animation, second.animation)
+  })
+
+  it('keeps constant-speed motion continuous through a keyframe', () => {
+    const from = update(0, 10, 90, 0).vehicles[0]
+    const to = update(40, 10, 90, 4).vehicles[0]
+    const samples = [0, 0.25, 0.5, 0.75, 1]
+      .map((amount) => interpolateTrajectory(from, to, amount, 4).x)
+    assert.deepEqual(samples.map((value) => Number(value.toFixed(3))), [0, 10, 20, 30, 40])
+  })
+
+  it('replays recorded positions with an event anchor and never moves beyond the final frame', () => {
+    const engine = new AnimationEngine(null)
+    const frames = [
+      update(0, 1, 90, 0),
+      { ...update(20, 1, 90, 20), events: [{
+        id: 'event-0', type: 'emergency_brake', x: 20, y: 0, timestamp: 20, severity: 0.9,
+      }] },
+      update(40, 1, 90, 40),
+    ]
+    engine.loadReplay('single', frames, {
+      durationMs: 60_000,
+      anchorTimestamp: 20,
+      anchorAtMs: 10_000,
+    })
+    engine.setPaused(true)
+    engine.advance(0)
+    engine.setReplayElapsed(10_000)
+    engine.advance(17)
+    assert.equal(Number(engine.getVehicle('single', 'v0')?.x.toFixed(3)), 20)
+    engine.setReplayElapsed(90_000)
+    engine.advance(34)
+    assert.equal(Number(engine.getVehicle('single', 'v0')?.x.toFixed(3)), 40)
   })
 })
 
@@ -87,11 +117,12 @@ describe('particle pool and narrative timing', () => {
     assert.equal(system.activeCount(), 26)
   })
 
-  it('uses the architect-defined eight stage boundaries', () => {
-    assert.equal(narrativeStageAt(0).stage, NarrativeStage.OPENING)
-    assert.equal(narrativeStageAt(10_000).stage, NarrativeStage.EVENT_TRIGGERED)
-    assert.equal(narrativeStageAt(45_000).stage, NarrativeStage.COMPARISON)
-    assert.equal(narrativeStageAt(59_999).stage, NarrativeStage.COMPARISON)
+  it('uses the five-stage 38 second presentation boundaries', () => {
+    assert.equal(stageAt(0), 'normal')
+    assert.equal(stageAt(5_000), 'accident')
+    assert.equal(stageAt(11_000), 'broadcast')
+    assert.equal(stageAt(20_000), 'ai')
+    assert.equal(stageAt(30_000), 'summary')
   })
 
   it('builds stable single and comparison WebSocket endpoints', () => {

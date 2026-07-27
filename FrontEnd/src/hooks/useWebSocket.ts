@@ -61,6 +61,8 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
   const [message, setMessage] = useState<SimulationMessage | null>(null)
   const [stateUpdate, setStateUpdate] = useState<StateUpdateMessage | null>(null)
   const [comparisonPair, setComparisonPair] = useState<ComparisonPair | null>(null)
+  const [stateHistory, setStateHistory] = useState<StateUpdateMessage[]>([])
+  const [comparisonHistory, setComparisonHistory] = useState<ComparisonPair[]>([])
   const [controlState, setControlState] = useState<ControlAckMessage | null>(null)
   const [status, setStatus] = useState<WebSocketStatus>(path ? 'connecting' : 'disconnected')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -102,10 +104,18 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
               if (pair) {
                 animationEngine.pushComparison(pair.ai, pair.baseline)
                 setComparisonPair(pair)
+                setComparisonHistory((history) => [
+                  ...history.filter((item) => item.ai.timestamp !== pair.ai.timestamp),
+                  pair,
+                ].sort((left, right) => left.ai.timestamp - right.ai.timestamp))
               }
             } else {
               animationEngine.pushTarget('single', parsed)
               setStateUpdate(parsed)
+              setStateHistory((history) => [
+                ...history.filter((item) => item.timestamp !== parsed.timestamp),
+                parsed,
+              ].sort((left, right) => left.timestamp - right.timestamp))
             }
           }
           if (parsed.type === 'control_ack') {
@@ -158,6 +168,8 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     if (action === 'reset') {
       setStateUpdate(null)
       setComparisonPair(null)
+      setStateHistory([])
+      setComparisonHistory([])
       comparisonCacheRef.current = createComparisonUpdateCache()
       setCompleted(false)
       animationEngine.clear()
@@ -169,6 +181,8 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     setMessage(null)
     setStateUpdate(null)
     setComparisonPair(null)
+    setStateHistory([])
+    setComparisonHistory([])
     comparisonCacheRef.current = createComparisonUpdateCache()
     setControlState(null)
     setErrorMessage(null)
@@ -180,6 +194,8 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
     message,
     stateUpdate,
     comparisonPair,
+    stateHistory,
+    comparisonHistory,
     controlState,
     status,
     errorMessage,

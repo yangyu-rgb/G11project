@@ -75,6 +75,72 @@ export function interpolatePhysics(
   }
 }
 
+function hermite(from: number, to: number, fromTangent: number, toTangent: number, amount: number): number {
+  const t = clamp01(amount)
+  const t2 = t * t
+  const t3 = t2 * t
+  return (2 * t3 - 3 * t2 + 1) * from
+    + (t3 - 2 * t2 + t) * fromTangent
+    + (-2 * t3 + 3 * t2) * to
+    + (t3 - t2) * toTangent
+}
+
+function boundedTangent(delta: number, velocity: number, durationSeconds: number): number {
+  if (Math.abs(delta) <= EPSILON || Math.sign(delta) !== Math.sign(velocity)) return 0
+  return Math.sign(delta) * Math.min(Math.abs(velocity * durationSeconds), Math.abs(delta) * 3)
+}
+
+export function interpolateTrajectory(
+  from: SimulationVehicle,
+  to: SimulationVehicle,
+  amount: number,
+  durationSeconds: number,
+  forcedBraking = false,
+): AnimatedVehicle {
+  const t = clamp01(amount)
+  const motion = deriveMotion(from, to, forcedBraking)
+  const xDelta = to.x - from.x
+  const yDelta = to.y - from.y
+  const x = hermite(
+    from.x,
+    to.x,
+    boundedTangent(xDelta, from.vx, durationSeconds),
+    boundedTangent(xDelta, to.vx, durationSeconds),
+    t,
+  )
+  const y = hermite(
+    from.y,
+    to.y,
+    boundedTangent(yDelta, from.vy, durationSeconds),
+    boundedTangent(yDelta, to.vy, durationSeconds),
+    t,
+  )
+  return {
+    ...to,
+    x,
+    y,
+    vx: from.vx + (to.vx - from.vx) * t,
+    vy: from.vy + (to.vy - from.vy) * t,
+    heading: interpolateAngle(from.heading, to.heading, t),
+    motion,
+    pitch: motion === 'braking' ? 5 * Math.sin(Math.PI * t) : 0,
+  }
+}
+
+export function predictVehicle(
+  vehicle: AnimatedVehicle,
+  deltaSeconds: number,
+  simulationRate = 1,
+): AnimatedVehicle {
+  const seconds = Math.max(0, deltaSeconds) * Math.max(0, simulationRate)
+  return {
+    ...vehicle,
+    x: vehicle.x + vehicle.vx * seconds,
+    y: vehicle.y + vehicle.vy * seconds,
+    pitch: 0,
+  }
+}
+
 export function coastVehicle(vehicle: AnimatedVehicle, deltaSeconds: number): AnimatedVehicle {
   const speed = vehicleSpeed(vehicle)
   if (speed < 0.05 || deltaSeconds <= EPSILON) {

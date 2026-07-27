@@ -6,18 +6,20 @@ import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { ParticleSystem, type ParticleTone } from '../../engine/ParticleSystem'
 import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationTransmission, SimulationVehicle } from '../../types/simulation'
-import { SCENE_SCALE } from './sceneCoordinates'
+import type { SceneLayout } from './Road3D'
+import { SCENE_SCALE, toScenePosition } from './sceneCoordinates'
 
 type Message3DProps = {
   messages: SimulationTransmission[]
   vehicles: SimulationVehicle[]
   animationChannel?: AnimationChannel
   tone?: ParticleTone
+  layout?: SceneLayout
 }
 
 const MAX_PARTICLES = 1500
 
-export function Message3D({ animationChannel = 'single', tone = 'ai' }: Message3DProps) {
+export function Message3D({ messages, animationChannel = 'single', tone = 'ai', layout = 'custom' }: Message3DProps) {
   const { animation: animationEngine } = useAnimationRuntime()
   const points = useRef<Points>(null)
   const system = useRef(new ParticleSystem(MAX_PARTICLES))
@@ -34,15 +36,23 @@ export function Message3D({ animationChannel = 'single', tone = 'ai' }: Message3
     geometry.dispose()
   }, [geometry])
 
+  useEffect(() => {
+    if (messages.length === 0) system.current.clear()
+  }, [messages.length])
+
   useFrame(() => {
     const frame = animationEngine.getSnapshot(animationChannel)
     if (!frame) return
-    system.current.ingest(frame.messages, frame.vehicles, frame.timestamp, frame.animationTimeMs, tone)
+    if (messages.length > 0) {
+      const pulseTimestamp = frame.timestamp + Math.floor(frame.animationTimeMs / 1800) / 1000
+      system.current.ingest(messages, frame.vehicles, pulseTimestamp, frame.animationTimeMs, tone)
+    }
     const particles = system.current.update(frame.animationTimeMs).slice(0, MAX_PARTICLES)
     const positions = geometry.getAttribute('position') as BufferAttribute
     const colors = geometry.getAttribute('color') as BufferAttribute
     particles.forEach((particle, index) => {
-      positions.setXYZ(index, particle.x * SCENE_SCALE, 0.72 + particle.height * SCENE_SCALE, particle.y * SCENE_SCALE)
+      const [x, , z] = toScenePosition(particle.x, particle.y, layout)
+      positions.setXYZ(index, x, 0.72 + particle.height * SCENE_SCALE, z)
       const color = new Color(particle.color).multiplyScalar(Math.max(0.3, particle.alpha))
       colors.setXYZ(index, color.r, color.g, color.b)
     })

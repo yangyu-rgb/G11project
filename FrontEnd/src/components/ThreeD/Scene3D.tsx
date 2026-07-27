@@ -1,76 +1,68 @@
-import { Grid, OrbitControls } from '@react-three/drei'
+import { OrbitControls, Sky } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Suspense, useEffect, useRef } from 'react'
-import { Vector3 } from 'three'
+import { Suspense, useEffect, useMemo, useRef } from 'react'
+import {
+  ACESFilmicToneMapping,
+  Color,
+  SRGBColorSpace,
+  Vector3,
+} from 'three'
 
+import type { PresentationStage } from '../Presentation/presentationTimeline'
 import type { AnimationChannel } from '../../engine/AnimationEngine'
-import type { CameraCommand } from '../../engine/CameraController'
-import { easeInOutCubic } from '../../engine/Interpolator'
 import type {
   SimulationEvent,
   SimulationTransmission,
   SimulationVehicle,
 } from '../../types/simulation'
-import { Event3D } from './Event3D'
-import { RadarScanEffect3D } from '../effects/RadarScanEffect3D'
 import { ShockwaveEffect3D } from '../effects/ShockwaveEffect3D'
+import { Event3D } from './Event3D'
 import { Message3D } from './Message3D'
-import { Road3D, type SceneLayout } from './Road3D'
-import { Vehicle3D } from './Vehicle3D'
+import { Road3D } from './Road3D'
+import { toScenePosition } from './sceneCoordinates'
+import { VehicleFleet3D } from './VehicleFleet3D'
 
 type Scene3DProps = {
   vehicles: SimulationVehicle[]
   events: SimulationEvent[]
   messages: SimulationTransmission[]
-  layout?: SceneLayout
-  headingId?: string
-  title?: string
-  eyebrow?: string
   animationChannel?: AnimationChannel
+  messageTone?: 'ai' | 'baseline'
   candidateIds?: string[]
-  effectMode?: 'idle' | 'event' | 'scan' | 'all'
-  cameraCommand?: CameraCommand | null
-  onManualCamera?: () => void
-  secondaryMessages?: SimulationTransmission[]
-  secondaryAnimationChannel?: AnimationChannel
+  notifiedIds?: string[]
+  selectedVehicleId?: string | null
+  accidentVehicleId?: string | null
+  stage?: PresentationStage
+  interactive?: boolean
+  onVehicleSelect?: (vehicleId: string) => void
 }
 
-function CameraRig({ command, urban }: { command: CameraCommand | null; urban: boolean }) {
+function CameraRig({ focus, stage, interactive }: {
+  focus: Vector3
+  stage: PresentationStage
+  interactive: boolean
+}) {
   const { camera } = useThree()
-  const flight = useRef<{
-    id: number
-    from: Vector3
-    to: Vector3
-    focus: Vector3
-    startedAt: number
-    durationMs: number
-  } | null>(null)
+  const target = useRef(focus.clone())
+  const desired = useRef(new Vector3())
+
   useEffect(() => {
-    if (!command || command.visualization !== '3d') return
-    const focus = command.event
-      ? new Vector3(command.event.x * 0.02, 0, command.event.y * 0.02)
-      : new Vector3(50, 0, urban ? 10 : 0)
-    const to = command.global
-      ? new Vector3(50, urban ? 52 : 42, urban ? 42 : 26)
-      : new Vector3(focus.x - 10, 16, focus.z + 13)
-    flight.current = {
-      id: command.id,
-      from: camera.position.clone(),
-      to,
-      focus,
-      startedAt: performance.now(),
-      durationMs: command.durationMs,
-    }
-  }, [camera, command, urban])
-  useFrame(() => {
-    const current = flight.current
-    if (!current) return
-    const progress = Math.min(1, (performance.now() - current.startedAt) / current.durationMs)
-    const curved = easeInOutCubic(progress)
-    camera.position.lerpVectors(current.from, current.to, curved)
-    camera.position.y += Math.sin(Math.PI * progress) * 3
-    camera.lookAt(current.focus)
-    if (progress >= 1) flight.current = null
+    target.current.copy(focus)
+  }, [focus])
+
+  useFrame((_, delta) => {
+    if (interactive) return
+    const distance = stage === 'accident' ? [-2.4, 2.7, 3.2]
+      : stage === 'normal' ? [-4.2, 5.2, 6.5]
+        : [-3.2, 5.8, 7.6]
+    desired.current.set(
+      target.current.x + distance[0],
+      distance[1],
+      target.current.z + distance[2],
+    )
+    const amount = 1 - Math.exp(-delta * 2.8)
+    camera.position.lerp(desired.current, amount)
+    camera.lookAt(target.current)
   })
   return null
 }
@@ -79,76 +71,67 @@ export function Scene3D({
   vehicles,
   events,
   messages,
-  layout = 'highway',
-  headingId = 'scene-3d-heading',
-  title = '3D通信态势',
-  eyebrow = 'LIVE 3D OVERVIEW',
-  animationChannel = 'single',
+  animationChannel = 'comparison-ai',
+  messageTone = 'ai',
   candidateIds = [],
-  effectMode = 'all',
-  cameraCommand = null,
-  onManualCamera,
-  secondaryMessages = [],
-  secondaryAnimationChannel,
+  notifiedIds = [],
+  selectedVehicleId,
+  accidentVehicleId,
+  stage = 'normal',
+  interactive = false,
+  onVehicleSelect,
 }: Scene3DProps) {
-  const urban = layout === 'urban'
+  const focus = useMemo(() => {
+    const selected = vehicles.find((vehicle) => vehicle.id === (accidentVehicleId ?? selectedVehicleId))
+    const event = events[0]
+    if (event) return new Vector3(...toScenePosition(event.x, event.y, 'highway'))
+    if (selected) return new Vector3(...toScenePosition(selected.x, selected.y, 'highway'))
+    const ordered = vehicles.map((vehicle) => vehicle.x).sort((left, right) => left - right)
+    return new Vector3(...toScenePosition(ordered[Math.floor(ordered.length / 2)] ?? 1000, -4.8, 'highway'))
+  }, [accidentVehicleId, events, selectedVehicleId, vehicles])
+  const showEvent = stage !== 'normal' && stage !== 'summary' && events.length > 0
+  const showShockwave = stage === 'accident'
+
   return (
-    <section className="map-card scene-card" aria-labelledby={headingId}>
-      <div className="section-heading">
-        <div><p className="eyebrow">{eyebrow}</p><h2 id={headingId}>{title}</h2></div>
-        <div className="legend" aria-label="车辆状态图例">
-          <span><i className="legend-dot normal" />正常</span>
-          <span><i className="legend-dot sending" />发送</span>
-          <span><i className="legend-dot receiving" />接收</span>
-        </div>
-      </div>
-      <div className="scene-3d" data-testid="scene-3d">
-        <Canvas
-          dpr={[1, 1.5]}
-          camera={{ position: urban ? [50, 52, 42] : [50, 42, 26], fov: 45, near: 0.1, far: 500 }}
-          gl={{ antialias: true, powerPreference: 'high-performance' }}
-        >
-          <color attach="background" args={['#07111f']} />
-          <fog attach="fog" args={['#07111f', 85, 180]} />
-          <ambientLight intensity={1.25} />
-          <directionalLight position={[35, 55, 20]} intensity={2.2} />
-          <CameraRig command={cameraCommand} urban={urban} />
-          <Suspense fallback={null}>
-            <Grid
-              position={[50, -0.14, urban ? 10 : 0]}
-              args={[120, urban ? 36 : 22]}
-              cellSize={1}
-              cellThickness={0.45}
-              cellColor="#17324b"
-              sectionSize={5}
-              sectionThickness={0.8}
-              sectionColor="#24506f"
-              fadeDistance={100}
-              infiniteGrid={false}
-            />
-            <Road3D layout={layout} />
-            {vehicles.map((vehicle) => <Vehicle3D key={vehicle.id} vehicle={vehicle} animationChannel={animationChannel} />)}
-            {events.map((event) => <Event3D key={event.id} event={event} />)}
-            <ShockwaveEffect3D events={events} animationChannel={animationChannel}
-              active={effectMode === 'event' || effectMode === 'all'} />
-            <RadarScanEffect3D events={events} vehicles={vehicles} candidateIds={candidateIds}
-              animationChannel={animationChannel} active={effectMode === 'scan' || effectMode === 'all'} />
-            <Message3D messages={messages} vehicles={vehicles} animationChannel={animationChannel}
-              tone={animationChannel === 'comparison-baseline' ? 'baseline' : 'ai'} />
-            {secondaryAnimationChannel && <Message3D messages={secondaryMessages} vehicles={vehicles}
-              animationChannel={secondaryAnimationChannel} tone="baseline" />}
-          </Suspense>
-          <OrbitControls
-            makeDefault
-            target={[50, 0, urban ? 10 : 0]}
-            minDistance={12}
-            maxDistance={150}
-            maxPolarAngle={Math.PI / 2.08}
-            enableDamping
-            onStart={onManualCamera}
-          />
-        </Canvas>
-      </div>
-    </section>
+    <div className="presentation-scene" data-testid="scene-3d" aria-label="三维高速公路通信演示">
+      <Canvas
+        shadows="percentage"
+        dpr={[1, 1.6]}
+        camera={{ position: [focus.x - 4.2, 5.2, focus.z + 6.5], fov: 42, near: 0.05, far: 650 }}
+        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        onCreated={({ gl }) => {
+          gl.outputColorSpace = SRGBColorSpace
+          gl.toneMapping = ACESFilmicToneMapping
+          gl.toneMappingExposure = 1.05
+          gl.setClearColor(new Color('#8ca6bd'))
+        }}
+      >
+        <fog attach="fog" args={['#a8bac8', 75, 260]} />
+        <Sky distance={420} sunPosition={[70, 28, -20]} inclination={0.46} azimuth={0.19}
+          turbidity={5} rayleigh={1.2} mieCoefficient={0.006} mieDirectionalG={0.78} />
+        <hemisphereLight args={['#dcecff', '#34412f', 1.75]} />
+        <directionalLight castShadow position={[focus.x - 12, 24, 15]} intensity={3.4}
+          shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+          shadow-camera-near={1} shadow-camera-far={70}
+          shadow-camera-left={-32} shadow-camera-right={32}
+          shadow-camera-top={25} shadow-camera-bottom={-25} />
+        <CameraRig focus={focus} stage={stage} interactive={interactive} />
+        <Suspense fallback={null}>
+          <Road3D layout="highway" />
+          <VehicleFleet3D vehicles={vehicles} animationChannel={animationChannel}
+            selectedVehicleId={selectedVehicleId} accidentVehicleId={accidentVehicleId}
+            relevantIds={candidateIds} notifiedIds={notifiedIds}
+            interactive={interactive} onVehicleSelect={onVehicleSelect} />
+          {showEvent && events.map((event) => <Event3D key={event.id} event={event} layout="highway" />)}
+          <ShockwaveEffect3D events={showEvent ? events : []} animationChannel={animationChannel}
+            active={showShockwave} layout="highway" />
+          <Message3D messages={messages} vehicles={vehicles} animationChannel={animationChannel}
+            tone={messageTone} layout="highway" />
+        </Suspense>
+        <OrbitControls enabled={interactive} makeDefault target={focus.toArray()}
+          minDistance={3.8} maxDistance={70} maxPolarAngle={Math.PI / 2.08}
+          enableDamping enablePan={interactive} />
+      </Canvas>
+    </div>
   )
 }
