@@ -9,6 +9,7 @@ import math
 import shutil
 import sys
 import time
+import traceback
 from pathlib import Path
 from typing import Any
 
@@ -176,6 +177,15 @@ class AdaptiveDemoPipeline:
             self.state["stages"][stage] = {"status": "paused"}
             self._save()
             raise
+        except Exception as exc:
+            self.state["stages"][stage] = {
+                "status": "failed",
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+            self._save()
+            raise
         self.state["stages"][stage] = {"status": "completed", "result": result}
         self._save()
         return self.status()
@@ -319,8 +329,16 @@ class AdaptiveDemoPipeline:
         summary_path = candidate / "summary.json"
         if summary_path.is_file():
             previous = json.loads(summary_path.read_text(encoding="utf-8"))
-            if previous.get("status") == "completed":
+            if previous.get("status") in {"completed", "rejected"}:
                 return previous
+        training = self.config["training"]
+        history_path = candidate / "validation_history.json"
+        history = (
+            json.loads(history_path.read_text(encoding="utf-8")) if history_path.is_file() else []
+        )
+        rejection = self._pilot_rejection(seed, candidate, history)
+        if rejection is not None:
+            return rejection
         environment = self._training_environment(seed, train_paths)
         checkpoint = candidate / "checkpoint_latest.zip"
         try:
@@ -330,16 +348,9 @@ class AdaptiveDemoPipeline:
                 config = self._resolved_training_config(train_paths[0], seed)
                 config["tensorboard_log"] = candidate / "tensorboard"
                 agent = create_agent(config, environment)  # type: ignore[arg-type]
-            training = self.config["training"]
             maximum = int(training["max_timesteps"])
             interval = int(training["evaluation_interval_timesteps"])
             patience = int(training["early_stopping_patience_evaluations"])
-            history_path = candidate / "validation_history.json"
-            history = (
-                json.loads(history_path.read_text(encoding="utf-8"))
-                if history_path.is_file()
-                else []
-            )
             best_score = max((float(item["score"]) for item in history), default=-float("inf"))
             stale = 0
             while agent.model.num_timesteps < maximum and stale < patience:
@@ -364,17 +375,9 @@ class AdaptiveDemoPipeline:
                     atomic_write_json(candidate / "best_validation.json", record)
                 else:
                     stale += 1
-                pilot = int(training["pilot_timesteps"])
-                if (
-                    agent.model.num_timesteps >= pilot
-                    and len(history) == 2
-                    and metrics["affected_vehicle_coverage"]
-                    < float(training["pilot_minimum_coverage"])
-                ):
-                    raise RuntimeError(
-                        f"pilot coverage gate failed for seed {seed}: "
-                        f"{metrics['affected_vehicle_coverage']:.3f}"
-                    )
+                rejection = self._pilot_rejection(seed, candidate, history)
+                if rejection is not None:
+                    return rejection
             best = json.loads((candidate / "best_validation.json").read_text(encoding="utf-8"))
             summary = {
                 "status": "completed",
@@ -390,6 +393,39 @@ class AdaptiveDemoPipeline:
         finally:
             environment.close()
 
+    def _pilot_rejection(
+        self,
+        seed: int,
+        candidate: Path,
+        history: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Persist a weak pilot as a rejected candidate without aborting the seed search."""
+        pilot_timesteps = int(self.config["training"]["pilot_timesteps"])
+        pilot_record = next(
+            (item for item in history if int(item["timesteps"]) >= pilot_timesteps),
+            None,
+        )
+        if pilot_record is None:
+            return None
+        minimum = float(self.config["training"]["pilot_minimum_coverage"])
+        coverage = float(pilot_record["affected_vehicle_coverage"])
+        if coverage >= minimum:
+            return None
+        best = max(history, key=lambda item: float(item["score"]))
+        summary = {
+            "status": "rejected",
+            "seed": seed,
+            "timesteps": int(history[-1]["timesteps"]),
+            "pilot_validation": pilot_record,
+            "best_validation": best,
+            "reason": (
+                f"pilot affected-vehicle coverage {coverage:.3f} is below "
+                f"the required {minimum:.3f}"
+            ),
+        }
+        atomic_write_json(candidate / "summary.json", summary)
+        return summary
+
     def _run_training(self) -> dict[str, Any]:
         training = self._materialize_split("train")
         validation = self._materialize_split("validation")
@@ -399,8 +435,12 @@ class AdaptiveDemoPipeline:
             self._train_candidate(seed, train_paths, validation)
             for seed in map(int, self.config["training"]["candidate_seeds"])
         ]
+        qualified = [candidate for candidate in candidates if candidate["status"] == "completed"]
+        if not qualified:
+            rejected = ", ".join(str(candidate["seed"]) for candidate in candidates)
+            raise RuntimeError(f"all candidate seeds failed the pilot gate: {rejected}")
         champion = max(
-            candidates,
+            qualified,
             key=lambda item: float(item["best_validation"]["score"]),
         )
         champion_directory = self.root / "champion"
@@ -410,6 +450,10 @@ class AdaptiveDemoPipeline:
         return {
             "calibration": calibration,
             "candidate_count": len(candidates),
+            "qualified_candidate_count": len(qualified),
+            "rejected_seeds": [
+                candidate["seed"] for candidate in candidates if candidate["status"] == "rejected"
+            ],
             "champion_seed": champion["seed"],
             "validation": champion["best_validation"],
         }

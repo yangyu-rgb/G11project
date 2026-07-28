@@ -38,6 +38,31 @@ def test_adaptive_demo_cli_can_build_its_argument_parser() -> None:
     assert "--persistent-root" in result.stdout
 
 
+def test_adaptive_demo_pipeline_persists_stage_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = AdaptiveDemoPipeline(
+        tmp_path / "persistent",
+        tmp_path / "work",
+        config_path="configs/adaptive_demo_training.yaml",
+        time_budget_minutes=31,
+        allow_cpu=True,
+    )
+
+    def fail_training() -> None:
+        raise RuntimeError("diagnostic failure")
+
+    monkeypatch.setattr(pipeline, "_run_training", fail_training)
+    with pytest.raises(RuntimeError, match="diagnostic failure"):
+        pipeline.run("training")
+
+    failure = pipeline.status()["stages"]["training"]
+    assert failure["status"] == "failed"
+    assert failure["error_type"] == "RuntimeError"
+    assert failure["error"] == "diagnostic failure"
+    assert "fail_training" in failure["traceback"]
+
+
 def test_validation_score_prioritizes_safety_coverage() -> None:
     safe = {
         "affected_vehicle_coverage": 0.96,
@@ -117,6 +142,9 @@ def test_directional_v2_notebook_uses_a_fresh_drive_root() -> None:
     assert "G11project-directional-corridor-v2" in source
     assert "G11project-directional-corridor-v1" not in source
     assert "configs/adaptive_demo_training.yaml" in source
+    assert "eclipse-sumo==1.27.1" in source
+    assert "Path(sumo.SUMO_HOME).resolve()" in source
+    assert 'Path(shutil.which("sumo"))' not in source
 
 
 def test_directional_v2_rejects_a_legacy_persistent_root(tmp_path: Path) -> None:
@@ -134,6 +162,80 @@ def test_directional_v2_rejects_a_legacy_persistent_root(tmp_path: Path) -> None
             time_budget_minutes=1,
             allow_cpu=True,
         )
+
+
+def test_failed_pilot_rejects_only_the_candidate_seed(tmp_path: Path) -> None:
+    pipeline = object.__new__(AdaptiveDemoPipeline)
+    pipeline.config = {
+        "training": {
+            "pilot_timesteps": 10_000,
+            "pilot_minimum_coverage": 0.80,
+        }
+    }
+    candidate = tmp_path / "seed_503"
+    candidate.mkdir()
+    history = [
+        {
+            "timesteps": 6144,
+            "affected_vehicle_coverage": 0.72,
+            "score": 0.70,
+        },
+        {
+            "timesteps": 12288,
+            "affected_vehicle_coverage": 0.653,
+            "score": 0.60,
+        },
+    ]
+
+    rejection = pipeline._pilot_rejection(503, candidate, history)
+
+    assert rejection is not None
+    assert rejection["status"] == "rejected"
+    assert rejection["seed"] == 503
+    assert "0.653" in rejection["reason"]
+    assert json.loads((candidate / "summary.json").read_text())["status"] == "rejected"
+
+
+def test_training_selects_a_champion_after_one_seed_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = object.__new__(AdaptiveDemoPipeline)
+    pipeline.root = tmp_path
+    pipeline.config = {"training": {"candidate_seeds": [401, 503, 607]}}
+    scenario = tmp_path / "scenario"
+    scenario.mkdir()
+    monkeypatch.setattr(
+        pipeline,
+        "_materialize_split",
+        lambda _split: [(None, scenario)],
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "_run_calibration",
+        lambda _training: {"status": "passed"},
+    )
+
+    def candidate(seed: int, _paths: list[Path], _validation: list[object]) -> dict[str, object]:
+        if seed == 503:
+            return {"status": "rejected", "seed": seed}
+        model = tmp_path / f"model-{seed}.zip"
+        model.write_bytes(str(seed).encode())
+        return {
+            "status": "completed",
+            "seed": seed,
+            "model": str(model),
+            "best_validation": {"score": 0.8 if seed == 401 else 0.9},
+        }
+
+    monkeypatch.setattr(pipeline, "_train_candidate", candidate)
+
+    result = pipeline._run_training()
+
+    assert result["candidate_count"] == 3
+    assert result["qualified_candidate_count"] == 2
+    assert result["rejected_seeds"] == [503]
+    assert result["champion_seed"] == 607
+    assert (tmp_path / "champion/model_best.zip").read_bytes() == b"607"
 
 
 def test_directional_gate_deduplicates_repeated_network_seeds() -> None:
