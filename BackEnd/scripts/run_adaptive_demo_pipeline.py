@@ -29,6 +29,7 @@ from src.experiments.evaluation import (  # noqa: E402
     make_environment,
 )
 from src.experiments.io import atomic_write_json, git_metadata, load_yaml, sha256_file  # noqa: E402
+from src.experiments.metrics import METRIC_SCHEMA_VERSION  # noqa: E402
 from src.experiments.scenario_matrix import (  # noqa: E402
     ScenarioDefinition,
     build_scenario_matrix,
@@ -39,7 +40,7 @@ from src.experiments.presentation_gate import evaluate_directional_behavior  # n
 from src.models.ppo_agent import PPOAgent  # noqa: E402
 from src.training.train_ppo import _make_environment, create_agent  # noqa: E402
 
-STAGES = ("training", "comparison", "results")
+STAGES = ("training", "revalidation", "comparison", "results")
 
 
 class AdaptiveDemoPaused(RuntimeError):
@@ -91,7 +92,12 @@ def _mean_metrics(rows: list[dict[str, float | int | None]]) -> dict[str, float]
     result: dict[str, float] = {}
     for field in fields:
         values = [float(row[field]) for row in rows if row.get(field) is not None]
-        result[field] = float(np.mean(values)) if values else float("inf")
+        if values:
+            result[field] = float(np.mean(values))
+        elif field == "p95_latency_ms":
+            result[field] = float("inf")
+        else:
+            result[field] = 0.0
     return result
 
 
@@ -248,13 +254,13 @@ class AdaptiveDemoPipeline:
             factories.append(lambda resolved=resolved, path=path: _make_environment(resolved, path))
         return DummyVecEnv(factories)
 
-    def _evaluate_candidate(
+    def _candidate_validation_rows(
         self,
         agent: PPOAgent,
         validation: list[tuple[ScenarioDefinition, Path]],
-    ) -> dict[str, float]:
-        rows: list[dict[str, float | int | None]] = []
-        for _, scenario_path in validation:
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for definition, scenario_path in validation:
             for seed in map(int, self.config["training"]["validation_seeds"]):
                 environment = make_environment(
                     scenario_path,
@@ -278,18 +284,30 @@ class AdaptiveDemoPipeline:
                 )
                 try:
                     rows.append(
-                        evaluate_episode(
-                            environment,
-                            lambda _environment, observation: np.asarray(
-                                agent.predict_raw(observation, deterministic=True),
-                                dtype=np.int64,
+                        {
+                            "scenario_id": definition.scenario_id,
+                            "validation_seed": seed,
+                            **evaluate_episode(
+                                environment,
+                                lambda _environment, observation: np.asarray(
+                                    agent.predict_raw(observation, deterministic=True),
+                                    dtype=np.int64,
+                                ),
+                                reset_seed=seed,
+                                safety_window_ms=float(self.config["safety_window_ms"]),
                             ),
-                            reset_seed=seed,
-                            safety_window_ms=float(self.config["safety_window_ms"]),
-                        )
+                        }
                     )
                 finally:
                     environment.close()
+        return rows
+
+    def _evaluate_candidate(
+        self,
+        agent: PPOAgent,
+        validation: list[tuple[ScenarioDefinition, Path]],
+    ) -> dict[str, float]:
+        rows = self._candidate_validation_rows(agent, validation)
         metrics = _mean_metrics(rows)
         metrics["score"] = validation_score(metrics)
         return metrics
@@ -474,6 +492,47 @@ class AdaptiveDemoPipeline:
             "action": self.config["action"],
         }
 
+    def _run_revalidation(self) -> dict[str, Any]:
+        """Requalify the saved champion under the current metric and behavior schema."""
+        self.state["stages"].pop("comparison", None)
+        self.state["stages"].pop("results", None)
+        model_path = self.root / "champion/model_best.zip"
+        if not model_path.is_file():
+            raise FileNotFoundError(f"champion model is missing: {model_path}")
+        agent = PPOAgent.load(model_path, device="cpu")
+        rows = self._candidate_validation_rows(agent, self._materialize_split("validation"))
+        metrics = _mean_metrics(rows)
+        metrics["score"] = validation_score(metrics)
+        acceptance = self.config["acceptance"]
+        minimum_coverage = float(acceptance["minimum_coverage"])
+        minimum_selection = float(acceptance.get("minimum_selection_coverage", minimum_coverage))
+        per_seed = {
+            str(seed): _mean_metrics(
+                [row for row in rows if int(row["validation_seed"]) == int(seed)]
+            )
+            for seed in map(int, self.config["training"]["validation_seeds"])
+        }
+        seed_checks = {
+            seed: {
+                "coverage": values["affected_vehicle_coverage"] >= minimum_coverage,
+                "selection_coverage": values["affected_vehicle_selection_coverage"]
+                >= minimum_selection,
+                "timely_events": values["timely_event_rate"] >= 0.90,
+            }
+            for seed, values in per_seed.items()
+        }
+        result = {
+            "metric_schema_version": METRIC_SCHEMA_VERSION,
+            "evaluated_rows": len(rows),
+            "zero_affected_rows": sum(int(row["affected_vehicle_count"]) == 0 for row in rows),
+            "metrics": metrics,
+            "per_seed": per_seed,
+            "seed_checks": seed_checks,
+            "passed": all(all(checks.values()) for checks in seed_checks.values()),
+        }
+        atomic_write_json(self.root / "champion/revalidation.json", result)
+        return result
+
     def _run_calibration(self, scenarios: list[tuple[ScenarioDefinition, Path]]) -> dict[str, Any]:
         """Fail quickly when the network model produces non-physical pilot metrics."""
         rows: list[dict[str, Any]] = []
@@ -494,13 +553,13 @@ class AdaptiveDemoPipeline:
                 finally:
                     environment.close()
                 p95 = metrics["p95_latency_ms"]
-                coverage = float(metrics["affected_vehicle_coverage"])
+                coverage = metrics["affected_vehicle_coverage"]
                 if p95 is None or not math.isfinite(float(p95)) or not 0 < float(p95) <= 200:
                     raise RuntimeError(
                         f"network calibration failed for {definition.scenario_id}/{method}: "
                         f"P95={p95} ms"
                     )
-                if not 0 <= coverage <= 1:
+                if coverage is not None and not 0 <= float(coverage) <= 1:
                     raise RuntimeError("network calibration produced invalid coverage")
                 rows.append({"scenario_id": definition.scenario_id, "method": method, **metrics})
         result = {"status": "passed", "rows": rows}
@@ -519,6 +578,7 @@ class AdaptiveDemoPipeline:
         return {
             "run_mode": "demo_lite",
             "protocol": str(self.config.get("protocol", "directional-v2")),
+            "metric_schema_version": METRIC_SCHEMA_VERSION,
             "domains": ["highway"],
             "safety_window_ms": self.config["safety_window_ms"],
             "base_scenario_configs": {"highway": self.config["base_scenario_config"]},
@@ -548,21 +608,15 @@ class AdaptiveDemoPipeline:
             float(np.mean(rewards[-window:])) - float(np.mean(rewards[:window]))
             >= float(self.config["acceptance"]["minimum_reward_improvement"])
         )
-        history = json.loads((candidate / "validation_history.json").read_text(encoding="utf-8"))
-        minimum_coverage = float(self.config["acceptance"]["minimum_coverage"])
-        minimum_selection = float(
-            self.config["acceptance"].get("minimum_selection_coverage", minimum_coverage)
+        revalidation = json.loads(
+            (self.root / "champion/revalidation.json").read_text(encoding="utf-8")
         )
-        passes = [
-            float(item["affected_vehicle_coverage"]) >= minimum_coverage
-            and float(item["affected_vehicle_selection_coverage"]) >= minimum_selection
-            for item in history
-        ]
-        required = int(self.config["acceptance"]["validation_consecutive_passes"])
-        stable = any(
-            all(passes[index : index + required]) for index in range(len(passes) - required + 1)
-        )
-        return {"training_improved": improved, "validation_stable": stable}
+        stable = bool(revalidation["passed"])
+        return {
+            "training_improved": improved,
+            "validation_stable": stable,
+            "validation_requalified": stable,
+        }
 
     def _run_comparison(self) -> dict[str, Any]:
         result = run_comparison(
@@ -611,6 +665,7 @@ class AdaptiveDemoPipeline:
             "near_best_rule": (best_rule_coverage - ai["affected_vehicle_coverage"]["mean"] <= gap),
             **self._training_quality_checks(),
             "directional_behavior": bool(behavior["passed"]),
+            "context_adaptive_action": bool(behavior["context_adaptive_action"]),
         }
         checks["pareto_efficient"] = not any(
             method["affected_vehicle_coverage"]["mean"]
@@ -643,12 +698,14 @@ class AdaptiveDemoPipeline:
         model_path = self.root / "champion" / "model_best.zip"
         manifest = {
             "eligible": True,
+            "metric_schema_version": METRIC_SCHEMA_VERSION,
             "action_mode": self.config["action"]["mode"],
             "observation_schema_version": 2,
             "training_run": self.state.get("git", {}),
             "model_sha256": sha256_file(model_path),
             "acceptance": acceptance,
             "metrics": summary.get("methods", {}).get("ai", {}),
+            "behavioral_gate": summary.get("behavioral_gate", {}),
         }
         atomic_write_json(self.root / "champion" / "model_manifest.json", manifest)
         return {**result, "model_manifest": str(self.root / "champion/model_manifest.json")}

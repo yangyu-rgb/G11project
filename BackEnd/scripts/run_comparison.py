@@ -22,6 +22,7 @@ from src.experiments.evaluation import (  # noqa: E402
     write_detailed_csv,
 )
 from src.experiments.io import atomic_write_json, backend_path, git_metadata, load_yaml  # noqa: E402
+from src.experiments.metrics import METRIC_SCHEMA_VERSION  # noqa: E402
 from src.experiments.scenario_matrix import (  # noqa: E402
     build_scenario_matrix,
     make_single_event_matrix,
@@ -224,7 +225,10 @@ def run_comparison(
                 if resume and case_path.is_file():
                     checkpoint = json.loads(case_path.read_text(encoding="utf-8"))
                     checkpoint_methods = tuple(row["method"] for row in checkpoint.get("rows", []))
-                    if checkpoint_methods == methods:
+                    if (
+                        checkpoint.get("metric_schema_version") == METRIC_SCHEMA_VERSION
+                        and checkpoint_methods == methods
+                    ):
                         rows.extend(checkpoint["rows"])
                         continue
                 try:
@@ -266,7 +270,12 @@ def run_comparison(
                         )
                     atomic_write_json(
                         case_path,
-                        {"case_id": case_id, "methods": list(methods), "rows": case_rows},
+                        {
+                            "case_id": case_id,
+                            "metric_schema_version": METRIC_SCHEMA_VERSION,
+                            "methods": list(methods),
+                            "rows": case_rows,
+                        },
                     )
                     rows.extend(case_rows)
                 except Exception as exc:  # noqa: BLE001 - preserve the remaining matrix
@@ -283,12 +292,21 @@ def run_comparison(
         for group in ("low", "medium", "high")
         if any(row.get("severity_group") == group for row in rows)
     }
+    ai_rows = [row for row in rows if row["method"] == "ai"]
+    zero_affected_cases = sum(int(row.get("affected_vehicle_count", 0)) == 0 for row in ai_rows)
     summary = {
         "run_mode": config.get("run_mode", "formal"),
         "protocol": config.get("protocol"),
+        "metric_schema_version": METRIC_SCHEMA_VERSION,
         "expected_case_count": expected_cases,
         "expected_result_rows": expected_cases * len(methods),
         "completed_result_rows": len(rows),
+        "coverage_eligibility": {
+            "total_cases": len(ai_rows),
+            "eligible_cases": len(ai_rows) - zero_affected_cases,
+            "zero_affected_cases": zero_affected_cases,
+            "undefined_cases_are_excluded": True,
+        },
         "failures": failures,
         **summarize_rows(rows, methods),
         "severity_groups": grouped_by_severity,

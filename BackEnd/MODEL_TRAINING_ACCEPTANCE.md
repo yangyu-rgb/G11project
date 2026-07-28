@@ -27,6 +27,8 @@
 
 Notebook 会使用新的Drive目录保存检查点，生成48/12/12组单事故训练、验证和独立测试场景，训练3个候选种子，并执行PPO、全广播、固定距离、紧急度和固定方向走廊五种方法的同步对比。重复网络种子不会被错误计为新的事故几何；运行中断后再次执行Notebook会从v2持久化状态继续。
 
+评价采用metric schema v2：没有受影响车辆的测试用例仍保留在测试矩阵中，但Coverage、Selection Coverage和Timely Event Rate记为不适用，不作为零分混入均值。方向门禁只要求覆盖风险半径内的有效后车，并额外输出逐事故的走廊半径、车道范围、优先级和带宽动作审计。已有champion可通过`revalidation → comparison → results`重新验收，不需要重复训练。
+
 成功产物位于 Drive 的：
 
 `G11project-directional-corridor-v2/champion/`

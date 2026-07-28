@@ -54,6 +54,7 @@ RESULT_FIELDS = [
     "effective_delivery_count",
     "affected_vehicle_count",
     "event_count",
+    "affected_event_count",
 ]
 
 

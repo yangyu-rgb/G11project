@@ -163,6 +163,38 @@ def _write_value_table(summary: dict[str, Any], path: Path) -> None:
         writer.writerows(claims)
 
 
+def _write_action_audit(summary: dict[str, Any], path: Path) -> None:
+    incidents = summary.get("behavioral_gate", {}).get("incidents", [])
+    fieldnames = (
+        "scenario",
+        "event_id",
+        "severity",
+        "affected_radius_m",
+        "structured_actions",
+        "corridor_radii_m",
+        "lane_scopes",
+        "priorities",
+        "bandwidth_fractions",
+        "receiver_signatures",
+        "forward_vehicle_ids",
+        "missed_nearest_follower_ids",
+    )
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer.writeheader()
+        for incident in incidents:
+            writer.writerow(
+                {
+                    field: (
+                        json.dumps(incident.get(field), ensure_ascii=False)
+                        if isinstance(incident.get(field), (list, dict))
+                        else incident.get(field)
+                    )
+                    for field in fieldnames
+                }
+            )
+
+
 def _comparison_figure(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     figure, axes = plt.subplots(2, 2, figsize=(12.8, 8.0), constrained_layout=True)
     axes = axes.ravel()
@@ -376,24 +408,59 @@ def _training_figure(training_root: Path, path: Path, *, protocol: str) -> None:
                 color=color,
                 label=f"Candidate {index + 1} score",
             )
-    target = 0.97 if protocol in {"adaptive-v5", "constrained-v6"} else 0.95
-    validation_axis.axhline(
-        target,
-        color="#6B7280",
-        linestyle="--",
-        label=f"{target:.0%} validation gate",
+    revalidation_path = training_root.parent / "champion/revalidation.json"
+    revalidation = (
+        _load_json(revalidation_path)
+        if protocol == "directional-v2" and revalidation_path.is_file()
+        else None
     )
-    validation_axis.set(
-        xlabel="Training Timesteps",
-        ylabel="Validation Coverage",
-        ylim=(0, 1.05),
-        title="Held-Out Validation Metrics",
-    )
-    score_axis.set_ylabel("Validation Score")
-    validation_axis.grid(alpha=0.2)
-    handles, labels = validation_axis.get_legend_handles_labels()
-    score_handles, score_labels = score_axis.get_legend_handles_labels()
-    validation_axis.legend(handles + score_handles, labels + score_labels, frameon=False)
+    if revalidation is not None:
+        validation_axis.clear()
+        score_axis.clear()
+        score_axis.set_visible(False)
+        labels = ("Coverage", "Selection", "Timely events")
+        metrics = revalidation["metrics"]
+        values = (
+            float(metrics["affected_vehicle_coverage"]),
+            float(metrics["affected_vehicle_selection_coverage"]),
+            float(metrics["timely_event_rate"]),
+        )
+        bars = validation_axis.bar(labels, values, color=("#2563EB", "#0EA5E9", "#16A34A"))
+        for bar, value in zip(bars, values, strict=True):
+            validation_axis.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + 0.015,
+                f"{value:.3f}",
+                ha="center",
+                va="bottom",
+            )
+        validation_axis.axhline(0.95, color="#6B7280", linestyle="--", label="95% gate")
+        validation_axis.set(
+            ylabel="Rate",
+            ylim=(0, 1.08),
+            title="Champion Revalidation — Metric Schema v2",
+        )
+        validation_axis.grid(axis="y", alpha=0.2)
+        validation_axis.legend(frameon=False)
+    else:
+        target = 0.97 if protocol in {"adaptive-v5", "constrained-v6"} else 0.95
+        validation_axis.axhline(
+            target,
+            color="#6B7280",
+            linestyle="--",
+            label=f"{target:.0%} validation gate",
+        )
+        validation_axis.set(
+            xlabel="Training Timesteps",
+            ylabel="Validation Coverage",
+            ylim=(0, 1.05),
+            title="Held-Out Validation Metrics",
+        )
+        score_axis.set_ylabel("Validation Score")
+        validation_axis.grid(alpha=0.2)
+        handles, labels = validation_axis.get_legend_handles_labels()
+        score_handles, score_labels = score_axis.get_legend_handles_labels()
+        validation_axis.legend(handles + score_handles, labels + score_labels, frameon=False)
     title = (
         "Safety-Constrained PPO Fine-Tuning and Validation"
         if protocol in {"adaptive-v5", "constrained-v6"}
@@ -425,6 +492,7 @@ def generate_demo_lite_results(
 
     _write_table(comparison, output_directory / "table_comparison.csv", methods)
     _write_value_table(comparison, output_directory / "table_value_claims.csv")
+    _write_action_audit(comparison, output_directory / "table_action_audit.csv")
     _comparison_figure(comparison, output_directory / "fig_metric_comparison.png", methods)
     _tradeoff_figure(
         comparison,
@@ -448,6 +516,8 @@ def generate_demo_lite_results(
     )
     protocol = str(comparison.get("protocol") or "adaptive-v4")
     claims = _value_claims(comparison)
+    eligibility = comparison.get("coverage_eligibility", {})
+    behavior = comparison.get("behavioral_gate", {})
     _training_figure(
         training_root,
         output_directory / "fig_training_curve.png",
@@ -467,10 +537,19 @@ def generate_demo_lite_results(
         "",
         f"Completed comparison rows: {comparison['completed_result_rows']}.",
         f"Held-out paired cases: {comparison.get('expected_case_count', 'unknown')}.",
+        (
+            "Coverage-eligible cases: "
+            f"{eligibility.get('eligible_cases', 'unknown')}; zero-affected cases excluded: "
+            f"{eligibility.get('zero_affected_cases', 'unknown')}."
+        ),
         "Methods: " + ", ".join(DISPLAY_NAMES[method] for method in methods) + ".",
         "Event severity maps to 225 m, 300 m, or 375 m affected-vehicle safety radii.",
         "Error bars report deterministic 95% bootstrap confidence intervals.",
         f"Acceptance: {comparison.get('acceptance', {}).get('passed', 'not evaluated')}.",
+        (
+            "Distinct learned structured actions: "
+            f"{behavior.get('action_signature_count', 'not audited')}."
+        ),
         "",
         "Measured value on the paired final holdout:",
         *[f"- {item['claim']}: {float(item['relative_improvement']):+.1%}." for item in claims],
@@ -484,6 +563,7 @@ def generate_demo_lite_results(
     manifest = {
         "run_mode": "demo_lite",
         "protocol": protocol,
+        "metric_schema_version": comparison.get("metric_schema_version"),
         "scope": "highway-only preliminary course demo",
         "completed_result_rows": comparison["completed_result_rows"],
         "figures": sorted(path.name for path in output_directory.iterdir()),

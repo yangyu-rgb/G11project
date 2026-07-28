@@ -7,6 +7,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+METRIC_SCHEMA_VERSION = 2
+
 
 @dataclass(frozen=True)
 class ExperimentMetrics:
@@ -16,11 +18,11 @@ class ExperimentMetrics:
     p99_latency_ms: float | None
     timeout_rate: float
     effective_delivery_rate: float
-    affected_vehicle_coverage: float
-    affected_vehicle_selection_coverage: float
+    affected_vehicle_coverage: float | None
+    affected_vehicle_selection_coverage: float | None
     communication_overhead: float | None
     normalized_channel_cost: float | None
-    timely_event_rate: float
+    timely_event_rate: float | None
     safety_override_rate: float | None
     mean_raw_radius_m: float | None
     mean_executed_radius_m: float | None
@@ -29,6 +31,7 @@ class ExperimentMetrics:
     effective_delivery_count: int
     affected_vehicle_count: int
     event_count: int
+    affected_event_count: int
 
     def to_dict(self) -> dict[str, float | int | None]:
         return asdict(self)
@@ -97,13 +100,13 @@ def aggregate_episode_metrics(
         p99_latency_ms=float(np.percentile(latencies, 99)) if len(latencies) else None,
         timeout_rate=(sent_count - len(delivered)) / sent_count if sent_count else 0.0,
         effective_delivery_rate=effective_count / sent_count if sent_count else 0.0,
-        affected_vehicle_coverage=covered_count / affected_count if affected_count else 0.0,
+        affected_vehicle_coverage=(covered_count / affected_count if affected_count else None),
         affected_vehicle_selection_coverage=(
-            selected_covered_count / affected_count if affected_count else 0.0
+            selected_covered_count / affected_count if affected_count else None
         ),
         communication_overhead=sent_count / effective_count if effective_count else None,
         normalized_channel_cost=channel_units / effective_count if effective_count else None,
-        timely_event_rate=timely_events / len(eligible_events) if eligible_events else 0.0,
+        timely_event_rate=(timely_events / len(eligible_events) if eligible_events else None),
         safety_override_rate=(
             sum(bool(info.get("safety_override")) for info in audited) / len(audited)
             if audited
@@ -115,5 +118,6 @@ def aggregate_episode_metrics(
         delivered_count=len(delivered),
         effective_delivery_count=effective_count,
         affected_vehicle_count=affected_count,
-        event_count=len(eligible_events),
+        event_count=len(critical_by_event),
+        affected_event_count=len(eligible_events),
     )

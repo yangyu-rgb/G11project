@@ -97,6 +97,23 @@ def test_metrics_report_safety_action_audit() -> None:
     assert metrics.mean_executed_radius_m == 375
 
 
+def test_empty_affected_set_is_excluded_from_coverage_aggregates() -> None:
+    metrics = aggregate_episode_metrics(
+        [
+            {
+                "critical_receiver_ids_by_event": {"event-1": []},
+                "transmissions": [],
+            }
+        ]
+    )
+
+    assert metrics.affected_vehicle_coverage is None
+    assert metrics.affected_vehicle_selection_coverage is None
+    assert metrics.timely_event_rate is None
+    assert metrics.event_count == 1
+    assert metrics.affected_event_count == 0
+
+
 def test_statistics_are_deterministic_and_holm_monotonic() -> None:
     values = [0.1, 0.3, 0.5, 0.7]
     assert bootstrap_mean_ci(values) == bootstrap_mean_ci(values)

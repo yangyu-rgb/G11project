@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import Any
+import json
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
@@ -61,6 +62,7 @@ def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypat
     assert summary["expected_result_rows"] == 8
     assert summary["completed_result_rows"] == 8
     assert not summary["failures"]
+    assert summary["metric_schema_version"] == 2
     assert (tmp_path / "results/detailed_results.csv").is_file()
 
     resumed = comparison.run_comparison(
@@ -68,6 +70,13 @@ def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypat
     )
     assert resumed["completed_result_rows"] == 8
     assert calls == 8
+
+    checkpoint = next((tmp_path / "results/case_checkpoints").rglob("*.json"))
+    stale = json.loads(checkpoint.read_text(encoding="utf-8"))
+    stale.pop("metric_schema_version")
+    checkpoint.write_text(json.dumps(stale), encoding="utf-8")
+    comparison.run_comparison(config, tmp_path / "results", resume=True, case_runner=fake_case)
+    assert calls == 12
 
 
 def test_comparison_can_run_highway_only_matrix(tmp_path: Path, monkeypatch: Any) -> None:

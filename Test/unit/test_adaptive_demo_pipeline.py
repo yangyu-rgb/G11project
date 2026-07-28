@@ -19,7 +19,12 @@ from src.experiments.scenario_matrix import (  # noqa: E402
     build_scenario_matrix,
     make_single_event_matrix,
 )
-from src.experiments.presentation_gate import summarize_directional_incidents  # noqa: E402
+from src.environment.receiver_relevance import ReceiverRelation  # noqa: E402
+from src.experiments.presentation_gate import (  # noqa: E402
+    is_required_nearest_follower,
+    summarize_directional_incidents,
+)
+from src.models.ppo_agent import PPOAgent  # noqa: E402
 
 
 def test_adaptive_demo_cli_can_build_its_argument_parser() -> None:
@@ -238,16 +243,70 @@ def test_training_selects_a_champion_after_one_seed_is_rejected(
     assert (tmp_path / "champion/model_best.zip").read_bytes() == b"607"
 
 
+def test_revalidation_preserves_training_and_invalidates_downstream_stages(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pipeline = object.__new__(AdaptiveDemoPipeline)
+    pipeline.root = tmp_path
+    pipeline.state = {
+        "stages": {
+            "training": {"status": "completed"},
+            "comparison": {"status": "completed"},
+            "results": {"status": "failed"},
+        }
+    }
+    pipeline.config = {
+        "training": {"validation_seeds": [11, 22]},
+        "acceptance": {
+            "minimum_coverage": 0.95,
+            "minimum_selection_coverage": 0.95,
+        },
+    }
+    champion = tmp_path / "champion"
+    champion.mkdir()
+    (champion / "model_best.zip").write_bytes(b"model")
+    monkeypatch.setattr(PPOAgent, "load", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(pipeline, "_materialize_split", lambda _split: [])
+
+    def validation_rows(_agent: object, _validation: list[object]) -> list[dict[str, object]]:
+        common = {
+            "affected_vehicle_coverage": 1.0,
+            "affected_vehicle_selection_coverage": 1.0,
+            "effective_delivery_rate": 0.9,
+            "timely_event_rate": 1.0,
+            "communication_overhead": 1.2,
+            "normalized_channel_cost": 0.4,
+            "p95_latency_ms": 35.0,
+            "affected_vehicle_count": 2,
+        }
+        return [
+            {**common, "validation_seed": 11},
+            {**common, "validation_seed": 22},
+        ]
+
+    monkeypatch.setattr(pipeline, "_candidate_validation_rows", validation_rows)
+
+    result = pipeline._run_revalidation()
+
+    assert result["passed"] is True
+    assert result["metric_schema_version"] == 2
+    assert "comparison" not in pipeline.state["stages"]
+    assert "results" not in pipeline.state["stages"]
+    assert pipeline.state["stages"]["training"]["status"] == "completed"
+
+
 def test_directional_gate_deduplicates_repeated_network_seeds() -> None:
     incidents = {
         ("scenario-a", "event-a"): {
             "signatures": {("vehicle-1",)},
+            "actions": {(1, 0, 2, 4)},
             "forward_vehicle_ids": set(),
             "follower_opportunity": True,
             "follower_selected_on_all_seeds": True,
         },
         ("scenario-b", "event-b"): {
             "signatures": {("vehicle-2",)},
+            "actions": {(3, 1, 2, 6)},
             "forward_vehicle_ids": set(),
             "follower_opportunity": True,
             "follower_selected_on_all_seeds": True,
@@ -260,6 +319,8 @@ def test_directional_gate_deduplicates_repeated_network_seeds() -> None:
     assert result["receiver_signature_count"] == 2
     assert result["receiver_signature_unique_ratio"] == 1.0
     assert result["policy_seed_consistent"] is True
+    assert result["action_signature_count"] == 2
+    assert result["context_adaptive_action"] is True
     assert result["passed"] is True
 
 
@@ -267,6 +328,7 @@ def test_directional_gate_rejects_seed_dependent_or_forward_behavior() -> None:
     incidents = {
         ("scenario-a", "event-a"): {
             "signatures": {("vehicle-1",), ("vehicle-2",)},
+            "actions": {(1, 0, 2, 4), (2, 0, 2, 4)},
             "forward_vehicle_ids": {"vehicle-ahead"},
             "follower_opportunity": True,
             "follower_selected_on_all_seeds": False,
@@ -276,9 +338,24 @@ def test_directional_gate_rejects_seed_dependent_or_forward_behavior() -> None:
     result = summarize_directional_incidents(incidents)
 
     assert result["policy_seed_consistent"] is False
+    assert result["action_seed_consistent"] is False
     assert result["forward_notifications"] == 1
     assert result["nearest_follower_coverage"] == 0.0
     assert result["passed"] is False
+
+
+def test_directional_gate_ignores_followers_outside_the_affected_radius() -> None:
+    relation = ReceiverRelation(
+        vehicle_id="rear-car",
+        longitudinal_m=420.0,
+        lateral_m=0.0,
+        lane_relation="same",
+        heading_delta_deg=0.0,
+        risk_class="following_lane",
+    )
+
+    assert is_required_nearest_follower(relation, 375.0) is False
+    assert is_required_nearest_follower(relation, 500.0) is True
 
 
 def test_safety_finetune_requires_a_genuinely_new_final_holdout() -> None:
@@ -361,8 +438,12 @@ def test_comparison_config_and_training_quality_are_complete(tmp_path: Path) -> 
             ]
         )
     )
+    (tmp_path / "champion/revalidation.json").write_text(
+        json.dumps({"passed": True}), encoding="utf-8"
+    )
 
     assert pipeline._training_quality_checks() == {
         "training_improved": True,
         "validation_stable": True,
+        "validation_requalified": True,
     }
