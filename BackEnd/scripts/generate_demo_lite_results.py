@@ -22,13 +22,21 @@ if str(BACKEND_ROOT) not in sys.path:
 from src.experiments.io import atomic_write_json, backend_path, git_metadata  # noqa: E402
 
 METHODS = ("ai", "broadcast", "distance", "urgency")
+OPTIONAL_METHODS = ("fixed_directional_corridor",)
 COLORS = {
     "ai": "#2563EB",
     "broadcast": "#DC2626",
     "distance": "#F59E0B",
     "urgency": "#16A34A",
+    "fixed_directional_corridor": "#7C3AED",
 }
-DISPLAY_NAMES = {"ai": "AI", "broadcast": "Broadcast", "distance": "Distance", "urgency": "Urgency"}
+DISPLAY_NAMES = {
+    "ai": "AI",
+    "broadcast": "Broadcast",
+    "distance": "Distance",
+    "urgency": "Urgency",
+    "fixed_directional_corridor": "Fixed Corridor",
+}
 TABLE_METRICS = (
     "affected_vehicle_coverage",
     "affected_vehicle_selection_coverage",
@@ -45,7 +53,11 @@ CHART_METRICS = (
     ("affected_vehicle_coverage", "Affected-Vehicle Coverage ↑", "Rate"),
     ("p95_latency_ms", "P95 End-to-End Latency ↓", "Milliseconds"),
     ("communication_overhead", "Communication Overhead ↓", "Messages / effective delivery"),
-    ("normalized_channel_cost", "Normalized Channel Cost ↓", "Bandwidth units / effective delivery"),
+    (
+        "normalized_channel_cost",
+        "Normalized Channel Cost ↓",
+        "Bandwidth units / effective delivery",
+    ),
 )
 SEVERITY_GROUPS = ("low", "medium", "high")
 
@@ -65,11 +77,11 @@ def _mean(summary: dict[str, Any], metric: str) -> float | None:
     return float(value) if value is not None else None
 
 
-def _write_table(summary: dict[str, Any], path: Path) -> None:
+def _write_table(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(("method", "metric", "mean", "std", "ci95_low", "ci95_high", "n"))
-        for method in METHODS:
+        for method in methods:
             metrics = summary["methods"][method]
             for metric in TABLE_METRICS:
                 value = metrics.get(metric, {})
@@ -87,18 +99,14 @@ def _write_table(summary: dict[str, Any], path: Path) -> None:
                 )
 
 
-def _write_severity_table(summary: dict[str, Any], path: Path) -> None:
+def _write_severity_table(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(("severity_group", "method", "coverage_mean", "ci95_low", "ci95_high", "n"))
         for group in SEVERITY_GROUPS:
-            for method in METHODS:
-                metric = summary["severity_groups"][group][method][
-                    "affected_vehicle_coverage"
-                ]
-                writer.writerow(
-                    (group, method, metric["mean"], *metric["ci95"], metric["count"])
-                )
+            for method in methods:
+                metric = summary["severity_groups"][group][method]["affected_vehicle_coverage"]
+                writer.writerow((group, method, metric["mean"], *metric["ci95"], metric["count"]))
 
 
 def _value_claims(summary: dict[str, Any]) -> list[dict[str, float | str]]:
@@ -130,9 +138,9 @@ def _value_claims(summary: dict[str, Any]) -> list[dict[str, float | str]]:
                 "relative_improvement": 1.0 - ai_mean / baseline_mean,
             }
         )
+    baseline_methods = [method for method in methods if method != "ai"]
     best_coverage = max(
-        float(methods[method]["affected_vehicle_coverage"]["mean"])
-        for method in ("broadcast", "distance", "urgency")
+        float(methods[method]["affected_vehicle_coverage"]["mean"]) for method in baseline_methods
     )
     claims.append(
         {
@@ -141,8 +149,7 @@ def _value_claims(summary: dict[str, Any]) -> list[dict[str, float | str]]:
             "baseline": "best baseline",
             "ai_mean": float(ai["affected_vehicle_coverage"]["mean"]),
             "baseline_mean": best_coverage,
-            "relative_improvement": float(ai["affected_vehicle_coverage"]["mean"])
-            - best_coverage,
+            "relative_improvement": float(ai["affected_vehicle_coverage"]["mean"]) - best_coverage,
         }
     )
     return claims
@@ -156,13 +163,13 @@ def _write_value_table(summary: dict[str, Any], path: Path) -> None:
         writer.writerows(claims)
 
 
-def _comparison_figure(summary: dict[str, Any], path: Path) -> None:
+def _comparison_figure(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     figure, axes = plt.subplots(2, 2, figsize=(12.8, 8.0), constrained_layout=True)
     axes = axes.ravel()
     for axis, (metric, title, ylabel) in zip(axes, CHART_METRICS, strict=True):
-        values = [_mean(summary["methods"][method], metric) for method in METHODS]
+        values = [_mean(summary["methods"][method], metric) for method in methods]
         plotted = [0.0 if value is None else value for value in values]
-        intervals = [summary["methods"][method].get(metric, {}).get("ci95") for method in METHODS]
+        intervals = [summary["methods"][method].get(metric, {}).get("ci95") for method in methods]
         errors = np.asarray(
             [
                 [0.0, 0.0]
@@ -172,9 +179,9 @@ def _comparison_figure(summary: dict[str, Any], path: Path) -> None:
             ]
         ).T
         bars = axis.bar(
-            [DISPLAY_NAMES[method] for method in METHODS],
+            [DISPLAY_NAMES[method] for method in methods],
             plotted,
-            color=[COLORS[method] for method in METHODS],
+            color=[COLORS[method] for method in methods],
             yerr=errors,
             capsize=4,
             edgecolor="white",
@@ -206,9 +213,9 @@ def _comparison_figure(summary: dict[str, Any], path: Path) -> None:
     plt.close(figure)
 
 
-def _tradeoff_figure(summary: dict[str, Any], path: Path) -> None:
+def _tradeoff_figure(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     figure, axis = plt.subplots(figsize=(7.2, 5.0), constrained_layout=True)
-    for method in METHODS:
+    for method in methods:
         metrics = summary["methods"][method]
         x_value = _mean(metrics, "communication_overhead")
         y_value = _mean(metrics, "affected_vehicle_coverage")
@@ -239,23 +246,22 @@ def _tradeoff_figure(summary: dict[str, Any], path: Path) -> None:
     plt.close(figure)
 
 
-def _severity_figure(summary: dict[str, Any], path: Path) -> None:
+def _severity_figure(summary: dict[str, Any], path: Path, methods: tuple[str, ...]) -> None:
     figure, axis = plt.subplots(figsize=(9.6, 5.4), constrained_layout=True)
     x_positions = np.arange(len(SEVERITY_GROUPS))
-    width = 0.19
-    for index, method in enumerate(METHODS):
+    width = min(0.19, 0.8 / len(methods))
+    center = (len(methods) - 1) / 2
+    for index, method in enumerate(methods):
         values = []
         errors = []
         for group in SEVERITY_GROUPS:
-            metric = summary["severity_groups"][group][method][
-                "affected_vehicle_coverage"
-            ]
+            metric = summary["severity_groups"][group][method]["affected_vehicle_coverage"]
             mean = float(metric["mean"])
             interval = metric.get("ci95", (mean, mean))
             values.append(mean)
             errors.append((mean - float(interval[0]), float(interval[1]) - mean))
         error_array = np.asarray(errors).T
-        positions = x_positions + (index - 1.5) * width
+        positions = x_positions + (index - center) * width
         bars = axis.bar(
             positions,
             values,
@@ -297,9 +303,7 @@ def _training_figure(training_root: Path, path: Path, *, protocol: str) -> None:
             rows = list(csv.DictReader(stream))
         if rows:
             rewards = np.asarray([float(row["reward"]) for row in rows])
-            timesteps = np.asarray(
-                [float(row.get("timesteps") or row["episode"]) for row in rows]
-            )
+            timesteps = np.asarray([float(row.get("timesteps") or row["episode"]) for row in rows])
             window = min(100, len(rewards))
             kernel = np.ones(window) / window
             smoothed = np.convolve(rewards, kernel, mode="valid")
@@ -413,18 +417,35 @@ def generate_demo_lite_results(
         "expected_result_rows"
     ) or comparison.get("failures"):
         raise ValueError("demo-lite comparison matrix is incomplete")
-    if set(comparison.get("methods", {})) != set(METHODS):
-        raise ValueError("demo-lite comparison must contain AI and all three baselines")
+    methods = tuple(comparison.get("methods", {}))
+    required = set(METHODS)
+    supported = required | set(OPTIONAL_METHODS)
+    if not required <= set(methods) or not set(methods) <= supported:
+        raise ValueError("demo-lite comparison must contain AI and all required baselines")
 
-    _write_table(comparison, output_directory / "table_comparison.csv")
+    _write_table(comparison, output_directory / "table_comparison.csv", methods)
     _write_value_table(comparison, output_directory / "table_value_claims.csv")
-    _comparison_figure(comparison, output_directory / "fig_metric_comparison.png")
-    _tradeoff_figure(comparison, output_directory / "fig_safety_efficiency_tradeoff.png")
+    _comparison_figure(comparison, output_directory / "fig_metric_comparison.png", methods)
+    _tradeoff_figure(
+        comparison,
+        output_directory / "fig_safety_efficiency_tradeoff.png",
+        methods,
+    )
     severity_groups = comparison.get("severity_groups", {})
     if all(group in severity_groups for group in SEVERITY_GROUPS):
-        _write_severity_table(comparison, output_directory / "table_coverage_by_severity.csv")
-        _severity_figure(comparison, output_directory / "fig_coverage_by_severity.png")
-    training_root = root / "candidates" if (root / "candidates").is_dir() else root / "highway_batch"
+        _write_severity_table(
+            comparison,
+            output_directory / "table_coverage_by_severity.csv",
+            methods,
+        )
+        _severity_figure(
+            comparison,
+            output_directory / "fig_coverage_by_severity.png",
+            methods,
+        )
+    training_root = (
+        root / "candidates" if (root / "candidates").is_dir() else root / "highway_batch"
+    )
     protocol = str(comparison.get("protocol") or "adaptive-v4")
     claims = _value_claims(comparison)
     _training_figure(
@@ -446,16 +467,13 @@ def generate_demo_lite_results(
         "",
         f"Completed comparison rows: {comparison['completed_result_rows']}.",
         f"Held-out paired cases: {comparison.get('expected_case_count', 'unknown')}.",
-        "Methods: Transformer-PPO, broadcast, fixed-distance, and urgency-based scheduling.",
+        "Methods: " + ", ".join(DISPLAY_NAMES[method] for method in methods) + ".",
         "Event severity maps to 225 m, 300 m, or 375 m affected-vehicle safety radii.",
         "Error bars report deterministic 95% bootstrap confidence intervals.",
         f"Acceptance: {comparison.get('acceptance', {}).get('passed', 'not evaluated')}.",
         "",
         "Measured value on the paired final holdout:",
-        *[
-            f"- {item['claim']}: {float(item['relative_improvement']):+.1%}."
-            for item in claims
-        ],
+        *[f"- {item['claim']}: {float(item['relative_improvement']):+.1%}." for item in claims],
         "",
         "Use `table_comparison.csv` and `fig_metric_comparison.png` in the presentation,",
         "and report the reduced training matrix and highway-only scope explicitly.",

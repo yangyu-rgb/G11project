@@ -21,15 +21,15 @@
 
 ## CUDA 训练
 
-在 Google Colab 中打开并“全部运行”：
+方向走廊v1保留为未通过验收的诊断实验。新的训练必须在 Google Colab 中打开并“全部运行”：
 
-`notebooks/colab_adaptive_demo_training.ipynb`
+`notebooks/colab_directional_corridor_v2.ipynb`
 
-Notebook 会使用 Drive 保存检查点，生成 48/12/12 组训练、验证和独立测试场景，训练 3 个候选种子，并执行同步基线对比和方向行为验收。运行中断后再次执行 Notebook 会从持久化状态继续。
+Notebook 会使用新的Drive目录保存检查点，生成48/12/12组单事故训练、验证和独立测试场景，训练3个候选种子，并执行PPO、全广播、固定距离、紧急度和固定方向走廊五种方法的同步对比。重复网络种子不会被错误计为新的事故几何；运行中断后再次执行Notebook会从v2持久化状态继续。
 
 成功产物位于 Drive 的：
 
-`G11project-directional-corridor-v1/champion/`
+`G11project-directional-corridor-v2/champion/`
 
 该目录必须同时包含 `model_best.zip` 和 `model_manifest.json`。若任何验收项失败，流水线不会生成可准入清单。
 
@@ -56,7 +56,7 @@ GET /api/v1/demo/model-status
 - 不通知事故车前方车辆
 - 不通知对向或无关车辆
 - 事故车最近的有效后车必须被覆盖
-- 不同事故位置必须产生足够多样的接收者签名
+- 不同独立事故位置必须产生足够多样的接收者签名；同一事故的重复网络种子先去重
 - 测试集中必须确实包含事故事件
 
 这些检查专门防止旧模型曾出现的“换事故车但接收者基本不变”、通知前车以及漏掉正后车问题。

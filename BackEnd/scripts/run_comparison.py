@@ -22,7 +22,11 @@ from src.experiments.evaluation import (  # noqa: E402
     write_detailed_csv,
 )
 from src.experiments.io import atomic_write_json, backend_path, git_metadata, load_yaml  # noqa: E402
-from src.experiments.scenario_matrix import build_scenario_matrix, materialize_scenario  # noqa: E402
+from src.experiments.scenario_matrix import (  # noqa: E402
+    build_scenario_matrix,
+    make_single_event_matrix,
+    materialize_scenario,
+)
 from src.experiments.statistics import (  # noqa: E402
     holm_adjust,
     paired_wilcoxon,
@@ -30,6 +34,7 @@ from src.experiments.statistics import (  # noqa: E402
 )
 
 METHODS = ("ai", "broadcast", "distance", "urgency")
+OPTIONAL_METHODS = ("fixed_directional_corridor",)
 SUPPORTED_DOMAINS = ("highway", "urban")
 PRIMARY_METRICS = (
     "p95_latency_ms",
@@ -62,9 +67,7 @@ def run_case(
     config: dict[str, Any],
 ) -> dict[str, Any]:
     action_mode = (
-        str(config.get("action", {}).get("mode", "individual"))
-        if method == "ai"
-        else "individual"
+        str(config.get("action", {}).get("mode", "individual")) if method == "ai" else "individual"
     )
     environment = make_environment(
         scenario_path,
@@ -79,7 +82,12 @@ def run_case(
                 raise FileNotFoundError(f"trained model is missing: {model_path}")
             action_provider = model_action_provider(model_path, environment)
         else:
-            action_provider = baseline_action_provider(method)
+            baseline = config.get("fixed_directional_baseline", {})
+            action_provider = baseline_action_provider(
+                method,
+                fixed_directional_radius_m=float(baseline.get("radius_m", 300.0)),
+                fixed_directional_bandwidth_fraction=float(baseline.get("bandwidth_fraction", 0.5)),
+            )
         return evaluate_episode(
             environment,
             action_provider,
@@ -98,9 +106,11 @@ def _finite_values(rows: list[dict[str, Any]], metric: str) -> list[float]:
     ]
 
 
-def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def summarize_rows(
+    rows: list[dict[str, Any]], methods: tuple[str, ...] = METHODS
+) -> dict[str, Any]:
     grouped: dict[str, dict[str, Any]] = {}
-    for method in METHODS:
+    for method in methods:
         method_rows = [row for row in rows if row["method"] == method]
         grouped[method] = {
             metric: summarize_values(values)
@@ -120,7 +130,7 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     raw_p_values: dict[str, float] = {}
     directions: dict[str, bool] = {}
-    for baseline in METHODS[1:]:
+    for baseline in methods[1:]:
         for metric in PRIMARY_METRICS:
             ai_by_case = {
                 row["case_id"]: float(row[metric])
@@ -175,6 +185,18 @@ def run_comparison(
         raise ValueError("domains must contain highway and/or urban")
     if len(set(domains)) != len(domains):
         raise ValueError("domains must not contain duplicates")
+    methods = tuple(config.get("methods", METHODS))
+    supported_methods = set(METHODS) | set(OPTIONAL_METHODS)
+    if (
+        not methods
+        or methods[0] != "ai"
+        or any(method not in supported_methods for method in methods)
+    ):
+        raise ValueError("methods must start with ai and contain only supported comparison methods")
+    if len(set(methods)) != len(methods):
+        raise ValueError("methods must not contain duplicates")
+    if "fixed_directional_corridor" in methods and any(domain != "highway" for domain in domains):
+        raise ValueError("fixed_directional_corridor is only defined for highway scenarios")
     for domain in domains:
         base = load_yaml(config["base_scenario_configs"][domain])
         dataset = config["dataset"]
@@ -185,6 +207,8 @@ def run_comparison(
             validation_count=int(dataset.get("validation_configs", 7)),
             test_count=int(dataset.get("test_configs", 10)),
         )
+        if bool(dataset.get("single_event", False)):
+            definitions = make_single_event_matrix(definitions)
         tests = [definition for definition in definitions if definition.split == "test"]
         model_path = backend_path(config["models"][domain])
         for definition in tests:
@@ -198,8 +222,11 @@ def run_comparison(
                     / f"seed_{seed}.json"
                 )
                 if resume and case_path.is_file():
-                    rows.extend(json.loads(case_path.read_text(encoding="utf-8"))["rows"])
-                    continue
+                    checkpoint = json.loads(case_path.read_text(encoding="utf-8"))
+                    checkpoint_methods = tuple(row["method"] for row in checkpoint.get("rows", []))
+                    if checkpoint_methods == methods:
+                        rows.extend(checkpoint["rows"])
+                        continue
                 try:
                     scenario_path = materialize_scenario(
                         definition,
@@ -216,7 +243,7 @@ def run_comparison(
                         if domain == "highway"
                         else None
                     )
-                    for method in METHODS:
+                    for method in methods:
                         metrics = case_runner(
                             scenario_path,
                             domain,
@@ -237,7 +264,10 @@ def run_comparison(
                                 **metrics,
                             }
                         )
-                    atomic_write_json(case_path, {"case_id": case_id, "rows": case_rows})
+                    atomic_write_json(
+                        case_path,
+                        {"case_id": case_id, "methods": list(methods), "rows": case_rows},
+                    )
                     rows.extend(case_rows)
                 except Exception as exc:  # noqa: BLE001 - preserve the remaining matrix
                     failures.append({"case_id": case_id, "error": f"{type(exc).__name__}: {exc}"})
@@ -247,7 +277,8 @@ def run_comparison(
     )
     grouped_by_severity = {
         group: summarize_rows(
-            [row for row in rows if row.get("severity_group") == group]
+            [row for row in rows if row.get("severity_group") == group],
+            methods,
         )["methods"]
         for group in ("low", "medium", "high")
         if any(row.get("severity_group") == group for row in rows)
@@ -256,10 +287,10 @@ def run_comparison(
         "run_mode": config.get("run_mode", "formal"),
         "protocol": config.get("protocol"),
         "expected_case_count": expected_cases,
-        "expected_result_rows": expected_cases * len(METHODS),
+        "expected_result_rows": expected_cases * len(methods),
         "completed_result_rows": len(rows),
         "failures": failures,
-        **summarize_rows(rows),
+        **summarize_rows(rows, methods),
         "severity_groups": grouped_by_severity,
         "git": git_metadata(),
     }

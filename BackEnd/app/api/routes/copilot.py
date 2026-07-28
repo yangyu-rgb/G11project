@@ -46,15 +46,31 @@ def copilot_respond(payload: CopilotRequest) -> CopilotResponse:
 
     items = [
         EvidenceItem(label="车辆", value=vehicle, source="simulation.vehicle"),
-        EvidenceItem(label="候选状态", value="是" if candidate else "否", source="decision.candidate_vehicles"),
-        EvidenceItem(label="最终通知", value="是" if selected else "否", source="decision.selected_receivers"),
+        EvidenceItem(
+            label="候选状态",
+            value="是" if candidate else "否",
+            source="decision.candidate_vehicles",
+        ),
+        EvidenceItem(
+            label="最终通知", value="是" if selected else "否", source="decision.selected_receivers"
+        ),
         EvidenceItem(label="策略理由", value=reason, source="decision.selection_reason"),
         EvidenceItem(label="仿真时间", value=timestamp, source="state_update.timestamp"),
     ]
     if distance is not None:
-        items.append(EvidenceItem(label="事件距离", value=f"{float(distance):.1f} m", source="candidate.distance_m"))
+        items.append(
+            EvidenceItem(
+                label="事件距离", value=f"{float(distance):.1f} m", source="candidate.distance_m"
+            )
+        )
     if attention is not None:
-        items.append(EvidenceItem(label="相对注意力", value=f"{float(attention) * 100:.1f}%", source="attention_weights"))
+        items.append(
+            EvidenceItem(
+                label="相对注意力",
+                value=f"{float(attention) * 100:.1f}%",
+                source="attention_weights",
+            )
+        )
 
     if selected:
         conclusion = f"{vehicle} 被纳入本次选择性广播。直接证据是它进入候选集合并被策略选中，记录理由为“{reason}”。"
@@ -66,5 +82,9 @@ def copilot_respond(payload: CopilotRequest) -> CopilotResponse:
     return CopilotResponse(
         answer=f"{conclusion} 注意力仅用于描述模型内部相对权重，不应单独解释为因果关系。",
         evidence=items,
-        suggested_actions=["在3D场景中定位该车辆", "仅显示与基线不同的消息", "创建低带宽反事实草稿"],
+        suggested_actions=[
+            "在3D场景中定位该车辆",
+            "仅显示与基线不同的消息",
+            "创建低带宽反事实草稿",
+        ],
     )

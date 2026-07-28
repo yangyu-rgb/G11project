@@ -1,0 +1,121 @@
+run_mode: constrained_safety_finetune
+protocol: constrained-v6
+domain: highway
+base_training_config: configs/training_config.yaml
+base_scenario_config: configs/scenarios/highway_emergency.yaml
+safety_window_ms: 100
+
+dataset:
+  train_configs: 12
+  validation_configs: 9
+  test_configs: 6
+
+fine_tuning:
+  branch_seeds: [607, 709]
+  validation_seeds: [5101, 5201, 5301]
+  additional_timesteps: 20000
+  evaluation_interval_timesteps: 2500
+  minimum_timesteps: 7500
+  early_stopping_patience_evaluations: 3
+  high_severity_oversampling: 1
+  learning_rate: 0.0001
+  clip_epsilon: 0.15
+  entropy_coef: 0.003
+  n_epochs: 4
+
+scenario_quality:
+  minimum_boundary_vehicle_count: 2
+  minimum_boundary_fraction: 0.20
+  maximum_generation_attempts: 20
+  geometry_seed_base: 61000
+
+validation_gate:
+  minimum_coverage: 0.97
+  minimum_high_severity_coverage: 0.97
+  minimum_high_severity_selection_coverage: 1.0
+  minimum_worst_high_severity_coverage: 0.95
+  minimum_timely_event_rate: 0.95
+  maximum_channel_cost: 0.60
+
+action:
+  mode: safety_adaptive_radius
+  receiver_radii_m: [150, 225, 300, 375, 5000]
+  safety:
+    override_penalty_per_component: 0.05
+
+environment:
+  episode_steps: 10
+  max_vehicles: 50
+  max_events: 2
+  critical_radius_m: 300
+  severity_aware_critical_radius: true
+  low_severity_radius_m: 225
+  medium_severity_radius_m: 300
+  high_severity_radius_m: 375
+  road_length_m: 5000
+  lateral_extent_m: 10
+  delay_normalization_ms: 100
+  feature_mode: enhanced
+  history_window: 5
+  ttc_max_seconds: 30
+
+network:
+  mode: 3gpp
+  scenario: highway
+  carrier_frequency_ghz: 5.9
+  transmit_power_dbm: 23
+  noise_floor_dbm: -94
+  sinr_midpoint_db: 5
+  sinr_scale_db: 2
+  max_queue_delay_ms: 50
+  minimum_capacity_fraction: 0.05
+
+reward_weights:
+  effective_delivery: 0.06
+  coverage: 0.40
+  latency: 0.07
+  overhead: 0.04
+  missed: 0.18
+  resource: 0.02
+  safety: 0.23
+  fairness: 0.00
+
+ppo:
+  learning_rate: 0.0001
+  clip_epsilon: 0.15
+  entropy_coef: 0.003
+  batch_size: 256
+  n_epochs: 4
+  n_steps: 128
+  gamma: 0.95
+  target_kl: 0.03
+  device: auto
+  verbose: 0
+  feature_extractor: transformer
+  net_arch:
+    pi: [256, 128]
+    vf: [256, 128]
+  transformer:
+    variant: standard
+    num_layers: 1
+    num_heads: 2
+    d_model: 64
+    feedforward_dim: 128
+    dropout: 0.1
+
+source_test_seeds: [2301, 2401, 2501, 2601, 2701]
+test_seeds: [3301, 3401, 3501, 3601, 3701]
+
+acceptance:
+  minimum_coverage: 0.95
+  minimum_high_severity_coverage: 0.95
+  minimum_high_severity_selection_coverage: 1.0
+  minimum_timely_event_rate: 0.90
+  maximum_overhead: 1.80
+  maximum_channel_cost: 0.50
+  maximum_p95_latency_ms: 40.0
+  maximum_baseline_p95_latency_ms: 200.0
+  minimum_high_severity_improvement_vs_v5: 0.08
+  minimum_latency_reduction_vs_broadcast: 0.20
+  minimum_overhead_reduction_vs_broadcast: 0.70
+  minimum_channel_cost_reduction_vs_urgency: 0.20

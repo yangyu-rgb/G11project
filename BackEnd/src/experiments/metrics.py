@@ -110,9 +110,7 @@ def aggregate_episode_metrics(
             else None
         ),
         mean_raw_radius_m=float(np.mean(raw_radii)) if raw_radii else None,
-        mean_executed_radius_m=(
-            float(np.mean(executed_radii)) if executed_radii else None
-        ),
+        mean_executed_radius_m=(float(np.mean(executed_radii)) if executed_radii else None),
         sent_count=sent_count,
         delivered_count=len(delivered),
         effective_delivery_count=effective_count,

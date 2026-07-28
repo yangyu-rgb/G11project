@@ -54,9 +54,7 @@ def test_full_load_preserves_bounded_emergency_capacity() -> None:
 
 
 def test_receiver_count_shares_capacity_without_order_dependent_singularity() -> None:
-    model = SimpleNetworkModel(
-        mode="3gpp", jitter_min_ms=0, jitter_max_ms=0, max_queue_delay_ms=50
-    )
+    model = SimpleNetworkModel(mode="3gpp", jitter_min_ms=0, jitter_max_ms=0, max_queue_delay_ms=50)
 
     single = model.calculate_transmission(
         (0, 0), (100, 0), 512, Priority.HIGH, 0.95, bandwidth_fraction=1.0
@@ -71,9 +69,7 @@ def test_receiver_count_shares_capacity_without_order_dependent_singularity() ->
         receiver_count=50,
     )
 
-    assert broadcast.allocated_bandwidth_mbps == pytest.approx(
-        single.allocated_bandwidth_mbps / 50
-    )
+    assert broadcast.allocated_bandwidth_mbps == pytest.approx(single.allocated_bandwidth_mbps / 50)
     assert single.latency_ms < broadcast.latency_ms < 200
 
 
@@ -176,9 +172,7 @@ def test_explicit_bandwidth_fraction_changes_allocation_and_serialization_delay(
         (0, 0), (100, 0), 512, Priority.HIGH, 0, bandwidth_fraction=0.1
     )
 
-    assert limited.allocated_bandwidth_mbps == pytest.approx(
-        full.allocated_bandwidth_mbps * 0.1
-    )
+    assert limited.allocated_bandwidth_mbps == pytest.approx(full.allocated_bandwidth_mbps * 0.1)
     assert limited.transmission_delay_ms > full.transmission_delay_ms
 
 

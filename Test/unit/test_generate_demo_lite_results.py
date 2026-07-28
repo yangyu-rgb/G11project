@@ -16,7 +16,10 @@ from scripts.generate_demo_lite_results import generate_demo_lite_results  # noq
 
 
 def _summary(
-    run_mode: str = "demo_lite", *, include_severity: bool = False
+    run_mode: str = "demo_lite",
+    *,
+    include_severity: bool = False,
+    include_directional_baseline: bool = False,
 ) -> dict[str, object]:
     metric = {"mean": 0.8, "std": 0.1, "ci95": [0.7, 0.9], "count": 2}
     methods = {
@@ -33,18 +36,29 @@ def _summary(
         }
         for method in ("ai", "broadcast", "distance", "urgency")
     }
+    if include_directional_baseline:
+        methods["fixed_directional_corridor"] = {
+            name: metric
+            for name in (
+                "p95_latency_ms",
+                "effective_delivery_rate",
+                "affected_vehicle_coverage",
+                "communication_overhead",
+                "normalized_channel_cost",
+                "timely_event_rate",
+            )
+        }
+    row_count = 50 if include_directional_baseline else 40
     summary = {
         "run_mode": run_mode,
         "protocol": "adaptive-v5",
-        "completed_result_rows": 40,
-        "expected_result_rows": 40,
+        "completed_result_rows": row_count,
+        "expected_result_rows": row_count,
         "failures": [],
         "methods": methods,
     }
     if include_severity:
-        summary["severity_groups"] = {
-            group: methods for group in ("low", "medium", "high")
-        }
+        summary["severity_groups"] = {group: methods for group in ("low", "medium", "high")}
     return summary
 
 
@@ -70,9 +84,7 @@ def test_generate_demo_lite_outputs_are_explicitly_preliminary(tmp_path: Path) -
     assert (root / "presentation_results/table_value_claims.csv").is_file()
     assert (root / "presentation_results/fig_metric_comparison.png").stat().st_size > 0
     assert (root / "presentation_results/fig_training_curve.png").stat().st_size > 0
-    assert (
-        root / "presentation_results/fig_safety_efficiency_tradeoff.png"
-    ).stat().st_size > 0
+    assert (root / "presentation_results/fig_safety_efficiency_tradeoff.png").stat().st_size > 0
     assert (root / "presentation_results/acceptance_report.json").is_file()
     assert (root / "presentation_results/RESULTS_README.md").is_file()
     report = (root / "DEMO_LITE_RESULTS_SUMMARY.md").read_text(encoding="utf-8")
@@ -92,6 +104,21 @@ def test_generate_demo_lite_outputs_severity_evidence_when_available(
 
     assert (root / "presentation_results/table_coverage_by_severity.csv").is_file()
     assert (root / "presentation_results/fig_coverage_by_severity.png").stat().st_size > 0
+
+
+def test_generate_demo_lite_accepts_optional_directional_baseline(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "demo-lite"
+    comparison = root / "comparison_results/summary.json"
+    comparison.parent.mkdir(parents=True)
+    comparison.write_text(json.dumps(_summary(include_directional_baseline=True)), encoding="utf-8")
+
+    manifest = generate_demo_lite_results(root / "presentation_results", experiments_root=root)
+
+    assert manifest["completed_result_rows"] == 50
+    table = (root / "presentation_results/table_comparison.csv").read_text(encoding="utf-8")
+    assert "fixed_directional_corridor" in table
 
 
 def test_generate_demo_lite_rejects_formal_or_incomplete_inputs(tmp_path: Path) -> None:

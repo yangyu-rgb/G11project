@@ -88,36 +88,34 @@ def _make_environment(config: dict[str, Any], scenario_directory: Path) -> Monit
         key: float(value) for key, value in network.items() if key not in {"mode", "scenario"}
     }
     base_environment = V2XEnv(
-            scenario_directory,
-            episode_steps=int(environment["episode_steps"]),
-            max_vehicles=int(environment["max_vehicles"]),
-            max_events=int(environment["max_events"]),
-            critical_radius_m=float(environment["critical_radius_m"]),
-            severity_aware_critical_radius=bool(
-                environment.get("severity_aware_critical_radius", False)
-            ),
-            low_severity_radius_m=float(environment.get("low_severity_radius_m", 225)),
-            medium_severity_radius_m=float(environment.get("medium_severity_radius_m", 300)),
-            high_severity_radius_m=float(environment.get("high_severity_radius_m", 375)),
-            road_length_m=float(environment.get("road_length_m", 5000)),
-            lateral_extent_m=float(environment.get("lateral_extent_m", 10)),
-            delay_normalization_ms=float(environment["delay_normalization_ms"]),
-            feature_mode=str(environment.get("feature_mode", "basic")),
-            history_window=int(environment.get("history_window", 5)),
-            ttc_max_seconds=float(environment.get("ttc_max_seconds", 30)),
-            receiver_relevance_mode=(
-                "directional_corridor"
-                if action.get("mode") == "directional_corridor"
-                else "radial"
-            ),
-            reward_mode=str(environment.get("reward_mode", "simple")),
-            reward_weights=config.get("reward", {}).get("weights"),
-            safety_window_ms=float(config.get("evaluation", {}).get("safety_window_ms", 100)),
-            network_mode=str(network.get("mode", "simple")),
-            network_scenario=str(network.get("scenario", "highway")),
-            network_options=network_options,
-            seed=int(config.get("seed", 42)),
-        )
+        scenario_directory,
+        episode_steps=int(environment["episode_steps"]),
+        max_vehicles=int(environment["max_vehicles"]),
+        max_events=int(environment["max_events"]),
+        critical_radius_m=float(environment["critical_radius_m"]),
+        severity_aware_critical_radius=bool(
+            environment.get("severity_aware_critical_radius", False)
+        ),
+        low_severity_radius_m=float(environment.get("low_severity_radius_m", 225)),
+        medium_severity_radius_m=float(environment.get("medium_severity_radius_m", 300)),
+        high_severity_radius_m=float(environment.get("high_severity_radius_m", 375)),
+        road_length_m=float(environment.get("road_length_m", 5000)),
+        lateral_extent_m=float(environment.get("lateral_extent_m", 10)),
+        delay_normalization_ms=float(environment["delay_normalization_ms"]),
+        feature_mode=str(environment.get("feature_mode", "basic")),
+        history_window=int(environment.get("history_window", 5)),
+        ttc_max_seconds=float(environment.get("ttc_max_seconds", 30)),
+        receiver_relevance_mode=(
+            "directional_corridor" if action.get("mode") == "directional_corridor" else "radial"
+        ),
+        reward_mode=str(environment.get("reward_mode", "simple")),
+        reward_weights=config.get("reward", {}).get("weights"),
+        safety_window_ms=float(config.get("evaluation", {}).get("safety_window_ms", 100)),
+        network_mode=str(network.get("mode", "simple")),
+        network_scenario=str(network.get("scenario", "highway")),
+        network_options=network_options,
+        seed=int(config.get("seed", 42)),
+    )
     return Monitor(
         maybe_wrap_adaptive_radius(
             base_environment,

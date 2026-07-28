@@ -13,6 +13,43 @@ from src.experiments.evaluation import make_environment
 from src.models.ppo_agent import PPOAgent
 
 
+def summarize_directional_incidents(
+    incident_audits: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, float | int | bool]:
+    """Summarize one record per unique scenario/event across repeated seeds."""
+    unique_incident_count = len(incident_audits)
+    canonical_signatures = {
+        next(iter(audit["signatures"])) for audit in incident_audits.values() if audit["signatures"]
+    }
+    receiver_signature_count = len(canonical_signatures)
+    unique_ratio = receiver_signature_count / max(unique_incident_count, 1)
+    seed_consistent = all(len(audit["signatures"]) == 1 for audit in incident_audits.values())
+    forward_notifications = sum(
+        len(audit["forward_vehicle_ids"]) for audit in incident_audits.values()
+    )
+    follower_audits = [audit for audit in incident_audits.values() if audit["follower_opportunity"]]
+    follower_selected = sum(
+        bool(audit["follower_selected_on_all_seeds"]) for audit in follower_audits
+    )
+    follower_opportunities = len(follower_audits)
+    nearest_coverage = follower_selected / max(follower_opportunities, 1)
+    return {
+        "passed": unique_incident_count > 0
+        and forward_notifications == 0
+        and nearest_coverage >= 1.0
+        and seed_consistent
+        and unique_ratio >= 0.8,
+        "event_count": unique_incident_count,
+        "unique_incident_count": unique_incident_count,
+        "receiver_signature_count": receiver_signature_count,
+        "policy_seed_consistent": seed_consistent,
+        "forward_notifications": forward_notifications,
+        "nearest_follower_opportunities": follower_opportunities,
+        "nearest_follower_coverage": nearest_coverage,
+        "receiver_signature_unique_ratio": unique_ratio,
+    }
+
+
 def evaluate_directional_behavior(
     model_path: Path,
     scenario_paths: Sequence[Path],
@@ -20,13 +57,9 @@ def evaluate_directional_behavior(
     *,
     seeds: Sequence[int],
 ) -> dict[str, float | int | bool]:
-    """Reject forward notifications, missed nearest followers, and invariant receiver sets."""
+    """Audit unique incidents without counting repeated network seeds as new geometry."""
     agent = PPOAgent.load(model_path, device="cpu")
-    forward_notifications = 0
-    follower_opportunities = 0
-    follower_selected = 0
-    event_signatures: list[tuple[str, ...]] = []
-    event_count = 0
+    incident_audits: dict[tuple[str, str], dict[str, Any]] = {}
     for scenario_path in scenario_paths:
         for seed in seeds:
             environment = make_environment(
@@ -41,14 +74,32 @@ def evaluate_directional_behavior(
                 terminated = truncated = False
                 while not (terminated or truncated):
                     snapshot = environment.base_environment.snapshot()
-                    action = np.asarray(agent.predict_raw(observation, deterministic=True), dtype=np.int64)
+                    action = np.asarray(
+                        agent.predict_raw(observation, deterministic=True), dtype=np.int64
+                    )
                     observation, _, terminated, truncated, info = environment.step(action)
                     if not snapshot.events:
                         continue
-                    selected = set(info["selected_receiver_ids"])
-                    event_count += len(snapshot.events)
-                    event_signatures.append(tuple(sorted(selected)))
+                    selected_by_event: dict[str, set[str]] = {
+                        event.event_id: set() for event in snapshot.events
+                    }
+                    for transmission in info.get("transmissions", []):
+                        selected_by_event.setdefault(str(transmission["event_id"]), set()).add(
+                            str(transmission["receiver_id"])
+                        )
                     for event in snapshot.events:
+                        selected = selected_by_event[event.event_id]
+                        key = (str(scenario_path.resolve()), event.event_id)
+                        audit = incident_audits.setdefault(
+                            key,
+                            {
+                                "signatures": set(),
+                                "forward_vehicle_ids": set(),
+                                "follower_opportunity": False,
+                                "follower_selected_on_all_seeds": True,
+                            },
+                        )
+                        audit["signatures"].add(tuple(sorted(selected)))
                         sender = event_sender(snapshot.vehicles, event)
                         if sender is None:
                             continue
@@ -58,27 +109,20 @@ def evaluate_directional_behavior(
                                 continue
                             relation = receiver_relation(sender, vehicle, event)
                             if vehicle.vehicle_id in selected and relation.risk_class in {
-                                "ahead", "opposite_direction", "unrelated"
+                                "ahead",
+                                "opposite_direction",
+                                "unrelated",
                             }:
-                                forward_notifications += 1
+                                audit["forward_vehicle_ids"].add(vehicle.vehicle_id)
                             if relation.risk_class == "following_lane":
                                 following.append(relation)
                         if following:
                             nearest = min(following, key=lambda relation: relation.longitudinal_m)
-                            follower_opportunities += 1
-                            follower_selected += int(nearest.vehicle_id in selected)
+                            audit["follower_opportunity"] = True
+                            audit["follower_selected_on_all_seeds"] = bool(
+                                audit["follower_selected_on_all_seeds"]
+                                and nearest.vehicle_id in selected
+                            )
             finally:
                 environment.close()
-    unique_ratio = len(set(event_signatures)) / max(len(event_signatures), 1)
-    nearest_coverage = follower_selected / max(follower_opportunities, 1)
-    return {
-        "passed": event_count > 0
-        and forward_notifications == 0
-        and nearest_coverage >= 1.0
-        and unique_ratio >= 0.8,
-        "event_count": event_count,
-        "forward_notifications": forward_notifications,
-        "nearest_follower_opportunities": follower_opportunities,
-        "nearest_follower_coverage": nearest_coverage,
-        "receiver_signature_unique_ratio": unique_ratio,
-    }
+    return summarize_directional_incidents(incident_audits)

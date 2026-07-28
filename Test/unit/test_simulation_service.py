@@ -80,11 +80,17 @@ def test_state_update_extends_decision_without_removing_legacy_fields() -> None:
         "vehicle-0": "high_attention",
         "vehicle-1": "critical_distance",
     }
-    assert update["decision"]["candidate_vehicles"] == [{
-        "id": "vehicle-1", "distance_m": 100.0, "status": "selected",
-        "longitudinal_m": 0.0, "lateral_m": pytest.approx(0.0),
-        "lane_relation": "same", "risk_class": "ahead",
-    }]
+    assert update["decision"]["candidate_vehicles"] == [
+        {
+            "id": "vehicle-1",
+            "distance_m": 100.0,
+            "status": "selected",
+            "longitudinal_m": 0.0,
+            "lateral_m": pytest.approx(0.0),
+            "lane_relation": "same",
+            "risk_class": "ahead",
+        }
+    ]
     assert update["method"] == "ai"
 
 

@@ -11,11 +11,20 @@ import numpy as np
 
 from src.environment.adaptive_radius_wrapper import maybe_wrap_adaptive_radius
 from src.environment.v2x_env import V2XEnv
-from src.evaluation.baselines import build_baseline_action
+from src.evaluation.baselines import (
+    build_baseline_action,
+    build_fixed_directional_corridor_action,
+)
 from src.experiments.metrics import aggregate_episode_metrics
 from src.models.ppo_agent import PPOAgent
 
-Method = Literal["ai", "broadcast", "distance", "urgency"]
+Method = Literal[
+    "ai",
+    "broadcast",
+    "distance",
+    "urgency",
+    "fixed_directional_corridor",
+]
 ActionProvider = Callable[[V2XEnv, dict[str, np.ndarray]], np.ndarray]
 
 RESULT_FIELDS = [
@@ -86,9 +95,7 @@ def make_environment(
         history_window=int(environment.get("history_window", 5)),
         ttc_max_seconds=float(environment.get("ttc_max_seconds", 30)),
         receiver_relevance_mode=(
-            "directional_corridor"
-            if action.get("mode") == "directional_corridor"
-            else "radial"
+            "directional_corridor" if action.get("mode") == "directional_corridor" else "radial"
         ),
         reward_mode="full",
         reward_weights=config.get("reward_weights"),
@@ -114,7 +121,19 @@ def model_action_provider(model_path: Path, environment: V2XEnv) -> ActionProvid
     )
 
 
-def baseline_action_provider(method: str) -> ActionProvider:
+def baseline_action_provider(
+    method: str,
+    *,
+    fixed_directional_radius_m: float = 300.0,
+    fixed_directional_bandwidth_fraction: float = 0.5,
+) -> ActionProvider:
+    if method == "fixed_directional_corridor":
+        return lambda environment, _observation: build_fixed_directional_corridor_action(
+            environment,
+            environment.snapshot(),
+            radius_m=fixed_directional_radius_m,
+            bandwidth_fraction=fixed_directional_bandwidth_fraction,
+        )[0]
     if method not in {"broadcast", "distance", "urgency"}:
         raise ValueError(f"unsupported baseline: {method}")
     return lambda environment, _observation: build_baseline_action(

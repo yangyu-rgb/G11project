@@ -151,9 +151,7 @@ def calculate_reward(
         (severity_weight(receiver_id) for receiver_id in critical), default=0.0
     )
     safety_violation_penalty = (
-        (1.0 - selection_coverage_rate) * maximum_severity_weight / 2.0
-        if critical
-        else 0.0
+        (1.0 - selection_coverage_rate) * maximum_severity_weight / 2.0 if critical else 0.0
     )
     overhead_penalty = min(selected_count / active_count, 1.0) if active_count else 0.0
     resource_penalty = overhead_penalty * bandwidth_fraction

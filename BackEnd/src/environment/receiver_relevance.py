@@ -113,10 +113,7 @@ def directional_relations(
         relevant = (
             relation.risk_class == "following_lane"
             and relation.longitudinal_m <= same_lane_radius_m
-        ) or (
-            relation.risk_class == "adjacent_lane"
-            and relation.longitudinal_m <= adjacent_radius
-        )
+        ) or (relation.risk_class == "adjacent_lane" and relation.longitudinal_m <= adjacent_radius)
         if relevant:
             result[vehicle.vehicle_id] = relation
     return result

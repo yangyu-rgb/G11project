@@ -182,7 +182,9 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
     try:
         experiment = resolve_experiment(experiment_query) if experiment_query else None
         baseline = validate_baseline(
-            experiment.baseline if experiment else websocket.query_params.get("baseline", "distance")
+            experiment.baseline
+            if experiment
+            else websocket.query_params.get("baseline", "distance")
         )
         playback = PlaybackController.create(websocket.query_params.get("speed", "1"))
     except (FileNotFoundError, ValueError) as exc:
@@ -195,7 +197,8 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
     try:
         scenario_path = (
             resolve_editor_scenario(experiment.scenario_ref)
-            if experiment else _resolve_simulation_path(str(scenario_query), kind="scenario")
+            if experiment
+            else _resolve_simulation_path(str(scenario_query), kind="scenario")
         )
         editor_presentation = bool(
             (scenario_query and str(scenario_query).startswith("editor:"))

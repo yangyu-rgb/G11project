@@ -81,17 +81,23 @@ def _candidate_vehicles(
         )
         sender = event_sender(snapshot.vehicles, event)
         relation = receiver_relation(sender, vehicle, event) if sender is not None else None
-        values.append({
-            "id": vehicle.vehicle_id,
-            "distance_m": math.dist((vehicle.x, vehicle.y), (event.x, event.y)),
-            "status": "selected" if vehicle.vehicle_id in selected else "candidate",
-            **({
-                "longitudinal_m": relation.longitudinal_m,
-                "lateral_m": relation.lateral_m,
-                "lane_relation": relation.lane_relation,
-                "risk_class": relation.risk_class,
-            } if relation is not None else {}),
-        })
+        values.append(
+            {
+                "id": vehicle.vehicle_id,
+                "distance_m": math.dist((vehicle.x, vehicle.y), (event.x, event.y)),
+                "status": "selected" if vehicle.vehicle_id in selected else "candidate",
+                **(
+                    {
+                        "longitudinal_m": relation.longitudinal_m,
+                        "lateral_m": relation.lateral_m,
+                        "lane_relation": relation.lane_relation,
+                        "risk_class": relation.risk_class,
+                    }
+                    if relation is not None
+                    else {}
+                ),
+            }
+        )
     return values
 
 

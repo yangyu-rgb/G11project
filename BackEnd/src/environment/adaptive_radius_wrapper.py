@@ -39,9 +39,7 @@ class AdaptiveRadiusActionWrapper(gym.ActionWrapper):
         if tuple(sorted(set(radii))) != radii:
             raise ValueError("receiver radii must be unique and strictly increasing")
         self.receiver_radii_m = radii
-        self.action_space = spaces.MultiDiscrete(
-            np.asarray([len(radii), 3, 10], dtype=np.int64)
-        )
+        self.action_space = spaces.MultiDiscrete(np.asarray([len(radii), 3, 10], dtype=np.int64))
 
     @property
     def base_environment(self) -> V2XEnv:
@@ -92,9 +90,7 @@ class DirectionalCorridorActionWrapper(gym.ActionWrapper):
         self.receiver_radii_m = radii
         self.base_environment.receiver_relevance_mode = "directional_corridor"
         # rear radius, lane scope (same / same+adjacent), priority, bandwidth
-        self.action_space = spaces.MultiDiscrete(
-            np.asarray([len(radii), 2, 3, 10], dtype=np.int64)
-        )
+        self.action_space = spaces.MultiDiscrete(np.asarray([len(radii), 2, 3, 10], dtype=np.int64))
         self._last_structured_action: np.ndarray | None = None
 
     @property

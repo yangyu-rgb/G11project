@@ -31,6 +31,7 @@ from src.experiments.io import atomic_write_json, git_metadata, load_yaml, sha25
 from src.experiments.scenario_matrix import (  # noqa: E402
     ScenarioDefinition,
     build_scenario_matrix,
+    make_single_event_matrix,
     materialize_scenario,
 )
 from src.experiments.presentation_gate import evaluate_directional_behavior  # noqa: E402
@@ -61,10 +62,13 @@ class EpisodeLogCallback(BaseCallback):
 def validation_score(metrics: dict[str, float]) -> float:
     """Rank coverage first, then delivery, timeliness, overhead, and latency."""
     coverage = metrics["affected_vehicle_coverage"]
-    shortfall = max(0.0, 0.95 - coverage)
+    selection_coverage = metrics["affected_vehicle_selection_coverage"]
+    safety_coverage = min(coverage, selection_coverage)
+    shortfall = max(0.0, 0.95 - safety_coverage)
     return (
-        coverage
-        - 2.0 * shortfall
+        0.65 * coverage
+        + 0.35 * selection_coverage
+        - 3.0 * shortfall
         + 0.20 * metrics["effective_delivery_rate"]
         + 0.15 * metrics["timely_event_rate"]
         - 0.05 * min(metrics["communication_overhead"] / 12.0, 1.0)
@@ -113,9 +117,23 @@ class AdaptiveDemoPipeline:
             if self.state_path.is_file()
             else {"stages": {}}
         )
+        requested_protocol = str(self.config.get("protocol", "adaptive-v1"))
+        existing_protocol = self.state.get("protocol")
+        compatible_legacy_v1 = existing_protocol is None and requested_protocol == "adaptive-v1"
+        if (
+            self.state.get("stages")
+            and existing_protocol != requested_protocol
+            and not compatible_legacy_v1
+        ):
+            label = existing_protocol or "legacy protocol without an explicit label"
+            raise ValueError(
+                f"persistent root contains {label!r}, but the requested protocol is "
+                f"{requested_protocol!r}; choose a fresh persistent root"
+            )
         self.state.update(
             {
                 "run_mode": "adaptive_demo",
+                "protocol": requested_protocol,
                 "scope": "highway-only structured-action course demo",
                 "git": git_metadata(),
             }
@@ -129,6 +147,7 @@ class AdaptiveDemoPipeline:
         stages = self.state.setdefault("stages", {})
         return {
             "run_mode": self.state["run_mode"],
+            "protocol": self.state["protocol"],
             "scope": self.state["scope"],
             "git": self.state["git"],
             "stages": {name: stages.get(name, {"status": "pending"}) for name in STAGES},
@@ -163,22 +182,31 @@ class AdaptiveDemoPipeline:
 
     def _matrix(self) -> list[ScenarioDefinition]:
         dataset = self.config["dataset"]
-        return build_scenario_matrix(
+        definitions = build_scenario_matrix(
             "highway",
             load_yaml(self.config["base_scenario_config"]),
             train_count=int(dataset["train_configs"]),
             validation_count=int(dataset["validation_configs"]),
             test_count=int(dataset["test_configs"]),
         )
+        return (
+            make_single_event_matrix(definitions)
+            if bool(dataset.get("single_event", False))
+            else definitions
+        )
 
     def _materialize_split(self, split: str) -> list[tuple[ScenarioDefinition, Path]]:
         selected = [item for item in self._matrix() if item.split == split]
+        split_offsets = {"train": 0, "validation": 10_000, "test": 20_000}
+        if split not in split_offsets:
+            raise ValueError("split must be train, validation, or test")
+        seed_base = int(self.config["dataset"].get("geometry_seed_base", 40_000))
         values = []
         for index, definition in enumerate(selected):
             path = materialize_scenario(
                 definition,
                 self.root / "scenarios" / split / definition.scenario_id,
-                seed=40_000 + index,
+                seed=seed_base + split_offsets[split] + index,
             )
             values.append((definition, path))
         return values
@@ -224,11 +252,14 @@ class AdaptiveDemoPipeline:
                     seed,
                     {
                         "environment": self.config["environment"],
-                        "network": {"highway_mode": self.config["network"]["mode"], **{
-                            key: value
-                            for key, value in self.config["network"].items()
-                            if key not in {"mode", "scenario"}
-                        }},
+                        "network": {
+                            "highway_mode": self.config["network"]["mode"],
+                            **{
+                                key: value
+                                for key, value in self.config["network"].items()
+                                if key not in {"mode", "scenario"}
+                            },
+                        },
                         "reward_weights": self.config["reward_weights"],
                         "safety_window_ms": self.config["safety_window_ms"],
                         "action": self.config["action"],
@@ -399,9 +430,7 @@ class AdaptiveDemoPipeline:
             "action": self.config["action"],
         }
 
-    def _run_calibration(
-        self, scenarios: list[tuple[ScenarioDefinition, Path]]
-    ) -> dict[str, Any]:
+    def _run_calibration(self, scenarios: list[tuple[ScenarioDefinition, Path]]) -> dict[str, Any]:
         """Fail quickly when the network model produces non-physical pilot metrics."""
         rows: list[dict[str, Any]] = []
         config = self._evaluation_config()
@@ -429,9 +458,7 @@ class AdaptiveDemoPipeline:
                     )
                 if not 0 <= coverage <= 1:
                     raise RuntimeError("network calibration produced invalid coverage")
-                rows.append(
-                    {"scenario_id": definition.scenario_id, "method": method, **metrics}
-                )
+                rows.append({"scenario_id": definition.scenario_id, "method": method, **metrics})
         result = {"status": "passed", "rows": rows}
         atomic_write_json(self.root / "network_calibration.json", result)
         return {"status": "passed", "evaluated_rows": len(rows)}
@@ -447,6 +474,7 @@ class AdaptiveDemoPipeline:
         }
         return {
             "run_mode": "demo_lite",
+            "protocol": str(self.config.get("protocol", "directional-v2")),
             "domains": ["highway"],
             "safety_window_ms": self.config["safety_window_ms"],
             "base_scenario_configs": {"highway": self.config["base_scenario_config"]},
@@ -457,6 +485,11 @@ class AdaptiveDemoPipeline:
             "network": network,
             "reward_weights": self.config["reward_weights"],
             "action": self.config["action"],
+            "methods": self.config.get(
+                "methods",
+                ["ai", "broadcast", "distance", "urgency"],
+            ),
+            "fixed_directional_baseline": self.config.get("fixed_directional_baseline", {}),
         }
 
     def _training_quality_checks(self) -> dict[str, bool]:
@@ -471,14 +504,19 @@ class AdaptiveDemoPipeline:
             float(np.mean(rewards[-window:])) - float(np.mean(rewards[:window]))
             >= float(self.config["acceptance"]["minimum_reward_improvement"])
         )
-        history = json.loads(
-            (candidate / "validation_history.json").read_text(encoding="utf-8")
+        history = json.loads((candidate / "validation_history.json").read_text(encoding="utf-8"))
+        minimum_coverage = float(self.config["acceptance"]["minimum_coverage"])
+        minimum_selection = float(
+            self.config["acceptance"].get("minimum_selection_coverage", minimum_coverage)
         )
-        passes = [float(item["affected_vehicle_coverage"]) >= 0.95 for item in history]
+        passes = [
+            float(item["affected_vehicle_coverage"]) >= minimum_coverage
+            and float(item["affected_vehicle_selection_coverage"]) >= minimum_selection
+            for item in history
+        ]
         required = int(self.config["acceptance"]["validation_consecutive_passes"])
         stable = any(
-            all(passes[index : index + required])
-            for index in range(len(passes) - required + 1)
+            all(passes[index : index + required]) for index in range(len(passes) - required + 1)
         )
         return {"training_improved": improved, "validation_stable": stable}
 
@@ -490,7 +528,12 @@ class AdaptiveDemoPipeline:
             raise RuntimeError(f"adaptive comparison failures: {result['failures']}")
         ai = result["methods"]["ai"]
         broadcast = result["methods"]["broadcast"]
-        rule_methods = [result["methods"][name] for name in ("distance", "urgency")]
+        rule_names = [
+            name
+            for name in ("distance", "urgency", "fixed_directional_corridor")
+            if name in result["methods"]
+        ]
+        rule_methods = [result["methods"][name] for name in rule_names]
         acceptance = self.config["acceptance"]
         behavior = evaluate_directional_behavior(
             self.root / "champion/model_best.zip",
@@ -505,13 +548,14 @@ class AdaptiveDemoPipeline:
         checks = {
             "coverage": ai["affected_vehicle_coverage"]["mean"]
             >= float(acceptance["minimum_coverage"]),
+            "selection_coverage": ai["affected_vehicle_selection_coverage"]["mean"]
+            >= float(acceptance.get("minimum_selection_coverage", acceptance["minimum_coverage"])),
             "overhead": ai["communication_overhead"]["mean"]
             <= float(acceptance["maximum_overhead"]),
             "channel_cost": ai["normalized_channel_cost"]["mean"]
             <= float(acceptance["maximum_channel_cost"]),
             "timely_events": ai["timely_event_rate"]["mean"] >= 0.90,
-            "latency": ai["p95_latency_ms"]["mean"]
-            <= float(acceptance["maximum_p95_latency_ms"]),
+            "latency": ai["p95_latency_ms"]["mean"] <= float(acceptance["maximum_p95_latency_ms"]),
             "all_latencies_sane": all(
                 method["p95_latency_ms"]["mean"]
                 <= float(acceptance["maximum_baseline_p95_latency_ms"])
@@ -520,9 +564,7 @@ class AdaptiveDemoPipeline:
             "p95_vs_broadcast": ai["p95_latency_ms"]["mean"]
             <= broadcast["p95_latency_ms"]["mean"]
             * float(acceptance["maximum_p95_vs_broadcast_ratio"]),
-            "near_best_rule": (
-                best_rule_coverage - ai["affected_vehicle_coverage"]["mean"] <= gap
-            ),
+            "near_best_rule": (best_rule_coverage - ai["affected_vehicle_coverage"]["mean"] <= gap),
             **self._training_quality_checks(),
             "directional_behavior": bool(behavior["passed"]),
         }

@@ -1,5 +1,4 @@
 run_mode: adaptive_demo
-protocol: directional-v2
 domain: highway
 base_training_config: configs/training_config.yaml
 base_scenario_config: configs/scenarios/highway_emergency.yaml
@@ -9,17 +8,15 @@ dataset:
   train_configs: 48
   validation_configs: 12
   test_configs: 12
-  single_event: true
-  geometry_seed_base: 70000
 
 training:
-  candidate_seeds: [401, 503, 607]
-  validation_seeds: [5101, 5201, 5301]
-  max_timesteps: 120000
+  candidate_seeds: [101, 211, 307]
+  validation_seeds: [3101, 3201, 3301]
+  max_timesteps: 100000
   evaluation_interval_timesteps: 5000
-  early_stopping_patience_evaluations: 6
+  early_stopping_patience_evaluations: 4
   pilot_timesteps: 10000
-  pilot_minimum_coverage: 0.80
+  pilot_minimum_coverage: 0.75
 
 action:
   mode: directional_corridor
@@ -53,13 +50,12 @@ network:
   minimum_capacity_fraction: 0.05
 
 reward_weights:
-  effective_delivery: 0.08
-  coverage: 0.35
-  latency: 0.07
-  overhead: 0.04
-  missed: 0.20
-  resource: 0.03
-  safety: 0.23
+  effective_delivery: 0.10
+  coverage: 0.45
+  latency: 0.10
+  overhead: 0.05
+  missed: 0.25
+  resource: 0.05
   fairness: 0.00
 
 ppo:
@@ -85,17 +81,10 @@ ppo:
     feedforward_dim: 128
     dropout: 0.1
 
-methods: [ai, broadcast, distance, urgency, fixed_directional_corridor]
-
-fixed_directional_baseline:
-  radius_m: 300
-  bandwidth_fraction: 0.5
-
-test_seeds: [4301, 4401, 4501, 4601, 4701, 4801]
+test_seeds: [1701, 1801, 1901, 2001, 2101, 2201]
 
 acceptance:
   minimum_coverage: 0.95
-  minimum_selection_coverage: 0.95
   maximum_overhead: 2.0
   maximum_channel_cost: 0.60
   maximum_p95_latency_ms: 100.0

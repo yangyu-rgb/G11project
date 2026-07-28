@@ -178,6 +178,11 @@ Notebook负责挂载Google Drive、安装SUMO、验证CUDA，并通过统一可�
 `G11project-demo-lite` Drive目录，不读取或覆盖`G11project-formal`进度。所有输出必须标注为
 highway-only preliminary course-demo results，不得作为论文级正式结论。
 
+正式三维答辩使用的方向走廊模型通过
+[`BackEnd/notebooks/colab_directional_corridor_v2.ipynb`](BackEnd/notebooks/colab_directional_corridor_v2.ipynb)
+训练。v2保持Transformer-PPO和四维方向走廊动作不变，使用与现场演示一致的单事故协议、全新留出集及五方法比较；输出写入独立的
+`G11project-directional-corridor-v2` Drive目录。只有覆盖率、最近后车覆盖、前车误通知、跨事故动作多样性和效率门禁全部通过时才生成可晋级的模型清单。
+
 ### 演示模式
 
 ```bash

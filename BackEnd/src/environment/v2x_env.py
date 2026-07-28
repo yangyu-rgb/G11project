@@ -82,7 +82,10 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             medium_severity_radius_m,
             high_severity_radius_m,
         )
-        if any(value <= 0 for value in severity_radii) or tuple(sorted(severity_radii)) != severity_radii:
+        if (
+            any(value <= 0 for value in severity_radii)
+            or tuple(sorted(severity_radii)) != severity_radii
+        ):
             raise ValueError("severity radii must be positive and non-decreasing")
         if safety_window_ms <= 0:
             raise ValueError("safety_window_ms must be positive")
@@ -528,9 +531,11 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             sender_id = sender.vehicle_id if sender else None
             affected_radius = self.affected_radius_m(event)
             affected_radius_by_event[event.event_id] = affected_radius
-            event_relations = directional_relations(
-                frame.vehicles, event, same_lane_radius_m=affected_radius
-            ) if self.receiver_relevance_mode == "directional_corridor" else {}
+            event_relations = (
+                directional_relations(frame.vehicles, event, same_lane_radius_m=affected_radius)
+                if self.receiver_relevance_mode == "directional_corridor"
+                else {}
+            )
             event_critical_ids = (
                 set(event_relations)
                 if self.receiver_relevance_mode == "directional_corridor"
@@ -690,9 +695,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         del options
         if seed is None:
             resolved_seed = (
-                self._initial_seed + self._episode_index
-                if self._initial_seed is not None
-                else None
+                self._initial_seed + self._episode_index if self._initial_seed is not None else None
             )
             self._episode_index += 1
         else:

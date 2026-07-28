@@ -109,6 +109,21 @@ def build_scenario_matrix(
     return definitions
 
 
+def make_single_event_matrix(
+    definitions: list[ScenarioDefinition],
+) -> list[ScenarioDefinition]:
+    """Return a course-demo matrix with exactly one emergency event per scenario."""
+    result: list[ScenarioDefinition] = []
+    for definition in definitions:
+        parameters = copy.deepcopy(definition.parameters)
+        if definition.domain != "highway":
+            raise ValueError("the single-event course-demo protocol is highway-only")
+        parameters["events"]["count_min"] = 1
+        parameters["events"]["count_max"] = 1
+        result.append(replace(definition, parameters=parameters))
+    return result
+
+
 def build_safety_scenario_matrix(
     base_config: dict[str, Any],
     *,

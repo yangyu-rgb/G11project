@@ -86,9 +86,7 @@ def test_radius_options_must_be_strictly_increasing() -> None:
 def test_high_severity_action_is_projected_into_safety_envelope() -> None:
     wrapper = SafetyProjectedActionWrapper(ReceiverEnvironment((EVENT,)))  # type: ignore[arg-type]
 
-    _, reward, terminated, truncated, info = wrapper.step(
-        np.asarray([2, 0, 1], dtype=np.int64)
-    )
+    _, reward, terminated, truncated, info = wrapper.step(np.asarray([2, 0, 1], dtype=np.int64))
 
     assert info["expanded"] == pytest.approx([0, 1, 1, 0, 2, 4])
     assert info["raw_structured_action"] == [2, 0, 1]
@@ -109,9 +107,9 @@ def test_safety_projection_does_not_override_without_an_event() -> None:
 
 
 def test_directional_corridor_selects_followers_and_never_the_vehicle_ahead() -> None:
-    environment = ReceiverEnvironment((EmergencyEvent(
-        "event", "emergency_braking", 100, -4.8, 0, 0.9, "sender"
-    ),))
+    environment = ReceiverEnvironment(
+        (EmergencyEvent("event", "emergency_braking", 100, -4.8, 0, 0.9, "sender"),)
+    )
     environment.vehicles = (
         VehicleSnapshot("sender", 100, -4.8, 20, 90, "highway_1"),
         VehicleSnapshot("near", 74, -4.8, 22, 90, "highway_1"),

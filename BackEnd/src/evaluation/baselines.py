@@ -10,6 +10,7 @@ from typing import Any, Literal, Protocol
 import numpy as np
 
 from src.environment.network_model import Priority
+from src.environment.receiver_relevance import directional_relations
 from src.environment.simulation_types import EmergencyEvent, SimulationSnapshot
 
 BaselineMethod = Literal["broadcast", "distance", "urgency"]
@@ -20,6 +21,8 @@ class BaselineEnvironment(Protocol):
     critical_radius_m: float
     max_vehicles: int
     vehicle_ids: Sequence[str]
+
+    def snapshot(self) -> SimulationSnapshot: ...
 
 
 @dataclass(frozen=True)
@@ -166,3 +169,35 @@ def build_baseline_action(
         "urgency": "urgency_priority",
     }[method]
     return action, {vehicle_id: reason for vehicle_id in sorted(selected_ids)}
+
+
+def build_fixed_directional_corridor_action(
+    environment: BaselineEnvironment,
+    snapshot: SimulationSnapshot,
+    *,
+    radius_m: float = 300.0,
+    priority: Priority = Priority.HIGH,
+    bandwidth_fraction: float = 0.5,
+) -> tuple[np.ndarray, dict[str, str]]:
+    """Build a non-learning directional baseline with fixed resources."""
+    if radius_m <= 0:
+        raise ValueError("directional baseline radius must be positive")
+    if not 0 < bandwidth_fraction <= 1:
+        raise ValueError("directional baseline bandwidth must be in (0, 1]")
+    selected_ids: set[str] = set()
+    for event in snapshot.events:
+        selected_ids.update(
+            directional_relations(
+                snapshot.vehicles,
+                event,
+                same_lane_radius_m=radius_m,
+                adjacent_radius_factor=0.5,
+            )
+        )
+    action = np.zeros(environment.max_vehicles + 2, dtype=np.int64)
+    for slot, vehicle_id in enumerate(environment.vehicle_ids):
+        if vehicle_id in selected_ids:
+            action[slot] = 1
+    action[-2] = int(priority)
+    action[-1] = max(0, min(9, round(bandwidth_fraction * 10) - 1))
+    return action, {vehicle_id: "fixed_directional_corridor" for vehicle_id in sorted(selected_ids)}

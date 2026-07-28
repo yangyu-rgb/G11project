@@ -9,7 +9,16 @@ BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
 from src.environment.network_model import Priority  # noqa: E402
-from src.evaluation.baselines import select_receivers, select_urgency_resources  # noqa: E402
+from src.environment.simulation_types import (  # noqa: E402
+    EmergencyEvent,
+    SimulationSnapshot,
+    VehicleSnapshot,
+)
+from src.evaluation.baselines import (  # noqa: E402
+    build_fixed_directional_corridor_action,
+    select_receivers,
+    select_urgency_resources,
+)
 
 
 VEHICLES = [
@@ -66,3 +75,29 @@ def test_urgency_resources_require_finite_numeric_severity() -> None:
 def test_unknown_baseline_is_rejected() -> None:
     with pytest.raises(ValueError, match="method"):
         select_receivers(VEHICLES, EVENT, "unknown")  # type: ignore[arg-type]
+
+
+def test_fixed_directional_baseline_selects_only_rear_corridor() -> None:
+    class Environment:
+        max_vehicles = 4
+        vehicle_ids = ("sender", "rear", "adjacent", "ahead")
+
+    vehicles = (
+        VehicleSnapshot("sender", 100, -4.8, 20, 90, "highway_1"),
+        VehicleSnapshot("rear", 40, -4.8, 22, 90, "highway_1"),
+        VehicleSnapshot("adjacent", 20, -1.6, 22, 90, "highway_2"),
+        VehicleSnapshot("ahead", 140, -4.8, 20, 90, "highway_1"),
+    )
+    snapshot = SimulationSnapshot(
+        0,
+        10,
+        vehicles,
+        (EmergencyEvent("event", "emergency_braking", 100, -4.8, 10, 0.9, "sender"),),
+    )
+
+    action, reasons = build_fixed_directional_corridor_action(  # type: ignore[arg-type]
+        Environment(), snapshot, radius_m=300, bandwidth_fraction=0.5
+    )
+
+    assert action.tolist() == [0, 1, 1, 0, 2, 4]
+    assert set(reasons) == {"rear", "adjacent"}

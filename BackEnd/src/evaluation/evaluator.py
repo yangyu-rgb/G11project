@@ -91,7 +91,10 @@ def evaluate_selection(
     offered_load = min(
         0.95,
         background_load
-        + 0.55 * len(unique_receiver_ids) / max(len(candidate_ids), 1) * resolved_bandwidth_fraction,
+        + 0.55
+        * len(unique_receiver_ids)
+        / max(len(candidate_ids), 1)
+        * resolved_bandwidth_fraction,
     )
     for receiver_id in unique_receiver_ids:
         result = network_model.calculate_transmission(

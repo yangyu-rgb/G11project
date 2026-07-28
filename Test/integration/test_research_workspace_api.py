@@ -13,36 +13,41 @@ def _scenario() -> dict[str, object]:
             {"id": "vehicle_001", "x": 100, "y": -4.8, "speed_kmh": 96, "heading": 90},
             {"id": "vehicle_002", "x": 130, "y": -4.8, "speed_kmh": 92, "heading": 90},
         ],
-        "events": [{
-            "id": "event_001",
-            "type": "emergency_braking",
-            "x": 100,
-            "y": -4.8,
-            "timestamp": 2,
-            "severity": 0.9,
-            "source_vehicle_id": "vehicle_001",
-            "pre_brake_speed_kmh": 96,
-            "post_brake_speed_kmh": 18,
-        }],
+        "events": [
+            {
+                "id": "event_001",
+                "type": "emergency_braking",
+                "x": 100,
+                "y": -4.8,
+                "timestamp": 2,
+                "severity": 0.9,
+                "source_vehicle_id": "vehicle_001",
+                "pre_brake_speed_kmh": 96,
+                "post_brake_speed_kmh": 18,
+            }
+        ],
     }
 
 
 def test_experiment_preview_is_retrievable_and_normalized() -> None:
     client = TestClient(app)
-    response = client.post("/api/v1/experiments/preview", json={
-        "scenario": _scenario(),
-        "network": {
-            "critical_radius_m": 250,
-            "total_bandwidth_mbps": 30,
-            "base_delay_ms": 40,
-            "jitter_max_ms": 12,
-            "far_packet_loss_rate": 0.12,
-            "network_mode": "3gpp",
-            "safety_window_ms": 120,
+    response = client.post(
+        "/api/v1/experiments/preview",
+        json={
+            "scenario": _scenario(),
+            "network": {
+                "critical_radius_m": 250,
+                "total_bandwidth_mbps": 30,
+                "base_delay_ms": 40,
+                "jitter_max_ms": 12,
+                "far_packet_loss_rate": 0.12,
+                "network_mode": "3gpp",
+                "safety_window_ms": 120,
+            },
+            "seed": 42,
+            "baseline": "broadcast",
         },
-        "seed": 42,
-        "baseline": "broadcast",
-    })
+    )
     assert response.status_code == 200
     result = response.json()
     assert result["comparability"] == "comparable"
@@ -55,26 +60,32 @@ def test_experiment_preview_is_retrievable_and_normalized() -> None:
 
 
 def test_experiment_preview_rejects_out_of_bounds_network_values() -> None:
-    response = TestClient(app).post("/api/v1/experiments/preview", json={
-        "scenario": _scenario(),
-        "network": {"total_bandwidth_mbps": 1},
-    })
+    response = TestClient(app).post(
+        "/api/v1/experiments/preview",
+        json={
+            "scenario": _scenario(),
+            "network": {"total_bandwidth_mbps": 1},
+        },
+    )
     assert response.status_code == 422
 
 
 def test_local_copilot_cites_structured_evidence() -> None:
-    response = TestClient(app).post("/api/v1/copilot/respond", json={
-        "query": "为什么选择这辆车？",
-        "vehicle_id": "vehicle_002",
-        "evidence": {
-            "candidate": True,
-            "selected": True,
-            "distance_m": 30,
-            "attention": 0.72,
-            "reason": "high_attention",
-            "timestamp": 2,
+    response = TestClient(app).post(
+        "/api/v1/copilot/respond",
+        json={
+            "query": "为什么选择这辆车？",
+            "vehicle_id": "vehicle_002",
+            "evidence": {
+                "candidate": True,
+                "selected": True,
+                "distance_m": 30,
+                "attention": 0.72,
+                "reason": "high_attention",
+                "timestamp": 2,
+            },
         },
-    })
+    )
     assert response.status_code == 200
     result = response.json()
     assert result["mode"] == "local"
@@ -88,7 +99,10 @@ def test_pressure_presets_are_allowlisted_and_describe_ood_status() -> None:
     assert response.status_code == 200
     presets = response.json()
     assert [item["id"] for item in presets] == [
-        "normal", "low-bandwidth", "high-latency", "high-loss"
+        "normal",
+        "low-bandwidth",
+        "high-latency",
+        "high-loss",
     ]
     low_bandwidth = client.get("/api/v1/experiments/presets/low-bandwidth")
     assert low_bandwidth.status_code == 200

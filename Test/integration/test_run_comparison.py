@@ -102,6 +102,13 @@ def test_comparison_can_run_highway_only_matrix(tmp_path: Path, monkeypatch: Any
     config = {
         "run_mode": "demo_lite",
         "domains": ["highway"],
+        "methods": [
+            "ai",
+            "broadcast",
+            "distance",
+            "urgency",
+            "fixed_directional_corridor",
+        ],
         "base_scenario_configs": {
             "highway": "configs/scenarios/highway_emergency.yaml",
         },
@@ -112,6 +119,6 @@ def test_comparison_can_run_highway_only_matrix(tmp_path: Path, monkeypatch: Any
     summary = comparison.run_comparison(config, tmp_path / "highway_results", case_runner=fake_case)
 
     assert summary["expected_case_count"] == 1
-    assert summary["expected_result_rows"] == 4
-    assert summary["completed_result_rows"] == 4
+    assert summary["expected_result_rows"] == 5
+    assert summary["completed_result_rows"] == 5
     assert not summary["failures"]
