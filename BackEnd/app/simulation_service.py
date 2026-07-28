@@ -7,6 +7,7 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from src.environment.receiver_relevance import event_sender, receiver_relation
 from src.environment.simulation_types import EmergencyEvent, SimulationSnapshot
 
 ATTENTION_LINK_THRESHOLD = 0.6
@@ -70,17 +71,28 @@ def _candidate_vehicles(
 ) -> list[dict[str, Any]]:
     critical = set(critical_receiver_ids)
     selected = set(selected_receiver_ids)
-    return [
-        {
+    values = []
+    for vehicle in snapshot.vehicles:
+        if vehicle.vehicle_id not in critical or not snapshot.events:
+            continue
+        event = min(
+            snapshot.events,
+            key=lambda item: math.dist((vehicle.x, vehicle.y), (item.x, item.y)),
+        )
+        sender = event_sender(snapshot.vehicles, event)
+        relation = receiver_relation(sender, vehicle, event) if sender is not None else None
+        values.append({
             "id": vehicle.vehicle_id,
-            "distance_m": min(
-                math.dist((vehicle.x, vehicle.y), (event.x, event.y)) for event in snapshot.events
-            ),
+            "distance_m": math.dist((vehicle.x, vehicle.y), (event.x, event.y)),
             "status": "selected" if vehicle.vehicle_id in selected else "candidate",
-        }
-        for vehicle in snapshot.vehicles
-        if vehicle.vehicle_id in critical and snapshot.events
-    ]
+            **({
+                "longitudinal_m": relation.longitudinal_m,
+                "lateral_m": relation.lateral_m,
+                "lane_relation": relation.lane_relation,
+                "risk_class": relation.risk_class,
+            } if relation is not None else {}),
+        })
+    return values
 
 
 def build_state_update(
@@ -139,16 +151,20 @@ def build_state_update(
     candidates = _candidate_vehicles(snapshot, info["critical_receiver_ids"], selected_receivers)
     candidate_ids = {candidate["id"] for candidate in candidates}
     vehicle_attention = attention_by_vehicle or {}
-    selection_reason = selection_reason_override or {
-        vehicle_id: (
-            "high_attention"
-            if vehicle_attention.get(vehicle_id, 0.0) >= ATTENTION_LINK_THRESHOLD
-            else "critical_distance"
-            if vehicle_id in candidate_ids
-            else "policy_selected"
-        )
-        for vehicle_id in selected_receivers
-    }
+    selection_reason = selection_reason_override or (
+        {vehicle_id: "ai_corridor" for vehicle_id in selected_receivers}
+        if info.get("action_mode") == "directional_corridor"
+        else {
+            vehicle_id: (
+                "high_attention"
+                if vehicle_attention.get(vehicle_id, 0.0) >= ATTENTION_LINK_THRESHOLD
+                else "critical_distance"
+                if vehicle_id in candidate_ids
+                else "policy_selected"
+            )
+            for vehicle_id in selected_receivers
+        }
+    )
 
     update = {
         "type": "state_update",
@@ -166,6 +182,9 @@ def build_state_update(
                 "y": event.y,
                 "timestamp": event.timestamp,
                 "severity": event.severity,
+                "source_vehicle_id": event.source_vehicle_id,
+                "pre_brake_speed_kmh": event.pre_brake_speed_kmh,
+                "post_brake_speed_kmh": event.post_brake_speed_kmh,
             }
             for event in snapshot.events
         ],
@@ -194,6 +213,15 @@ def build_state_update(
             **(
                 {"inference_time_ms": float(info.get("decision_latency_ms", 0.0))}
                 if method in (None, "ai")
+                else {}
+            ),
+            **(
+                {
+                    "action_mode": info["action_mode"],
+                    "corridor_radius_m": info["corridor_radius_m"],
+                    "corridor_lane_scope": info["corridor_lane_scope"],
+                }
+                if info.get("action_mode") == "directional_corridor"
                 else {}
             ),
         },

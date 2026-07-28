@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { buildFallbackComparison } from '../components/Presentation/presentationFallback'
 import {
   findIncidentPair,
   PRESENTATION_DURATION_MS,
@@ -13,10 +12,19 @@ import { useAnimationRuntime } from '../runtime/AnimationRuntimeContext'
 import type { ComparisonPair } from '../types/simulation'
 import { DEFAULT_MODEL, useSimulationSession } from './useSimulationSession'
 
-export type PresentationPhase = 'selecting' | 'preparing' | 'playing' | 'paused' | 'complete'
+export type PresentationPhase = 'selecting' | 'preparing' | 'exploring' | 'playing' | 'paused' | 'complete'
 export type PresentationSource = 'real' | 'rule' | null
+export type PresentationMode = 'explore' | 'autoplay'
 
 const PREPARATION_TIMEOUT_MS = 30_000
+
+export type PresentationModelStatus = {
+  model: string
+  available: boolean
+  eligible: boolean
+  action_mode: string | null
+  reason: string | null
+}
 
 export function usePresentationDemo(template: EditorScenario) {
   const { animation } = useAnimationRuntime()
@@ -31,15 +39,18 @@ export function usePresentationDemo(template: EditorScenario) {
   } = session
   const [phase, setPhase] = useState<PresentationPhase>('selecting')
   const [source, setSource] = useState<PresentationSource>(null)
+  const [mode, setMode] = useState<PresentationMode>('explore')
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
+  const [inspectedVehicleId, setInspectedVehicleId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<EditorScenario>(template)
   const [pairs, setPairs] = useState<ComparisonPair[]>([])
   const [elapsedMs, setElapsedMs] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
+  const [modelStatus, setModelStatus] = useState<PresentationModelStatus | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
 
-  const loadPlayback = useCallback((history: ComparisonPair[], nextSource: Exclude<PresentationSource, null>) => {
+  const loadPlayback = useCallback((history: ComparisonPair[], nextSource: Exclude<PresentationSource, null>, nextMode: PresentationMode = 'explore') => {
     const incident = findIncidentPair(history)
     const anchorTimestamp = incident?.ai.timestamp
     animation.clear()
@@ -53,25 +64,35 @@ export function usePresentationDemo(template: EditorScenario) {
       anchorTimestamp,
       anchorAtMs: 5_000,
     })
+    animation.setTimeScale(1)
     animation.setReplayElapsed(0)
-    animation.setPaused(false)
+    animation.setPaused(nextMode === 'explore')
     setPairs(history)
     setSource(nextSource)
     setElapsedMs(0)
-    setPhase('playing')
-  }, [animation])
+    setMode(nextMode)
+    setInspectedVehicleId(selectedVehicleId)
+    setPhase(nextMode === 'explore' ? 'exploring' : 'playing')
+  }, [animation, selectedVehicleId])
 
-  const startRuleFallback = useCallback((reason: string) => {
-    if (!selectedVehicleId) return
-    stopSession()
-    const fallbackScenario = withEmergencyIncident(template, selectedVehicleId)
-    setScenario(fallbackScenario)
-    setNotice(`${reason}，已切换为规则演示；该结果不是PPO输出。`)
-    loadPlayback(buildFallbackComparison(fallbackScenario, selectedVehicleId), 'rule')
-  }, [loadPlayback, selectedVehicleId, stopSession, template])
+  useEffect(() => {
+    let active = true
+    fetch('/api/v1/demo/model-status')
+      .then((response) => response.ok ? response.json() as Promise<PresentationModelStatus> : Promise.reject())
+      .then((value) => { if (active) setModelStatus(value) })
+      .catch(() => { if (active) setModelStatus({
+        model: DEFAULT_MODEL, available: false, eligible: false, action_mode: null,
+        reason: '无法读取正式模型资格状态',
+      }) })
+    return () => { active = false }
+  }, [])
 
   const start = useCallback(async () => {
     if (!selectedVehicleId || phase !== 'selecting') return
+    if (!modelStatus?.eligible) {
+      setNotice(modelStatus?.reason ?? '正式AI模型尚未完成资格验收')
+      return
+    }
     const configured = withEmergencyIncident(template, selectedVehicleId)
     setScenario(configured)
     setPhase('preparing')
@@ -88,31 +109,39 @@ export function usePresentationDemo(template: EditorScenario) {
       if (!result.ai_runnable) throw new Error(result.limitations.join('；'))
       startSession({
         scenario: result.scenario_ref,
-        model: DEFAULT_MODEL,
+        model: modelStatus.model,
         speed: 5,
         mode: 'comparison',
         baseline: 'broadcast',
       })
     } catch (error) {
-      startRuleFallback(error instanceof Error ? error.message : '真实模型不可用')
+      stopSession()
+      setPhase('selecting')
+      setNotice(error instanceof Error ? error.message : '真实模型不可用')
     }
-  }, [phase, selectedVehicleId, startRuleFallback, startSession, template])
+  }, [modelStatus, phase, selectedVehicleId, startSession, stopSession, template])
 
   useEffect(() => {
     if (phase !== 'preparing') return
-    const timeout = window.setTimeout(() => startRuleFallback('真实模型准备超过30秒'), PREPARATION_TIMEOUT_MS)
+    const timeout = window.setTimeout(() => {
+      stopSession()
+      setPhase('selecting')
+      setNotice('真实模型准备超过30秒；演示已停止，未使用规则结果替代。')
+    }, PREPARATION_TIMEOUT_MS)
     return () => window.clearTimeout(timeout)
-  }, [phase, startRuleFallback])
+  }, [phase, stopSession])
 
   useEffect(() => {
     if (phase !== 'preparing' || !errorMessage) return
-    startRuleFallback(errorMessage)
-  }, [errorMessage, phase, startRuleFallback])
+    stopSession()
+    setPhase('selecting')
+    setNotice(`${errorMessage}；演示已停止，未使用规则结果替代。`)
+  }, [errorMessage, phase, stopSession])
 
   useEffect(() => {
     if (phase !== 'preparing' || !completed || comparisonHistory.length === 0) return
-    loadPlayback(comparisonHistory, 'real')
-    setNotice('真实PPO与全量广播结果已同步，演示自动开始。')
+    loadPlayback(comparisonHistory, 'real', 'explore')
+    setNotice('真实PPO与全量广播结果已同步，可自由选择证据书签。')
   }, [comparisonHistory, completed, loadPlayback, phase])
 
   useEffect(() => {
@@ -139,13 +168,29 @@ export function usePresentationDemo(template: EditorScenario) {
     } else if (phase === 'paused') {
       animation.setPaused(false)
       setPhase('playing')
+    } else if (phase === 'exploring') {
+      animation.setPaused(false)
+      setPhase('playing')
     }
   }, [animation, phase])
 
   const replay = useCallback(() => {
     if (pairs.length === 0 || !source) return
-    loadPlayback(pairs, source)
+    loadPlayback(pairs, source, mode)
+  }, [loadPlayback, mode, pairs, source])
+
+  const startAutoplay = useCallback(() => {
+    if (pairs.length === 0 || !source) return
+    loadPlayback(pairs, source, 'autoplay')
   }, [loadPlayback, pairs, source])
+
+  const seek = useCallback((nextElapsedMs: number) => {
+    animation.setReplayElapsed(Math.max(0, Math.min(PRESENTATION_DURATION_MS, nextElapsedMs)))
+    animation.setPaused(true)
+    setElapsedMs(Math.max(0, Math.min(PRESENTATION_DURATION_MS, nextElapsedMs)))
+    setMode('explore')
+    setPhase('exploring')
+  }, [animation])
 
   const reset = useCallback(() => {
     stopSession()
@@ -153,9 +198,11 @@ export function usePresentationDemo(template: EditorScenario) {
     setScenario(template)
     setPairs([])
     setSource(null)
+    setMode('explore')
     setElapsedMs(0)
     setPhase('selecting')
     setNotice(null)
+    setInspectedVehicleId(null)
   }, [animation, stopSession, template])
 
   const evidence = useMemo(() => findIncidentPair(pairs), [pairs])
@@ -164,17 +211,23 @@ export function usePresentationDemo(template: EditorScenario) {
   return {
     phase,
     source,
+    mode,
     selectedVehicleId,
     setSelectedVehicleId,
+    inspectedVehicleId,
+    setInspectedVehicleId,
     scenario,
     pairs,
     evidence,
     elapsedMs,
     stage,
     notice,
+    modelStatus,
     start,
     togglePause,
     replay,
+    startAutoplay,
+    seek,
     reset,
     connectionStatus,
   }

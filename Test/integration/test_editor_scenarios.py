@@ -159,7 +159,9 @@ def test_bound_incident_brakes_selected_vehicle_without_overlap(
         item for item in frames[2].findall("vehicle") if item.attrib["id"] == "vehicle_3"
     )
     assert event["x"] == pytest.approx(float(source_at_event.attrib["x"]))
-    assert "source_vehicle_id" not in event
+    assert event["source_vehicle_id"] == "vehicle_3"
+    assert event["pre_brake_speed_kmh"] == 96
+    assert event["post_brake_speed_kmh"] == 18
 
 
 def test_bound_incident_rejects_unknown_source_and_unsafe_spacing() -> None:

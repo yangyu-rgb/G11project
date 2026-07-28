@@ -5,7 +5,15 @@ import {
   comparisonMetrics,
   conclusionFor,
   findIncidentPair,
+  presentationCueAt,
+  selectionPrecision,
+  stageAt,
 } from '../../FrontEnd/src/components/Presentation/presentationTimeline'
+import {
+  aggregateDirectedTransmissions,
+  linkLifecycleAt,
+  orderTransmissionsByPriority,
+} from '../../FrontEnd/src/components/ThreeD/communicationLinks'
 import {
   HIGHWAY_LANE_CENTERS_METERS,
   HIGHWAY_LANE_WIDTH,
@@ -19,6 +27,12 @@ import {
   PRESENTATION_VEHICLE_COLORS,
   presentationVehicleColor,
 } from '../../FrontEnd/src/components/ThreeD/vehiclePresentationColors'
+import {
+  beginManualCamera,
+  cameraCountdownMs,
+  cameraStateAt,
+  endManualCamera,
+} from '../../FrontEnd/src/components/ThreeD/cameraControl'
 import type { ComparisonPair, StateUpdateMessage } from '../../FrontEnd/src/types/simulation'
 
 function update(method: 'ai' | 'broadcast', messages: number): StateUpdateMessage {
@@ -88,14 +102,73 @@ describe('highway comparison evidence', () => {
     assert.equal(findIncidentPair([pair]), pair)
     const metrics = comparisonMetrics(pair)
     assert.equal(metrics[0].delta, '5 辆更少')
-    assert.equal(metrics[1].delta, '+62.5%')
+    assert.equal(metrics[2].delta, '+62.5%')
     assert.match(conclusionFor(pair), /减少了不必要广播/)
   })
 
   it('hides network estimates for the clearly labelled rule fallback', () => {
     const pair: ComparisonPair = { ai: update('ai', 3), baseline: update('broadcast', 8) }
     const metrics = comparisonMetrics(pair, false)
-    assert.equal(metrics[2].ai, '未计算')
+    assert.equal(metrics[3].ai, '未计算')
     assert.match(conclusionFor(pair, false), /规则演示/)
+  })
+
+  it('derives receiver precision from the existing candidate set', () => {
+    const baseline = update('broadcast', 8)
+    baseline.decision.candidate_vehicles = baseline.decision.candidate_vehicles?.slice(0, 3)
+    assert.equal(selectionPrecision(baseline), 37.5)
+    assert.equal(selectionPrecision(update('ai', 3)), 100)
+  })
+
+  it('aggregates duplicate visual links without changing raw message evidence', () => {
+    const duplicate = { from: 'v0', to: 'v1', status: 'success' as const, delay_ms: 12 }
+    const timeout = { ...duplicate, status: 'timeout' as const, delay_ms: 38 }
+    const raw = [duplicate, { ...duplicate }, timeout, { ...duplicate, to: 'v2' }]
+    const visual = aggregateDirectedTransmissions(raw)
+    assert.equal(raw.length, 4)
+    assert.equal(visual.length, 2)
+    assert.equal(visual.find((message) => message.to === 'v1')?.status, 'timeout')
+  })
+})
+
+describe('academic presentation choreography', () => {
+  it('keeps the five-stage contract and exposes deterministic sub-stage cues', () => {
+    assert.equal(stageAt(4_999), 'normal')
+    assert.equal(stageAt(5_000), 'accident')
+    assert.equal(stageAt(11_000), 'broadcast')
+    assert.equal(stageAt(20_000), 'ai')
+    assert.equal(stageAt(30_000), 'summary')
+    assert.equal(presentationCueAt(11_000).linkRevealProgress, 0)
+    assert(presentationCueAt(14_000).linkRevealProgress > 0.99)
+    assert.equal(presentationCueAt(20_000).linkRevealProgress, 0)
+    assert(presentationCueAt(23_200).linkRevealProgress > 0.99)
+    assert.equal(presentationCueAt(30_450).summaryMetricCount, 1)
+    assert.equal(presentationCueAt(35_300).showSummaryTagline, true)
+  })
+
+  it('stages link propagation and orders AI links by existing attention evidence', () => {
+    assert.equal(linkLifecycleAt(0, 8, 0).phase, 'pending')
+    assert.equal(linkLifecycleAt(0, 8, 0.15).phase, 'transmitting')
+    assert.equal(linkLifecycleAt(0, 8, 1).phase, 'delivered')
+    assert.equal(linkLifecycleAt(7, 8, 0.5).phase, 'pending')
+    const messages = update('ai', 3).messages
+    const ordered = orderTransmissionsByPriority(messages, { v1: 0.2, v2: 0.95, v3: 0.5 })
+    assert.deepEqual(ordered.map((message) => message.to), ['v2', 'v3', 'v1'])
+  })
+})
+
+describe('follow camera takeover', () => {
+  it('keeps manual control for six seconds before returning to the directed shot', () => {
+    assert.deepEqual(beginManualCamera(), { mode: 'manual_follow', resumeAtMs: null })
+    const released = endManualCamera(1_000)
+    assert.equal(cameraCountdownMs(released, 2_500), 4_500)
+    assert.equal(cameraStateAt(released, 6_999).mode, 'manual_follow')
+    assert.equal(cameraStateAt(released, 7_000).mode, 'returning')
+  })
+
+  it('allows a new gesture to interrupt camera return immediately', () => {
+    const returning = cameraStateAt(endManualCamera(0), 6_000)
+    assert.equal(returning.mode, 'returning')
+    assert.equal(beginManualCamera().mode, 'manual_follow')
   })
 })

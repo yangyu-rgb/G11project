@@ -41,6 +41,7 @@ def test_comparison_produces_four_paired_rows_per_case(tmp_path: Path, monkeypat
             "effective_delivery_rate": score,
             "affected_vehicle_coverage": score,
             "communication_overhead": 2 - score,
+            "normalized_channel_cost": 1.5 - score,
             "timely_event_rate": score,
         }
 
@@ -93,6 +94,7 @@ def test_comparison_can_run_highway_only_matrix(tmp_path: Path, monkeypatch: Any
             "effective_delivery_rate": 0.8,
             "affected_vehicle_coverage": 0.9,
             "communication_overhead": 1.2,
+            "normalized_channel_cost": 0.4,
             "timely_event_rate": 0.8,
         }
 

@@ -16,6 +16,7 @@ import numpy as np
 from gymnasium import spaces
 
 from src.environment.network_model import Priority, SimpleNetworkModel
+from src.environment.receiver_relevance import directional_relations, event_sender
 from src.environment.reward_calculator import (
     RewardBreakdown,
     RewardWeights,
@@ -49,6 +50,10 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         max_vehicles: int = 50,
         max_events: int = 2,
         critical_radius_m: float = 300.0,
+        severity_aware_critical_radius: bool = False,
+        low_severity_radius_m: float = 225.0,
+        medium_severity_radius_m: float = 300.0,
+        high_severity_radius_m: float = 375.0,
         road_length_m: float = 5000.0,
         lateral_extent_m: float = 10.0,
         delay_normalization_ms: float = 100.0,
@@ -61,6 +66,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         feature_mode: Literal["basic", "enhanced"] = "basic",
         history_window: int = 5,
         ttc_max_seconds: float = 30.0,
+        receiver_relevance_mode: Literal["radial", "directional_corridor"] = "radial",
         seed: int | None = None,
         render_mode: str | None = None,
     ) -> None:
@@ -71,6 +77,13 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("max_vehicles and max_events must be positive")
         if critical_radius_m <= 0 or road_length_m <= 0 or lateral_extent_m <= 0:
             raise ValueError("distance settings must be positive")
+        severity_radii = (
+            low_severity_radius_m,
+            medium_severity_radius_m,
+            high_severity_radius_m,
+        )
+        if any(value <= 0 for value in severity_radii) or tuple(sorted(severity_radii)) != severity_radii:
+            raise ValueError("severity radii must be positive and non-decreasing")
         if safety_window_ms <= 0:
             raise ValueError("safety_window_ms must be positive")
         if render_mode not in (None, "ansi"):
@@ -81,12 +94,16 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             raise ValueError("the enhanced feature schema requires history_window=5")
         if ttc_max_seconds <= 0:
             raise ValueError("ttc_max_seconds must be positive")
+        if receiver_relevance_mode not in ("radial", "directional_corridor"):
+            raise ValueError("receiver_relevance_mode must be 'radial' or 'directional_corridor'")
 
         self.scenario_directory = Path(scenario_directory).expanduser().resolve()
         self.episode_steps = episode_steps
         self.max_vehicles = max_vehicles
         self.max_events = max_events
         self.critical_radius_m = critical_radius_m
+        self.severity_aware_critical_radius = severity_aware_critical_radius
+        self.severity_radii_m = tuple(float(value) for value in severity_radii)
         self.road_length_m = road_length_m
         self.lateral_extent_m = lateral_extent_m
         self.delay_normalization_ms = delay_normalization_ms
@@ -99,8 +116,10 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         self.feature_mode = feature_mode
         self.history_window = history_window
         self.ttc_max_seconds = ttc_max_seconds
+        self.receiver_relevance_mode = receiver_relevance_mode
         self.render_mode = render_mode
         self._initial_seed = seed
+        self._episode_index = 0
 
         all_frames = self._load_trajectory(self.scenario_directory / "trajectory.xml")
         self.events = self._load_events(self.scenario_directory / "events.json")
@@ -199,6 +218,21 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                     y=float(event["y"]),
                     timestamp=float(event["timestamp"]),
                     severity=float(event["severity"]),
+                    source_vehicle_id=(
+                        str(event["source_vehicle_id"])
+                        if event.get("source_vehicle_id") is not None
+                        else None
+                    ),
+                    pre_brake_speed_kmh=(
+                        float(event["pre_brake_speed_kmh"])
+                        if event.get("pre_brake_speed_kmh") is not None
+                        else None
+                    ),
+                    post_brake_speed_kmh=(
+                        float(event["post_brake_speed_kmh"])
+                        if event.get("post_brake_speed_kmh") is not None
+                        else None
+                    ),
                 )
                 for index, event in enumerate(raw_events)
             )
@@ -302,7 +336,7 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 angle=vehicle.angle,
                 event_x=nearest_event.x,
                 event_y=nearest_event.y,
-                affected_radius_m=self.critical_radius_m,
+                affected_radius_m=self.affected_radius_m(nearest_event),
             )
             if nearest_event is not None
             else (0.0, 0.0, 0.0)
@@ -446,6 +480,16 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             vehicles, key=lambda vehicle: math.dist((vehicle.x, vehicle.y), (event.x, event.y))
         )
 
+    def affected_radius_m(self, event: EmergencyEvent) -> float:
+        """Return the auditable severity-dependent safety radius for an event."""
+        if not self.severity_aware_critical_radius:
+            return self.critical_radius_m
+        if event.severity < 0.5:
+            return self.severity_radii_m[0]
+        if event.severity <= 0.75:
+            return self.severity_radii_m[1]
+        return self.severity_radii_m[2]
+
     def _execute_action(self, action: np.ndarray) -> tuple[RewardBreakdown, dict[str, Any]]:
         frame = self.frames[self._step_index]
         decision_latency_ms = self._pending_decision_latency_ms
@@ -465,22 +509,38 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         reward_critical_ids: set[str] = set()
         reward_successful_ids: set[str] = set()
         reward_timely_ids: set[str] = set()
+        reward_selected_ids: set[str] = set()
         latencies_ms: list[float] = []
         segmented_latencies: list[SegmentedLatency] = []
         transmissions: list[dict[str, Any]] = []
         critical_ids_by_event: dict[str, list[str]] = {}
         sender_ids_by_event: dict[str, str | None] = {}
         receiver_severities: dict[str, float] = {}
+        background_load = min(
+            0.40,
+            0.05 + 0.35 * len(active_by_id) / max(self.max_vehicles, 1),
+        )
+        step_loads: list[float] = []
+        affected_radius_by_event: dict[str, float] = {}
 
         for event in active_events:
-            sender = self._nearest_vehicle(frame.vehicles, event)
+            sender = event_sender(frame.vehicles, event)
             sender_id = sender.vehicle_id if sender else None
-            event_critical_ids = {
-                vehicle.vehicle_id
-                for vehicle in frame.vehicles
-                if vehicle.vehicle_id != sender_id
-                and math.dist((vehicle.x, vehicle.y), (event.x, event.y)) <= self.critical_radius_m
-            }
+            affected_radius = self.affected_radius_m(event)
+            affected_radius_by_event[event.event_id] = affected_radius
+            event_relations = directional_relations(
+                frame.vehicles, event, same_lane_radius_m=affected_radius
+            ) if self.receiver_relevance_mode == "directional_corridor" else {}
+            event_critical_ids = (
+                set(event_relations)
+                if self.receiver_relevance_mode == "directional_corridor"
+                else {
+                    vehicle.vehicle_id
+                    for vehicle in frame.vehicles
+                    if vehicle.vehicle_id != sender_id
+                    and math.dist((vehicle.x, vehicle.y), (event.x, event.y)) <= affected_radius
+                }
+            )
             critical_ids.update(event_critical_ids)
             reward_critical_ids.update(
                 f"{event.event_id}:{receiver_id}" for receiver_id in event_critical_ids
@@ -493,23 +553,32 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 )
             critical_ids_by_event[event.event_id] = sorted(event_critical_ids)
             sender_ids_by_event[event.event_id] = sender_id
-            for receiver_id in sorted(selected_ids - ({sender_id} if sender_id else set())):
+            event_receiver_ids = sorted(selected_ids - ({sender_id} if sender_id else set()))
+            reward_selected_ids.update(
+                f"{event.event_id}:{receiver_id}" for receiver_id in event_receiver_ids
+            )
+            receiver_count = len(event_receiver_ids)
+            offered_load = min(
+                0.95,
+                background_load
+                + 0.55
+                * receiver_count
+                / max(len(active_by_id) - (1 if sender_id else 0), 1)
+                * bandwidth_fraction,
+            )
+            step_loads.append(offered_load)
+            for receiver_id in event_receiver_ids:
                 receiver = active_by_id[receiver_id]
                 result = self._network_model.calculate_transmission(
                     (event.x, event.y),
                     (receiver.x, receiver.y),
                     message_size=512,
                     priority=priority,
-                    current_load=self._current_load,
+                    current_load=offered_load,
+                    bandwidth_fraction=bandwidth_fraction,
+                    receiver_count=max(receiver_count, 1),
                 )
-                allocated = min(
-                    result.allocated_bandwidth_mbps,
-                    self._network_model.total_bandwidth_mbps * bandwidth_fraction,
-                )
-                self._current_load = min(
-                    1.0,
-                    self._current_load + allocated / self._network_model.total_bandwidth_mbps,
-                )
+                allocated = result.allocated_bandwidth_mbps
                 delivered = bool(self.np_random.random() >= result.packet_loss_rate)
                 if delivered:
                     successful_ids.add(receiver_id)
@@ -541,6 +610,8 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                         "queue_delay_ms": result.queue_delay_ms,
                         "transmission_delay_ms": result.transmission_delay_ms,
                         "allocated_bandwidth_mbps": allocated,
+                        "bandwidth_fraction": bandwidth_fraction,
+                        "offered_load": offered_load,
                     }
                 )
 
@@ -568,7 +639,10 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
                 receiver_id: self._coverage_successes.get(receiver_id, 0) / opportunities
                 for receiver_id, opportunities in self._coverage_opportunities.items()
             },
+            bandwidth_fraction=bandwidth_fraction,
+            selected_critical_receiver_ids=reward_selected_ids,
         )
+        self._current_load = max(step_loads, default=background_load)
         self._pending_decision_latency_ms = 0.0
         info = {
             "timestamp": frame.timestamp,
@@ -578,6 +652,8 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             "timely_successful_receiver_ids": sorted(timely_successful_ids),
             "critical_receiver_ids_by_event": critical_ids_by_event,
             "sender_ids_by_event": sender_ids_by_event,
+            "affected_radius_m_by_event": affected_radius_by_event,
+            "receiver_relevance_mode": self.receiver_relevance_mode,
             "transmissions": transmissions,
             "delivery_success_rate": breakdown.delivery_success_rate,
             "avg_delay_penalty": breakdown.avg_delay_penalty,
@@ -586,6 +662,9 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
             "overhead_penalty": breakdown.overhead_penalty,
             "miss_rate": breakdown.miss_rate,
             "fairness_penalty": breakdown.fairness_penalty,
+            "resource_penalty": breakdown.resource_penalty,
+            "selection_coverage_rate": breakdown.selection_coverage_rate,
+            "safety_violation_penalty": breakdown.safety_violation_penalty,
             "latency_breakdown": {
                 "decision": breakdown.decision_delay_penalty,
                 "queue": breakdown.queue_delay_penalty,
@@ -609,8 +688,18 @@ class V2XEnv(gym.Env[dict[str, np.ndarray], np.ndarray]):
         options: dict[str, Any] | None = None,
     ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         del options
-        super().reset(seed=self._initial_seed if seed is None else seed)
-        resolved_seed = self._initial_seed if seed is None else seed
+        if seed is None:
+            resolved_seed = (
+                self._initial_seed + self._episode_index
+                if self._initial_seed is not None
+                else None
+            )
+            self._episode_index += 1
+        else:
+            resolved_seed = seed
+        super().reset(seed=resolved_seed)
+        if resolved_seed is None:
+            resolved_seed = int(self.np_random.integers(0, 2**31 - 1))
         self._network_model = self._create_network_model(resolved_seed)
         self._step_index = 0
         self._current_load = 0.0

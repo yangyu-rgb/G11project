@@ -11,6 +11,7 @@ export type DisplayMode = 'single' | 'comparison'
 
 export type SimulationRunConfig = {
   scenario?: string
+  experimentRef?: string
   model?: string
   speed?: number
   mode?: DisplayMode
@@ -18,15 +19,19 @@ export type SimulationRunConfig = {
 }
 
 export const DEFAULT_SCENARIO = 'experiments/test_scenario'
-export const DEFAULT_MODEL = 'experiments/test_ppo/model.zip'
+export const DEFAULT_MODEL = 'experiments/highway_corridor/champion/model_best.zip'
 
-export function buildSimulationEndpoint(config: Required<SimulationRunConfig>, runId: number): string {
+type EndpointConfig = SimulationRunConfig & Required<Pick<SimulationRunConfig,
+  'model' | 'speed' | 'mode' | 'baseline'>>
+
+export function buildSimulationEndpoint(config: EndpointConfig, runId: number): string {
   const query = new URLSearchParams({
-    scenario: config.scenario,
     model: config.model,
     speed: String(config.speed),
     run_id: String(runId),
   })
+  if (config.experimentRef) query.set('experiment_ref', config.experimentRef)
+  else query.set('scenario', config.scenario ?? DEFAULT_SCENARIO)
   return config.mode === 'comparison'
     ? `/ws/simulation/compare?${query.toString()}&baseline=${config.baseline}`
     : `/ws/simulation/run?${query.toString()}`
@@ -60,8 +65,9 @@ export function useSimulationSession() {
   }, [clearSocketState])
 
   const start = useCallback((config: SimulationRunConfig = {}) => {
-    const resolved: Required<SimulationRunConfig> = {
+    const resolved: EndpointConfig = {
       scenario: config.scenario ?? DEFAULT_SCENARIO,
+      experimentRef: config.experimentRef,
       model: config.model ?? DEFAULT_MODEL,
       speed: config.speed ?? requestedSpeed,
       mode: config.mode ?? displayMode,

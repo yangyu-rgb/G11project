@@ -54,6 +54,7 @@ class SimpleNetworkModel:
         sinr_midpoint_db: float = 5.0,
         sinr_scale_db: float = 2.0,
         max_queue_delay_ms: float = 50.0,
+        minimum_capacity_fraction: float = 0.05,
     ) -> None:
         if total_bandwidth_mbps <= 0 or base_delay_ms < 0:
             raise ValueError("bandwidth must be positive and base delay cannot be negative")
@@ -77,6 +78,8 @@ class SimpleNetworkModel:
             raise ValueError("SINR scale must be positive")
         if max_queue_delay_ms < 0:
             raise ValueError("maximum queue delay cannot be negative")
+        if not 0 < minimum_capacity_fraction <= 1:
+            raise ValueError("minimum capacity fraction must be in (0, 1]")
 
         self.total_bandwidth_mbps = total_bandwidth_mbps
         self.base_delay_ms = base_delay_ms
@@ -93,6 +96,7 @@ class SimpleNetworkModel:
         self.sinr_midpoint_db = sinr_midpoint_db
         self.sinr_scale_db = sinr_scale_db
         self.max_queue_delay_ms = max_queue_delay_ms
+        self.minimum_capacity_fraction = minimum_capacity_fraction
 
     @staticmethod
     def _position(position: Sequence[float], name: str) -> tuple[float, float]:
@@ -157,6 +161,8 @@ class SimpleNetworkModel:
         message_size: int,
         priority: int | Priority,
         current_load: float,
+        bandwidth_fraction: float | None = None,
+        receiver_count: int = 1,
     ) -> TransmissionResult:
         """Return M1 transmission estimates without reserving mutable model state."""
         sender = self._position(sender_pos, "sender_pos")
@@ -166,6 +172,11 @@ class SimpleNetworkModel:
         resolved_priority = self._priority(priority)
         if not 0 <= current_load <= 1:
             raise ValueError("current_load must be between 0 and 1")
+        if bandwidth_fraction is not None and not 0 < bandwidth_fraction <= 1:
+            raise ValueError("bandwidth_fraction must be in (0, 1]")
+        if receiver_count <= 0:
+            raise ValueError("receiver_count must be positive")
+        resolved_bandwidth_fraction = 1.0 if bandwidth_fraction is None else bandwidth_fraction
 
         distance_m = math.dist(sender, receiver)
         propagation_delay_ms = distance_m / SPEED_OF_LIGHT_MPS * 1000
@@ -178,11 +189,26 @@ class SimpleNetworkModel:
             packet_loss_rate = (
                 self.far_packet_loss_rate if distance_m > self.distance_threshold_m else 0.0
             )
-        available_bandwidth_mbps = self.total_bandwidth_mbps * (1 - current_load)
-        allocated_bandwidth_mbps = (
-            available_bandwidth_mbps * self._PRIORITY_SHARES[resolved_priority]
+        # Reserve a small emergency-service capacity even at saturation, then share
+        # the event allocation across receivers.  This avoids the former zero-
+        # bandwidth singularity and makes the result independent of receiver order.
+        available_bandwidth_mbps = self.total_bandwidth_mbps * max(
+            1 - current_load, self.minimum_capacity_fraction
         )
-        transmission_delay_ms = self.base_delay_ms + jitter_ms + propagation_delay_ms
+        allocated_bandwidth_mbps = (
+            available_bandwidth_mbps
+            * self._PRIORITY_SHARES[resolved_priority]
+            * resolved_bandwidth_fraction
+            / receiver_count
+        )
+        serialization_delay_ms = (
+            (message_size * 8) / (max(allocated_bandwidth_mbps, 1e-6) * 1000)
+            if bandwidth_fraction is not None
+            else 0.0
+        )
+        transmission_delay_ms = (
+            self.base_delay_ms + jitter_ms + propagation_delay_ms + serialization_delay_ms
+        )
         latency_ms = queue_delay_ms + transmission_delay_ms
         return TransmissionResult(
             latency_ms=latency_ms,

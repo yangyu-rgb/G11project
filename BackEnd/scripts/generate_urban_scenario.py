@@ -7,6 +7,7 @@ import json
 import os
 import random
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -198,6 +199,11 @@ def sumo_runtime_available() -> bool:
     try:
         import traci  # noqa: F401
     except ImportError:
+        return False
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+    except OSError:
         return False
     return True
 

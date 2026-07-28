@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -45,6 +46,11 @@ def build_scenario_matrix(
             index = offset + local_index
             raw = copy.deepcopy(base_config)
             if domain == "highway":
+                severity_schedule = {
+                    "train": (0.35, 0.60, 0.85),
+                    "validation": (0.45, 0.65, 0.85),
+                    "test": (0.40, 0.55, 0.70, 0.90, 0.50, 0.80),
+                }
                 vehicle_count = 30 + (index * 7) % 21
                 speed_min = 80 + (index * 5) % 21
                 event_start = 10 + (index * 3) % 15
@@ -62,6 +68,9 @@ def build_scenario_matrix(
                         "count_max": 1 + index % 2,
                         "time_min_s": event_start,
                         "time_max_s": min(30, event_start + 5),
+                        "severity": severity_schedule[split][
+                            local_index % len(severity_schedule[split])
+                        ],
                     }
                 )
             else:
@@ -98,6 +107,40 @@ def build_scenario_matrix(
             )
         offset += count
     return definitions
+
+
+def build_safety_scenario_matrix(
+    base_config: dict[str, Any],
+    *,
+    train_count: int = 12,
+    validation_count: int = 9,
+    test_count: int = 6,
+) -> list[ScenarioDefinition]:
+    """Build the v6 curriculum with deliberate high-risk representation."""
+    definitions = build_scenario_matrix(
+        "highway",
+        base_config,
+        train_count=train_count,
+        validation_count=validation_count,
+        test_count=test_count,
+    )
+    schedules = {
+        "train": (0.35, 0.60, 0.82, 0.92),
+        "validation": (0.40, 0.60, 0.82, 0.45, 0.70, 0.87, 0.35, 0.55, 0.95),
+    }
+    split_indices = {"train": 0, "validation": 0, "test": 0}
+    result: list[ScenarioDefinition] = []
+    for definition in definitions:
+        local_index = split_indices[definition.split]
+        split_indices[definition.split] += 1
+        if definition.split == "test":
+            result.append(definition)
+            continue
+        parameters = copy.deepcopy(definition.parameters)
+        schedule = schedules[definition.split]
+        parameters["events"]["severity"] = schedule[local_index % len(schedule)]
+        result.append(replace(definition, parameters=parameters))
+    return result
 
 
 def materialize_scenario(

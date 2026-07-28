@@ -74,7 +74,11 @@ def test_generated_scenario_is_loadable_and_contains_required_outputs(tmp_path: 
 
     events = json.loads(artifacts.events.read_text(encoding="utf-8"))
     assert len(events) == 1
-    assert set(events[0]) == {"type", "x", "y", "timestamp", "severity"}
+    assert set(events[0]) == {
+        "type", "x", "y", "timestamp", "severity", "source_vehicle_id",
+        "pre_brake_speed_kmh", "post_brake_speed_kmh",
+    }
+    assert events[0]["source_vehicle_id"].startswith("vehicle_")
     assert events[0]["type"] == "emergency_braking"
     assert 10 <= events[0]["timestamp"] <= 10.1
 

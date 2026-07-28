@@ -17,6 +17,9 @@ export type SimulationEvent = {
   y: number
   timestamp: number
   severity: number
+  source_vehicle_id?: string | null
+  pre_brake_speed_kmh?: number | null
+  post_brake_speed_kmh?: number | null
 }
 
 export type SimulationTransmission = {
@@ -45,6 +48,10 @@ export type CandidateVehicle = {
   id: string
   distance_m: number
   status: VehicleStatus | 'selected' | string
+  longitudinal_m?: number
+  lateral_m?: number
+  lane_relation?: 'same' | 'adjacent' | 'other' | string
+  risk_class?: 'following_lane' | 'adjacent_lane' | 'ahead' | 'opposite_direction' | 'unrelated' | string
 }
 
 export type SimulationDecision = {
@@ -55,6 +62,9 @@ export type SimulationDecision = {
   selected_vehicles?: string[]
   selection_reason?: Record<string, string>
   inference_time_ms?: number
+  action_mode?: 'directional_corridor' | 'individual' | string
+  corridor_radius_m?: number
+  corridor_lane_scope?: 'same' | 'same_and_adjacent' | string
 }
 
 export type TestMessage = {

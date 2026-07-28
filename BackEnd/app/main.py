@@ -6,6 +6,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from app.api.router import api_router
 from app.api.routes.scenarios import resolve_editor_scenario
+from app.api.routes.experiments import resolve_experiment
+from app.model_registry import presentation_model_status
 from app.comparison import build_baseline_action, validate_baseline
 from app.simulation_service import build_state_update
 from app.simulation_session import (
@@ -14,6 +16,7 @@ from app.simulation_session import (
     step_ai,
 )
 from src.environment.v2x_env import V2XEnv
+from src.environment.adaptive_radius_wrapper import DirectionalCorridorActionWrapper
 from src.models.ppo_agent import PPOAgent
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
@@ -61,8 +64,13 @@ def _resolve_simulation_path(raw_path: str, *, kind: str) -> Path:
     return resolved
 
 
-def _create_environment(scenario_path: Path, *, seed: int | None = None) -> V2XEnv:
-    return V2XEnv(scenario_path, seed=seed)
+def _create_environment(
+    scenario_path: Path,
+    *,
+    seed: int | None = None,
+    environment_kwargs: dict[str, object] | None = None,
+) -> V2XEnv:
+    return V2XEnv(scenario_path, seed=seed, **(environment_kwargs or {}))
 
 
 def _load_agent(model_path: Path, environment: V2XEnv) -> PPOAgent:
@@ -160,20 +168,24 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
     """Stream timestamp-aligned AI and deterministic-baseline episodes."""
     await websocket.accept()
     scenario_query = websocket.query_params.get("scenario")
+    experiment_query = websocket.query_params.get("experiment_ref")
     model_query = websocket.query_params.get("model")
-    if not scenario_query or not model_query:
+    if (not scenario_query and not experiment_query) or not model_query:
         await _send_simulation_error(
             websocket,
             "missing_parameters",
-            "scenario and model query parameters are required",
+            "scenario or experiment_ref, and model query parameters are required",
         )
         await websocket.close(code=1008)
         return
 
     try:
-        baseline = validate_baseline(websocket.query_params.get("baseline", "distance"))
+        experiment = resolve_experiment(experiment_query) if experiment_query else None
+        baseline = validate_baseline(
+            experiment.baseline if experiment else websocket.query_params.get("baseline", "distance")
+        )
         playback = PlaybackController.create(websocket.query_params.get("speed", "1"))
-    except ValueError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         await _send_simulation_error(websocket, "invalid_parameters", str(exc))
         await websocket.close(code=1008)
         return
@@ -181,13 +193,37 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
     ai_environment: V2XEnv | None = None
     baseline_environment: V2XEnv | None = None
     try:
-        scenario_path = _resolve_simulation_path(scenario_query, kind="scenario")
+        scenario_path = (
+            resolve_editor_scenario(experiment.scenario_ref)
+            if experiment else _resolve_simulation_path(str(scenario_query), kind="scenario")
+        )
+        editor_presentation = bool(
+            (scenario_query and str(scenario_query).startswith("editor:"))
+            or (experiment and experiment.scenario_ref.startswith("editor:"))
+        )
+        if editor_presentation:
+            model_status = presentation_model_status()
+            if not model_status["eligible"]:
+                raise RuntimeError(str(model_status["reason"]))
+            if model_query != model_status["model"]:
+                raise RuntimeError("临时高速事故场景只能使用通过资格门禁的正式模型")
         model_path = _resolve_simulation_path(model_query, kind="model")
-        ai_environment = _create_environment(scenario_path, seed=42)
-        baseline_environment = _create_environment(scenario_path, seed=42)
+        seed = experiment.seed if experiment else 42
+        environment_kwargs = experiment.network.environment_kwargs() if experiment else None
+        ai_base_environment = _create_environment(
+            scenario_path, seed=seed, environment_kwargs=environment_kwargs
+        )
+        baseline_environment = _create_environment(
+            scenario_path, seed=seed, environment_kwargs=environment_kwargs
+        )
+        if editor_presentation:
+            ai_environment = DirectionalCorridorActionWrapper(ai_base_environment)
+            baseline_environment.receiver_relevance_mode = "directional_corridor"
+        else:
+            ai_environment = ai_base_environment
         agent = _load_agent(model_path, ai_environment)
-        ai_observation, _ = ai_environment.reset(seed=42)
-        baseline_environment.reset(seed=42)
+        ai_observation, _ = ai_environment.reset(seed=seed)
+        baseline_environment.reset(seed=seed)
     except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
         if ai_environment is not None:
             ai_environment.close()
@@ -200,7 +236,8 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
     try:
         while True:
             if playback.playing and not playback.complete:
-                ai_snapshot = ai_environment.snapshot()
+                ai_base = getattr(ai_environment, "base_environment", ai_environment)
+                ai_snapshot = ai_base.snapshot()
                 baseline_snapshot = baseline_environment.snapshot()
                 if ai_snapshot.timestamp != baseline_snapshot.timestamp:
                     raise RuntimeError("comparison environments are no longer synchronized")
@@ -253,8 +290,8 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
 
             def reset() -> None:
                 nonlocal ai_observation
-                ai_observation, _ = ai_environment.reset(seed=42)
-                baseline_environment.reset(seed=42)
+                ai_observation, _ = ai_environment.reset(seed=seed)
+                baseline_environment.reset(seed=seed)
 
             try:
                 acknowledgement = playback.apply(command, reset)

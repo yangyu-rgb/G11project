@@ -1,0 +1,95 @@
+run_mode: adaptive_demo
+domain: highway
+base_training_config: configs/training_config.yaml
+base_scenario_config: configs/scenarios/highway_emergency.yaml
+safety_window_ms: 100
+
+dataset:
+  train_configs: 48
+  validation_configs: 12
+  test_configs: 12
+
+training:
+  candidate_seeds: [101, 211, 307]
+  validation_seeds: [3101, 3201, 3301]
+  max_timesteps: 100000
+  evaluation_interval_timesteps: 5000
+  early_stopping_patience_evaluations: 4
+  pilot_timesteps: 10000
+  pilot_minimum_coverage: 0.75
+
+action:
+  mode: directional_corridor
+  corridor_radii_m: [75, 150, 225, 300, 375]
+
+environment:
+  episode_steps: 10
+  max_vehicles: 50
+  max_events: 2
+  critical_radius_m: 300
+  severity_aware_critical_radius: true
+  low_severity_radius_m: 225
+  medium_severity_radius_m: 300
+  high_severity_radius_m: 375
+  road_length_m: 5000
+  lateral_extent_m: 10
+  delay_normalization_ms: 100
+  feature_mode: enhanced
+  history_window: 5
+  ttc_max_seconds: 30
+
+network:
+  mode: 3gpp
+  scenario: highway
+  carrier_frequency_ghz: 5.9
+  transmit_power_dbm: 23
+  noise_floor_dbm: -94
+  sinr_midpoint_db: 5
+  sinr_scale_db: 2
+  max_queue_delay_ms: 50
+  minimum_capacity_fraction: 0.05
+
+reward_weights:
+  effective_delivery: 0.10
+  coverage: 0.45
+  latency: 0.10
+  overhead: 0.05
+  missed: 0.25
+  resource: 0.05
+  fairness: 0.00
+
+ppo:
+  learning_rate: 0.0002
+  clip_epsilon: 0.2
+  entropy_coef: 0.005
+  batch_size: 256
+  n_epochs: 5
+  n_steps: 128
+  gamma: 0.95
+  target_kl: 0.03
+  device: auto
+  verbose: 0
+  feature_extractor: transformer
+  net_arch:
+    pi: [256, 128]
+    vf: [256, 128]
+  transformer:
+    variant: standard
+    num_layers: 1
+    num_heads: 2
+    d_model: 64
+    feedforward_dim: 128
+    dropout: 0.1
+
+test_seeds: [1701, 1801, 1901, 2001, 2101, 2201]
+
+acceptance:
+  minimum_coverage: 0.95
+  maximum_overhead: 2.0
+  maximum_channel_cost: 0.60
+  maximum_p95_latency_ms: 100.0
+  maximum_baseline_p95_latency_ms: 200.0
+  maximum_p95_vs_broadcast_ratio: 1.0
+  maximum_primary_gap_vs_best_rule: 0.05
+  minimum_reward_improvement: 0.02
+  validation_consecutive_passes: 2

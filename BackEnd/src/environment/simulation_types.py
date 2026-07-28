@@ -27,6 +27,9 @@ class EmergencyEvent:
     y: float
     timestamp: float
     severity: float
+    source_vehicle_id: str | None = None
+    pre_brake_speed_kmh: float | None = None
+    post_brake_speed_kmh: float | None = None
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,6 @@
 """Unit tests for the simplified M1 network abstraction."""
 
+import math
 import random
 import sys
 from pathlib import Path
@@ -43,12 +44,37 @@ def test_priority_allocations_never_exceed_total_bandwidth() -> None:
     assert current_load == pytest.approx(1.0)
 
 
-def test_full_load_allocates_no_additional_bandwidth() -> None:
+def test_full_load_preserves_bounded_emergency_capacity() -> None:
     model = SimpleNetworkModel(random_source=random.Random(1))
 
     result = model.calculate_transmission((0, 0), (100, 0), 512, Priority.HIGH, 1.0)
 
-    assert result.allocated_bandwidth_mbps == 0
+    assert result.allocated_bandwidth_mbps == pytest.approx(5.0)
+    assert math.isfinite(result.latency_ms)
+
+
+def test_receiver_count_shares_capacity_without_order_dependent_singularity() -> None:
+    model = SimpleNetworkModel(
+        mode="3gpp", jitter_min_ms=0, jitter_max_ms=0, max_queue_delay_ms=50
+    )
+
+    single = model.calculate_transmission(
+        (0, 0), (100, 0), 512, Priority.HIGH, 0.95, bandwidth_fraction=1.0
+    )
+    broadcast = model.calculate_transmission(
+        (0, 0),
+        (100, 0),
+        512,
+        Priority.HIGH,
+        0.95,
+        bandwidth_fraction=1.0,
+        receiver_count=50,
+    )
+
+    assert broadcast.allocated_bandwidth_mbps == pytest.approx(
+        single.allocated_bandwidth_mbps / 50
+    )
+    assert single.latency_ms < broadcast.latency_ms < 200
 
 
 @pytest.mark.parametrize(
@@ -133,6 +159,27 @@ def test_simple_mode_retains_original_behavior() -> None:
     assert result.latency_ms == pytest.approx(20 + expected_propagation_ms)
     assert result.packet_loss_rate == pytest.approx(0.1)
     assert result.allocated_bandwidth_mbps == pytest.approx(20)
+
+
+def test_explicit_bandwidth_fraction_changes_allocation_and_serialization_delay() -> None:
+    model = SimpleNetworkModel(
+        mode="3gpp",
+        base_delay_ms=20,
+        jitter_min_ms=0,
+        jitter_max_ms=0,
+    )
+
+    full = model.calculate_transmission(
+        (0, 0), (100, 0), 512, Priority.HIGH, 0, bandwidth_fraction=1.0
+    )
+    limited = model.calculate_transmission(
+        (0, 0), (100, 0), 512, Priority.HIGH, 0, bandwidth_fraction=0.1
+    )
+
+    assert limited.allocated_bandwidth_mbps == pytest.approx(
+        full.allocated_bandwidth_mbps * 0.1
+    )
+    assert limited.transmission_delay_ms > full.transmission_delay_ms
 
 
 @pytest.mark.parametrize(

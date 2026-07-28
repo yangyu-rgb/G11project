@@ -66,8 +66,8 @@ def evaluate_selection(
     """Evaluate one receiver selection with the shared simplified network model."""
     if critical_radius_m <= 0:
         raise ValueError("critical_radius_m must be positive")
-    if bandwidth_fraction is not None and not 0 <= bandwidth_fraction <= 1:
-        raise ValueError("bandwidth_fraction must be between 0 and 1")
+    if bandwidth_fraction is not None and not 0 < bandwidth_fraction <= 1:
+        raise ValueError("bandwidth_fraction must be in (0, 1]")
     event_position = _position(event)
     sender_id = event.get("sender_id")
     vehicles_by_id = {str(vehicle["id"]): vehicle for vehicle in vehicles}
@@ -85,12 +85,13 @@ def evaluate_selection(
     network_model = SimpleNetworkModel(random_source=random.Random(seed))
     delivered_latencies: list[float] = []
     effective_delivery_count = 0
-    current_load = 0.0
     unique_receiver_ids = tuple(dict.fromkeys(receiver_ids))
-    per_receiver_bandwidth_fraction = (
-        bandwidth_fraction / len(unique_receiver_ids)
-        if bandwidth_fraction is not None and unique_receiver_ids
-        else None
+    resolved_bandwidth_fraction = 1.0 if bandwidth_fraction is None else bandwidth_fraction
+    background_load = min(0.40, 0.05 + 0.35 * len(vehicles) / 50)
+    offered_load = min(
+        0.95,
+        background_load
+        + 0.55 * len(unique_receiver_ids) / max(len(candidate_ids), 1) * resolved_bandwidth_fraction,
     )
     for receiver_id in unique_receiver_ids:
         result = network_model.calculate_transmission(
@@ -98,17 +99,9 @@ def evaluate_selection(
             _position(vehicles_by_id[receiver_id]),
             message_size=512,
             priority=priority,
-            current_load=current_load,
-        )
-        allocated_bandwidth_mbps = result.allocated_bandwidth_mbps
-        if per_receiver_bandwidth_fraction is not None:
-            allocated_bandwidth_mbps = min(
-                allocated_bandwidth_mbps,
-                network_model.total_bandwidth_mbps * per_receiver_bandwidth_fraction,
-            )
-        current_load = min(
-            1.0,
-            current_load + allocated_bandwidth_mbps / network_model.total_bandwidth_mbps,
+            current_load=offered_load,
+            bandwidth_fraction=bandwidth_fraction,
+            receiver_count=max(len(unique_receiver_ids), 1),
         )
         delivered = random_source.random() >= result.packet_loss_rate
         if delivered:

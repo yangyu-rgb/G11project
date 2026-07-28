@@ -88,6 +88,18 @@ def test_ppo_agent_predicts_trains_and_round_trips_model(tmp_path: Path) -> None
     assert saved_path.is_file()
 
     loaded = PPOAgent.load(saved_path, environment, device="cpu")
+    optimizer_state_size = len(loaded.model.policy.optimizer.state)
+    loaded.configure_finetuning(
+        learning_rate=8e-5,
+        clip_epsilon=0.15,
+        entropy_coef=0.002,
+        n_epochs=2,
+        seed=401,
+    )
+    assert loaded.model.learning_rate == 8e-5
+    assert loaded.model.ent_coef == 0.002
+    assert loaded.model.n_epochs == 2
+    assert len(loaded.model.policy.optimizer.state) == optimizer_state_size
     loaded_action = loaded.predict(observation)
     assert 0 <= loaded_action.priority < 3
     assert 0 <= loaded_action.bandwidth_level < 10

@@ -12,6 +12,7 @@ import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from stable_baselines3.common.utils import FloatSchedule, update_learning_rate
 
 from src.models.graph_transformer import GraphEnvironmentTransformer
 from src.models.transformer import EnvironmentTransformer
@@ -168,6 +169,8 @@ class PPOAgent:
         verbose: int = 0,
         feature_extractor: Literal["transformer", "handcrafted"] = "transformer",
         transformer_config: dict[str, Any] | None = None,
+        net_arch: dict[str, list[int]] | None = None,
+        target_kl: float | None = None,
     ) -> None:
         extractor_classes = {
             "transformer": TransformerFeatureExtractor,
@@ -179,7 +182,7 @@ class PPOAgent:
             raise ValueError("feature_extractor must be 'transformer' or 'handcrafted'") from exc
         policy_kwargs: dict[str, Any] = {
             "features_extractor_class": extractor_class,
-            "net_arch": {"pi": [512, 256], "vf": [512, 256]},
+            "net_arch": net_arch or {"pi": [512, 256], "vf": [512, 256]},
         }
         if feature_extractor == "transformer" and transformer_config:
             policy_kwargs["features_extractor_kwargs"] = dict(transformer_config)
@@ -197,6 +200,7 @@ class PPOAgent:
             tensorboard_log=str(tensorboard_log) if tensorboard_log else None,
             device=device,
             verbose=verbose,
+            target_kl=target_kl,
             policy_kwargs=policy_kwargs,
         )
 
@@ -214,6 +218,29 @@ class PPOAgent:
             callback=callback,
             reset_num_timesteps=reset_num_timesteps,
         )
+        return self
+
+    def configure_finetuning(
+        self,
+        *,
+        learning_rate: float,
+        clip_epsilon: float,
+        entropy_coef: float,
+        n_epochs: int,
+        seed: int,
+    ) -> "PPOAgent":
+        """Retune a loaded PPO optimizer without discarding its learned state."""
+        if learning_rate <= 0 or not 0 < clip_epsilon <= 1:
+            raise ValueError("fine-tuning learning rate and clip must be positive")
+        if entropy_coef < 0 or n_epochs <= 0:
+            raise ValueError("fine-tuning entropy and epochs must be non-negative/positive")
+        self.model.learning_rate = learning_rate
+        self.model.lr_schedule = FloatSchedule(learning_rate)
+        update_learning_rate(self.model.policy.optimizer, learning_rate)
+        self.model.clip_range = FloatSchedule(clip_epsilon)
+        self.model.ent_coef = entropy_coef
+        self.model.n_epochs = n_epochs
+        self.model.set_random_seed(seed)
         return self
 
     def predict(self, observation: dict[str, Any], *, deterministic: bool = True) -> DecodedAction:

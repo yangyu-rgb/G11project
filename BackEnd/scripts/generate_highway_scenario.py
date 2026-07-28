@@ -8,6 +8,7 @@ import math
 import os
 import random
 import shutil
+import socket
 import subprocess
 import sys
 import uuid
@@ -178,6 +179,11 @@ def sumo_runtime_available() -> bool:
     try:
         import traci  # noqa: F401
     except ImportError:
+        return False
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", 0))
+    except OSError:
         return False
     return True
 
@@ -419,11 +425,14 @@ def _run_simulation(
             connection.vehicle.slowDown(vehicle_id, target_speed, config.braking_duration_s)
             recorded_events.append(
                 {
+                    "source_vehicle_id": vehicle_id,
                     "type": "emergency_braking",
                     "x": round(float(x_position), 3),
                     "y": round(float(y_position), 3),
                     "timestamp": round(float(simulation_time), 3),
                     "severity": config.event_severity,
+                    "pre_brake_speed_kmh": round(float(current_speed) * 3.6, 3),
+                    "post_brake_speed_kmh": round(float(target_speed) * 3.6, 3),
                 }
             )
             next_event_index += 1

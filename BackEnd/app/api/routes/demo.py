@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
+from app.model_registry import presentation_model_status
+
 router = APIRouter()
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 
@@ -15,7 +17,7 @@ PRESETS = (
         "title": "高速急刹",
         "description": "比较AI调度与全量广播的通信过程。",
         "scenario": "experiments/test_scenario",
-        "model": "experiments/test_ppo/model.zip",
+        "model": "experiments/highway_corridor/champion/model_best.zip",
         "mode": "comparison",
         "baseline": "broadcast",
     },
@@ -40,6 +42,11 @@ PRESETS = (
 )
 
 
+@router.get("/demo/model-status")
+def demo_model_status() -> dict[str, object]:
+    return presentation_model_status()
+
+
 def _scenario_events(scenario_path: Path) -> list[dict[str, object]]:
     try:
         raw_events = json.loads((scenario_path / "events.json").read_text(encoding="utf-8"))
@@ -61,10 +68,15 @@ def _scenario_events(scenario_path: Path) -> list[dict[str, object]]:
 @router.get("/demo/scenarios")
 def demo_scenarios() -> dict[str, object]:
     scenarios = []
+    presentation_status = presentation_model_status()
     for preset in PRESETS:
         scenario_path = BACKEND_ROOT / preset["scenario"]
         scenario_ready = scenario_path.is_dir()
-        model_ready = (BACKEND_ROOT / preset["model"]).is_file()
+        model_ready = (
+            bool(presentation_status["eligible"])
+            if preset["id"] == "highway-braking"
+            else (BACKEND_ROOT / preset["model"]).is_file()
+        )
         scenarios.append(
             {
                 **preset,
@@ -75,6 +87,11 @@ def demo_scenarios() -> dict[str, object]:
                     for name, ready in (("scenario", scenario_ready), ("model", model_ready))
                     if not ready
                 ],
+                **(
+                    {"model_reason": presentation_status["reason"]}
+                    if preset["id"] == "highway-braking" and not model_ready
+                    else {}
+                ),
             }
         )
     return {"scenarios": scenarios}

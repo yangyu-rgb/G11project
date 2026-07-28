@@ -2,10 +2,10 @@ import type { SimulationVehicle } from '../../types/simulation'
 
 export const PRESENTATION_VEHICLE_COLORS = {
   accident: '#ef4444',
-  notified: '#22ff88',
-  candidate: '#f59e0b',
-  selected: '#f8fafc',
-  unrelated: '#aeb7c4',
+  notified: '#2dd4a3',
+  candidate: '#f0a84b',
+  selected: '#e8f4ff',
+  unrelated: '#75818d',
 } as const
 
 export function presentationVehicleColor(

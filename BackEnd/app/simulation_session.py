@@ -120,10 +120,11 @@ def step_ai(
         raw_attention = None
 
     action = np.asarray(raw_action, dtype=np.int64)
+    base_environment = getattr(environment, "base_environment", environment)
     attention_weights, attention_by_vehicle = summarize_attention(
         raw_attention,
         observation,
-        environment.vehicle_ids,
+        base_environment.vehicle_ids,
         snapshot.events,
     )
     next_observation, _, terminated, truncated, info = environment.step(action)

@@ -206,6 +206,9 @@ def _write_events(
                 "y": y,
                 "timestamp": event.timestamp,
                 "severity": event.severity,
+                "source_vehicle_id": event.source_vehicle_id,
+                "pre_brake_speed_kmh": event.pre_brake_speed_kmh,
+                "post_brake_speed_kmh": event.post_brake_speed_kmh,
             }
         )
     path.write_text(

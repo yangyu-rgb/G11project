@@ -32,13 +32,25 @@ from src.experiments.statistics import (  # noqa: E402
 METHODS = ("ai", "broadcast", "distance", "urgency")
 SUPPORTED_DOMAINS = ("highway", "urban")
 PRIMARY_METRICS = (
-    "mean_latency_ms",
+    "p95_latency_ms",
     "effective_delivery_rate",
     "affected_vehicle_coverage",
+    "affected_vehicle_selection_coverage",
     "communication_overhead",
+    "normalized_channel_cost",
     "timely_event_rate",
 )
 CaseRunner = Callable[[Path, str, int, str, Path | None, dict[str, Any]], dict[str, Any]]
+
+
+def severity_group(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value < 0.5:
+        return "low"
+    if value <= 0.75:
+        return "medium"
+    return "high"
 
 
 def run_case(
@@ -49,7 +61,18 @@ def run_case(
     model_path: Path | None,
     config: dict[str, Any],
 ) -> dict[str, Any]:
-    environment = make_environment(scenario_path, domain, seed, config)
+    action_mode = (
+        str(config.get("action", {}).get("mode", "individual"))
+        if method == "ai"
+        else "individual"
+    )
+    environment = make_environment(
+        scenario_path,
+        domain,
+        seed,
+        config,
+        action_mode=action_mode,
+    )
     try:
         if method == "ai":
             if model_path is None or not model_path.is_file():
@@ -88,6 +111,9 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 "p99_latency_ms",
                 "timeout_rate",
                 *PRIMARY_METRICS[1:],
+                "safety_override_rate",
+                "mean_raw_radius_m",
+                "mean_executed_radius_m",
             )
             if (values := _finite_values(method_rows, metric))
         }
@@ -112,7 +138,11 @@ def summarize_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 left = [ai_by_case[item] for item in paired_ids]
                 right = [baseline_by_case[item] for item in paired_ids]
                 raw_p_values[key] = paired_wilcoxon(left, right)
-                lower_is_better = metric in {"mean_latency_ms", "communication_overhead"}
+                lower_is_better = metric in {
+                    "p95_latency_ms",
+                    "communication_overhead",
+                    "normalized_channel_cost",
+                }
                 directions[key] = (
                     (sum(left) < sum(right)) if lower_is_better else (sum(left) > sum(right))
                 )
@@ -181,6 +211,11 @@ def run_comparison(
                         seed=seed,
                     )
                     case_rows = []
+                    event_severity = (
+                        float(definition.parameters["events"]["severity"])
+                        if domain == "highway"
+                        else None
+                    )
                     for method in METHODS:
                         metrics = case_runner(
                             scenario_path,
@@ -196,6 +231,8 @@ def run_comparison(
                                 "domain": domain,
                                 "scenario_id": definition.scenario_id,
                                 "seed": seed,
+                                "event_severity": event_severity,
+                                "severity_group": severity_group(event_severity),
                                 "method": method,
                                 **metrics,
                             }
@@ -208,13 +245,22 @@ def run_comparison(
     expected_cases = (
         len(domains) * int(config["dataset"].get("test_configs", 10)) * len(config["test_seeds"])
     )
+    grouped_by_severity = {
+        group: summarize_rows(
+            [row for row in rows if row.get("severity_group") == group]
+        )["methods"]
+        for group in ("low", "medium", "high")
+        if any(row.get("severity_group") == group for row in rows)
+    }
     summary = {
         "run_mode": config.get("run_mode", "formal"),
+        "protocol": config.get("protocol"),
         "expected_case_count": expected_cases,
         "expected_result_rows": expected_cases * len(METHODS),
         "completed_result_rows": len(rows),
         "failures": failures,
         **summarize_rows(rows),
+        "severity_groups": grouped_by_severity,
         "git": git_metadata(),
     }
     atomic_write_json(output_directory / "summary.json", summary)

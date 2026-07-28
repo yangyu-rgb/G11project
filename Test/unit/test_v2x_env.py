@@ -11,6 +11,7 @@ BACKEND_DIRECTORY = Path(__file__).resolve().parents[2] / "BackEnd"
 sys.path.insert(0, str(BACKEND_DIRECTORY))
 
 from src.environment.reward_calculator import calculate_reward  # noqa: E402
+from src.environment.simulation_types import EmergencyEvent  # noqa: E402
 from src.environment.v2x_env import V2XEnv  # noqa: E402
 
 
@@ -72,6 +73,19 @@ def test_snapshot_exposes_stable_generated_event_id(scenario_directory: Path) ->
 
     snapshot = environment.snapshot()
     assert snapshot.events[0].event_id == "event-0"
+
+
+@pytest.mark.parametrize(
+    ("severity", "expected_radius"),
+    [(0.35, 225.0), (0.60, 300.0), (0.85, 375.0)],
+)
+def test_severity_aware_safety_radius(
+    scenario_directory: Path, severity: float, expected_radius: float
+) -> None:
+    environment = V2XEnv(scenario_directory, severity_aware_critical_radius=True)
+    event = EmergencyEvent("event", "emergency_braking", 0, 0, 0, severity)
+
+    assert environment.affected_radius_m(event) == expected_radius
 
 
 def test_step_processes_event_and_returns_reward_details(
@@ -184,6 +198,51 @@ def test_complete_reward_penalizes_unnecessary_no_event_transmissions() -> None:
     )
 
     assert breakdown.reward < 0
+
+
+def test_complete_reward_penalizes_high_risk_selection_misses() -> None:
+    breakdown = calculate_reward(
+        critical_receiver_ids={"event:a", "event:b"},
+        successful_receiver_ids={"event:a"},
+        selected_critical_receiver_ids={"event:a"},
+        receiver_severities={"event:a": 0.9, "event:b": 0.9},
+        latencies_ms=[20],
+        mode="full",
+        weights={
+            "effective_delivery": 0,
+            "coverage": 0.5,
+            "latency": 0,
+            "overhead": 0,
+            "missed": 0,
+            "resource": 0,
+            "safety": 0.5,
+            "fairness": 0,
+        },
+    )
+
+    assert breakdown.selection_coverage_rate == 0.5
+    assert breakdown.safety_violation_penalty == 0.5
+    assert breakdown.reward == 0.0
+
+
+def test_implicit_resets_advance_network_seed_reproducibly(
+    scenario_directory: Path,
+) -> None:
+    first = V2XEnv(scenario_directory, seed=20)
+    second = V2XEnv(scenario_directory, seed=20)
+
+    first.reset()
+    first_seed_one = first._network_model.random_source.random()
+    first.reset()
+    first_seed_two = first._network_model.random_source.random()
+    second.reset()
+    second_seed_one = second._network_model.random_source.random()
+    second.reset()
+    second_seed_two = second._network_model.random_source.random()
+
+    assert first_seed_one == second_seed_one
+    assert first_seed_two == second_seed_two
+    assert first_seed_one != first_seed_two
 
 
 def test_urban_coordinates_and_event_types_have_distinct_features(

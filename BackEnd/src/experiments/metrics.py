@@ -17,8 +17,13 @@ class ExperimentMetrics:
     timeout_rate: float
     effective_delivery_rate: float
     affected_vehicle_coverage: float
+    affected_vehicle_selection_coverage: float
     communication_overhead: float | None
+    normalized_channel_cost: float | None
     timely_event_rate: float
+    safety_override_rate: float | None
+    mean_raw_radius_m: float | None
+    mean_executed_radius_m: float | None
     sent_count: int
     delivered_count: int
     effective_delivery_count: int
@@ -47,6 +52,10 @@ def aggregate_episode_metrics(
             critical_by_event.setdefault(str(event_id), set()).update(map(str, receiver_ids))
     delivered_by_event: dict[str, set[str]] = {}
     timely_by_event: dict[str, set[str]] = {}
+    selected_by_event: dict[str, set[str]] = {}
+    for item in transmissions:
+        event_id = str(item.get("event_id", "unknown"))
+        selected_by_event.setdefault(event_id, set()).add(str(item["receiver_id"]))
     for item in delivered:
         if not item.get("critical", False):
             continue
@@ -59,6 +68,10 @@ def aggregate_episode_metrics(
         len(receivers & delivered_by_event.get(event_id, set()))
         for event_id, receivers in critical_by_event.items()
     )
+    selected_covered_count = sum(
+        len(receivers & selected_by_event.get(event_id, set()))
+        for event_id, receivers in critical_by_event.items()
+    )
     eligible_events = [receivers for receivers in critical_by_event.values() if receivers]
     timely_events = sum(
         receivers <= timely_by_event.get(event_id, set())
@@ -68,6 +81,15 @@ def aggregate_episode_metrics(
     latencies = np.asarray([float(item["latency_ms"]) for item in delivered], dtype=np.float64)
     sent_count = len(transmissions)
     effective_count = len(effective)
+    channel_units = sum(float(item.get("bandwidth_fraction", 1.0)) for item in transmissions)
+    audited = [
+        info
+        for info in step_infos
+        if info.get("raw_structured_action") is not None
+        and info.get("critical_receiver_ids_by_event")
+    ]
+    raw_radii = [float(info["raw_radius_m"]) for info in audited]
+    executed_radii = [float(info["executed_radius_m"]) for info in audited]
     return ExperimentMetrics(
         mean_latency_ms=float(latencies.mean()) if len(latencies) else None,
         p50_latency_ms=float(np.percentile(latencies, 50)) if len(latencies) else None,
@@ -76,8 +98,21 @@ def aggregate_episode_metrics(
         timeout_rate=(sent_count - len(delivered)) / sent_count if sent_count else 0.0,
         effective_delivery_rate=effective_count / sent_count if sent_count else 0.0,
         affected_vehicle_coverage=covered_count / affected_count if affected_count else 0.0,
+        affected_vehicle_selection_coverage=(
+            selected_covered_count / affected_count if affected_count else 0.0
+        ),
         communication_overhead=sent_count / effective_count if effective_count else None,
+        normalized_channel_cost=channel_units / effective_count if effective_count else None,
         timely_event_rate=timely_events / len(eligible_events) if eligible_events else 0.0,
+        safety_override_rate=(
+            sum(bool(info.get("safety_override")) for info in audited) / len(audited)
+            if audited
+            else None
+        ),
+        mean_raw_radius_m=float(np.mean(raw_radii)) if raw_radii else None,
+        mean_executed_radius_m=(
+            float(np.mean(executed_radii)) if executed_radii else None
+        ),
         sent_count=sent_count,
         delivered_count=len(delivered),
         effective_delivery_count=effective_count,

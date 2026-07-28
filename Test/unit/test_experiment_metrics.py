@@ -53,9 +53,48 @@ def test_aggregate_episode_metrics_uses_critical_and_safety_window() -> None:
 
     assert metrics.effective_delivery_rate == pytest.approx(1 / 3)
     assert metrics.affected_vehicle_coverage == 1.0
+    assert metrics.affected_vehicle_selection_coverage == 1.0
     assert metrics.communication_overhead == 3.0
+    assert metrics.normalized_channel_cost == 3.0
     assert metrics.timely_event_rate == 0.0
     assert metrics.p50_latency_ms == 75.0
+
+
+def test_metrics_report_safety_action_audit() -> None:
+    metrics = aggregate_episode_metrics(
+        [
+            {
+                "critical_receiver_ids_by_event": {"event-1": ["a", "b"]},
+                "raw_structured_action": [2, 0, 1],
+                "executed_structured_action": [3, 2, 4],
+                "raw_radius_m": 300,
+                "executed_radius_m": 375,
+                "safety_override": True,
+                "transmissions": [
+                    {
+                        "event_id": "event-1",
+                        "receiver_id": "a",
+                        "critical": True,
+                        "delivered": True,
+                        "latency_ms": 20,
+                        "bandwidth_fraction": 0.5,
+                    },
+                    {
+                        "event_id": "event-1",
+                        "receiver_id": "b",
+                        "critical": True,
+                        "delivered": True,
+                        "latency_ms": 20,
+                        "bandwidth_fraction": 0.5,
+                    },
+                ],
+            }
+        ]
+    )
+
+    assert metrics.safety_override_rate == 1.0
+    assert metrics.mean_raw_radius_m == 300
+    assert metrics.mean_executed_radius_m == 375
 
 
 def test_statistics_are_deterministic_and_holm_monotonic() -> None:
