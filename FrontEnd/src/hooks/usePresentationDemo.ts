@@ -6,7 +6,10 @@ import {
   stageAt,
   type PresentationStage,
 } from '../components/Presentation/presentationTimeline'
-import { withEmergencyIncident } from '../components/SceneEditor/PresetScenes'
+import {
+  recommendedIncidentVehicleId,
+  withEmergencyIncident,
+} from '../components/SceneEditor/PresetScenes'
 import type { EditorScenario, EditorScenarioResponse } from '../components/SceneEditor/sceneTypes'
 import { useAnimationRuntime } from '../runtime/AnimationRuntimeContext'
 import type { ComparisonPair } from '../types/simulation'
@@ -40,7 +43,9 @@ export function usePresentationDemo(template: EditorScenario) {
   const [phase, setPhase] = useState<PresentationPhase>('selecting')
   const [source, setSource] = useState<PresentationSource>(null)
   const [mode, setMode] = useState<PresentationMode>('explore')
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null)
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
+    () => recommendedIncidentVehicleId(template) || null,
+  )
   const [inspectedVehicleId, setInspectedVehicleId] = useState<string | null>(null)
   const [scenario, setScenario] = useState<EditorScenario>(template)
   const [pairs, setPairs] = useState<ComparisonPair[]>([])
@@ -49,6 +54,19 @@ export function usePresentationDemo(template: EditorScenario) {
   const [modelStatus, setModelStatus] = useState<PresentationModelStatus | null>(null)
   const phaseRef = useRef(phase)
   phaseRef.current = phase
+
+  useEffect(() => {
+    if (phaseRef.current !== 'selecting') return
+    stopSession()
+    animation.clear()
+    setScenario(template)
+    setPairs([])
+    setSource(null)
+    setElapsedMs(0)
+    setNotice(null)
+    setInspectedVehicleId(null)
+    setSelectedVehicleId(recommendedIncidentVehicleId(template) || null)
+  }, [animation, stopSession, template])
 
   const loadPlayback = useCallback((history: ComparisonPair[], nextSource: Exclude<PresentationSource, null>, nextMode: PresentationMode = 'explore') => {
     const incident = findIncidentPair(history)
@@ -140,9 +158,16 @@ export function usePresentationDemo(template: EditorScenario) {
 
   useEffect(() => {
     if (phase !== 'preparing' || !completed || comparisonHistory.length === 0) return
+    const invalidPair = comparisonHistory.find((pair) => pair.ai.timestamp !== pair.baseline.timestamp)
+    if (invalidPair) {
+      stopSession()
+      setPhase('selecting')
+      setNotice('AI与基线证据时间戳不同步；演示已停止，未绘制通信连线。')
+      return
+    }
     loadPlayback(comparisonHistory, 'real', 'explore')
     setNotice('真实PPO与全量广播结果已同步，可自由选择证据书签。')
-  }, [comparisonHistory, completed, loadPlayback, phase])
+  }, [comparisonHistory, completed, loadPlayback, phase, stopSession])
 
   useEffect(() => {
     if (phase !== 'playing') return

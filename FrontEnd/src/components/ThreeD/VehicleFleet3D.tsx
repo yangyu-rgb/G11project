@@ -30,6 +30,7 @@ import { presentationVehicleColor } from './vehiclePresentationColors'
 type VehicleFleet3DProps = {
   vehicles: SimulationVehicle[]
   animationChannel?: AnimationChannel
+  fixedVehicles?: readonly SimulationVehicle[]
   selectedVehicleId?: string | null
   accidentVehicleId?: string | null
   relevantIds?: readonly string[]
@@ -81,6 +82,7 @@ function laneCenter(vehicle: SimulationVehicle): number {
 export function VehicleFleet3D({
   vehicles,
   animationChannel = 'single',
+  fixedVehicles,
   selectedVehicleId,
   accidentVehicleId,
   relevantIds = [],
@@ -128,8 +130,10 @@ export function VehicleFleet3D({
     const headlightMesh = headlights.current as InstancedMesh
     const taillightMesh = taillights.current as InstancedMesh
     const haloMesh = statusHalos.current as InstancedMesh
-    const snapshot = animation.getSnapshot(animationChannel)
-    const rendered = enforceHighwaySpacing((snapshot?.vehicles ?? vehicles).slice(0, MAX_INSTANCES))
+    const snapshot = fixedVehicles ? null : animation.getSnapshot(animationChannel)
+    const rendered = fixedVehicles
+      ? fixedVehicles.slice(0, MAX_INSTANCES)
+      : enforceHighwaySpacing((snapshot?.vehicles ?? vehicles).slice(0, MAX_INSTANCES))
     renderedIds.current = rendered.map((vehicle) => vehicle.id)
     bodyMesh.count = rendered.length
     cabinMesh.count = rendered.length

@@ -5,6 +5,7 @@ import {
   comparisonMetrics,
   conclusionFor,
   findIncidentPair,
+  freezesEvidenceFrame,
   presentationCueAt,
   selectionPrecision,
   stageAt,
@@ -138,6 +139,10 @@ describe('academic presentation choreography', () => {
     assert.equal(stageAt(11_000), 'broadcast')
     assert.equal(stageAt(20_000), 'ai')
     assert.equal(stageAt(30_000), 'summary')
+    assert.equal(freezesEvidenceFrame('accident'), false)
+    assert.equal(freezesEvidenceFrame('broadcast'), true)
+    assert.equal(freezesEvidenceFrame('ai'), true)
+    assert.equal(freezesEvidenceFrame('summary'), false)
     assert.equal(presentationCueAt(11_000).linkRevealProgress, 0)
     assert(presentationCueAt(14_000).linkRevealProgress > 0.99)
     assert.equal(presentationCueAt(20_000).linkRevealProgress, 0)

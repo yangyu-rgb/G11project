@@ -17,12 +17,14 @@ import { ParticleSystem, type ParticleTone } from '../../engine/ParticleSystem'
 import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import type { SimulationTransmission, SimulationVehicle } from '../../types/simulation'
 import { linkLifecycleAt, orderTransmissionsByPriority } from './communicationLinks'
+import { enforceHighwaySpacing } from './highwaySpacing'
 import type { SceneLayout } from './Road3D'
 import { SCENE_SCALE, toScenePosition } from './sceneCoordinates'
 
 type Message3DProps = {
   messages: SimulationTransmission[]
   vehicles: SimulationVehicle[]
+  fixedVehicles?: readonly SimulationVehicle[]
   animationChannel?: AnimationChannel
   tone?: ParticleTone
   layout?: SceneLayout
@@ -54,8 +56,8 @@ function curvePoint(
   )
 }
 
-export function Message3D({ messages, animationChannel = 'single', tone = 'ai', layout = 'custom',
-  revealProgress = 1, priorityByVehicle = {} }: Message3DProps) {
+export function Message3D({ messages, fixedVehicles, animationChannel = 'single', tone = 'ai',
+  layout = 'custom', revealProgress = 1, priorityByVehicle = {} }: Message3DProps) {
   const { animation: animationEngine } = useAnimationRuntime()
   const points = useRef<Points>(null)
   const linkLines = useRef<LineSegments>(null)
@@ -67,6 +69,12 @@ export function Message3D({ messages, animationChannel = 'single', tone = 'ai', 
   const links = useMemo(
     () => orderTransmissionsByPriority(messages, tone === 'ai' ? priorityByVehicle : {}),
     [messages, priorityByVehicle, tone],
+  )
+  const messageSignature = useMemo(
+    () => `${tone}:${links.map((message) => (
+      `${message.from}>${message.to}:${message.status}:${message.delay_ms}`
+    )).join('|')}`,
+    [links, tone],
   )
   const particleGeometry = useMemo(() => {
     const value = new BufferGeometry()
@@ -99,13 +107,15 @@ export function Message3D({ messages, animationChannel = 'single', tone = 'ai', 
   }, [linkGeometry, particleGeometry])
 
   useEffect(() => {
-    if (messages.length === 0) system.current.clear()
-  }, [messages.length])
+    system.current.clear()
+  }, [messageSignature])
 
   useFrame(() => {
     const frame = animationEngine.getSnapshot(animationChannel)
-    if (!frame) return
-    const vehiclesById = new Map(frame.vehicles.map((vehicle) => [vehicle.id, vehicle]))
+    if (!frame && !fixedVehicles) return
+    const renderVehicles = fixedVehicles
+      ?? enforceHighwaySpacing(frame?.vehicles ?? [])
+    const vehiclesById = new Map(renderVehicles.map((vehicle) => [vehicle.id, vehicle]))
     const linkPositions = linkGeometry.getAttribute('position') as BufferAttribute
     let lineVertex = 0
     let arrowCount = 0
@@ -188,10 +198,12 @@ export function Message3D({ messages, animationChannel = 'single', tone = 'ai', 
       linkLifecycleAt(index, links.length, effectiveReveal).phase !== 'pending'
     ))
     if (!reducedMotion && visibleMessages.length > 0) {
-      const pulseTimestamp = frame.timestamp + Math.floor(frame.animationTimeMs / 1800) / 1000
-      system.current.ingest(visibleMessages, frame.vehicles, pulseTimestamp, frame.animationTimeMs, tone)
+      const animationTimeMs = frame?.animationTimeMs ?? 0
+      const pulseTimestamp = (frame?.timestamp ?? 0) + Math.floor(animationTimeMs / 1800) / 1000
+      system.current.ingest(visibleMessages, renderVehicles, pulseTimestamp, animationTimeMs, tone)
     }
-    const particles = reducedMotion ? [] : system.current.update(frame.animationTimeMs).slice(0, MAX_PARTICLES)
+    const particles = reducedMotion ? []
+      : system.current.update(frame?.animationTimeMs ?? 0).slice(0, MAX_PARTICLES)
     const positions = particleGeometry.getAttribute('position') as BufferAttribute
     const colors = particleGeometry.getAttribute('color') as BufferAttribute
     particles.forEach((particle, index) => {

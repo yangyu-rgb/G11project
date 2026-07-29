@@ -101,6 +101,59 @@ def _candidate_vehicles(
     return values
 
 
+def _receiver_relations(
+    snapshot: SimulationSnapshot,
+    selected_receiver_ids: Sequence[str],
+    *,
+    corridor_radius_m: float,
+    corridor_lane_scope: str,
+) -> list[dict[str, Any]]:
+    """Explain every non-sender vehicle against the executed directional action."""
+    if not snapshot.events:
+        return []
+    selected = set(selected_receiver_ids)
+    values: list[dict[str, Any]] = []
+    for vehicle in snapshot.vehicles:
+        event = min(
+            snapshot.events,
+            key=lambda item: math.dist((vehicle.x, vehicle.y), (item.x, item.y)),
+        )
+        sender = event_sender(snapshot.vehicles, event)
+        if sender is None or vehicle.vehicle_id == sender.vehicle_id:
+            continue
+        relation = receiver_relation(sender, vehicle, event)
+        if vehicle.vehicle_id in selected:
+            outcome = "selected"
+        elif relation.risk_class == "ahead":
+            outcome = "ahead"
+        elif relation.risk_class == "opposite_direction":
+            outcome = "opposite_direction"
+        elif relation.lane_relation == "other" or (
+            relation.lane_relation == "adjacent" and corridor_lane_scope == "same"
+        ):
+            outcome = "outside_lane_scope"
+        else:
+            outcome = "outside_corridor"
+        values.append(
+            {
+                "id": vehicle.vehicle_id,
+                "distance_m": math.dist((vehicle.x, vehicle.y), (event.x, event.y)),
+                "longitudinal_m": relation.longitudinal_m,
+                "lateral_m": relation.lateral_m,
+                "lane_relation": relation.lane_relation,
+                "risk_class": relation.risk_class,
+                "selected": vehicle.vehicle_id in selected,
+                "outcome": outcome,
+                "corridor_limit_m": (
+                    corridor_radius_m * 0.5
+                    if relation.lane_relation == "adjacent"
+                    else corridor_radius_m
+                ),
+            }
+        )
+    return values
+
+
 def build_state_update(
     snapshot: SimulationSnapshot,
     action: np.ndarray,
@@ -155,11 +208,22 @@ def build_state_update(
     receiver_share = bandwidth_fraction / len(selected_receivers) if selected_receivers else 0.0
     priority_name = ("low", "medium", "high")[int(action[-2])]
     candidates = _candidate_vehicles(snapshot, info["critical_receiver_ids"], selected_receivers)
+    directional = info.get("action_mode") == "directional_corridor"
+    receiver_relations = (
+        _receiver_relations(
+            snapshot,
+            selected_receivers,
+            corridor_radius_m=float(info["corridor_radius_m"]),
+            corridor_lane_scope=str(info["corridor_lane_scope"]),
+        )
+        if directional
+        else []
+    )
     candidate_ids = {candidate["id"] for candidate in candidates}
     vehicle_attention = attention_by_vehicle or {}
     selection_reason = selection_reason_override or (
         {vehicle_id: "ai_corridor" for vehicle_id in selected_receivers}
-        if info.get("action_mode") == "directional_corridor"
+        if directional
         else {
             vehicle_id: (
                 "high_attention"
@@ -213,6 +277,7 @@ def build_state_update(
             "selected_receivers": selected_receivers,
             "priority": priority_name,
             "bandwidth_allocation": [receiver_share] * len(selected_receivers),
+            "bandwidth_fraction": bandwidth_fraction,
             "candidate_vehicles": candidates,
             "selected_vehicles": selected_receivers,
             "selection_reason": selection_reason,
@@ -224,10 +289,12 @@ def build_state_update(
             **(
                 {
                     "action_mode": info["action_mode"],
+                    "structured_action": list(info["structured_action"]),
                     "corridor_radius_m": info["corridor_radius_m"],
                     "corridor_lane_scope": info["corridor_lane_scope"],
+                    "receiver_relations": receiver_relations,
                 }
-                if info.get("action_mode") == "directional_corridor"
+                if directional
                 else {}
             ),
         },

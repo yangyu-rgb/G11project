@@ -111,16 +111,16 @@ def step_ai(
     snapshot: SimulationSnapshot,
 ) -> AIStepResult:
     """Run one measured AI decision and environment transition."""
+    base_environment = getattr(environment, "base_environment", environment)
     if hasattr(agent, "predict_raw_with_attention"):
         decision_started = time.perf_counter()
         raw_action, raw_attention = agent.predict_raw_with_attention(observation)
-        environment.record_decision_latency((time.perf_counter() - decision_started) * 1000)
+        base_environment.record_decision_latency((time.perf_counter() - decision_started) * 1000)
     else:
         raw_action = agent.predict_raw(observation)
         raw_attention = None
 
     action = np.asarray(raw_action, dtype=np.int64)
-    base_environment = getattr(environment, "base_environment", environment)
     attention_weights, attention_by_vehicle = summarize_attention(
         raw_attention,
         observation,

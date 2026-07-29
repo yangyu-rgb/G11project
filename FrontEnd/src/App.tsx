@@ -2,7 +2,11 @@ import { Activity, FlaskConical, Presentation, RadioTower } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { DemoHud, SelectionPanel } from './components/Presentation/PresentationOverlay'
-import { HIGHWAY_PRESENTATION_SCENARIO } from './components/SceneEditor/PresetScenes'
+import { freezesEvidenceFrame } from './components/Presentation/presentationTimeline'
+import {
+  buildHighwayPresentationScenario,
+  type PresentationDensity,
+} from './components/SceneEditor/PresetScenes'
 import { editorVehicleToSimulation } from './components/SceneEditor/sceneTypes'
 import { usePresentationDemo } from './hooks/usePresentationDemo'
 
@@ -18,10 +22,12 @@ type HealthResponse = { status: string; service: string }
 export default function App() {
   const [health, setHealth] = useState('正在连接后端')
   const [workspace, setWorkspace] = useState<'presentation' | 'research'>('presentation')
-  const demo = usePresentationDemo(HIGHWAY_PRESENTATION_SCENARIO)
+  const [density, setDensity] = useState<PresentationDensity>('dense')
+  const presentationScenario = useMemo(() => buildHighwayPresentationScenario(density), [density])
+  const demo = usePresentationDemo(presentationScenario)
   const templateVehicles = useMemo(
-    () => HIGHWAY_PRESENTATION_SCENARIO.vehicles.map(editorVehicleToSimulation),
-    [],
+    () => presentationScenario.vehicles.map(editorVehicleToSimulation),
+    [presentationScenario],
   )
 
   useEffect(() => {
@@ -104,19 +110,23 @@ export default function App() {
           accidentVehicleId={presentationActive ? demo.selectedVehicleId : null}
           stage={demo.stage}
           elapsedMs={demo.elapsedMs}
+          freezeEvidenceFrame={freezesEvidenceFrame(demo.stage)}
+          corridorRadiusM={evidence?.ai.decision.corridor_radius_m}
+          corridorLaneScope={evidence?.ai.decision.corridor_lane_scope}
           priorityByVehicle={priorityByVehicle}
-          interactive={demo.phase !== 'preparing'}
-          onVehicleSelect={presentationActive ? demo.setInspectedVehicleId : demo.setSelectedVehicleId}
+          interactive={presentationActive && demo.phase !== 'preparing'}
+          onVehicleSelect={presentationActive ? demo.setInspectedVehicleId : undefined}
         /></Suspense>
 
         {(demo.phase === 'selecting' || demo.phase === 'preparing') && <SelectionPanel
           vehicles={templateVehicles}
           selectedVehicleId={demo.selectedVehicleId}
           preparing={demo.phase === 'preparing'}
+          density={density}
           modelEligible={demo.modelStatus?.eligible ?? false}
           modelReason={demo.modelStatus?.reason ?? null}
           notice={demo.notice}
-          onSelect={demo.setSelectedVehicleId}
+          onDensityChange={setDensity}
           onStart={() => void demo.start()}
         />}
 

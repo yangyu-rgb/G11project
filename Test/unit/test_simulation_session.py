@@ -1,10 +1,13 @@
 """Unit coverage for shared WebSocket playback state."""
 
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
 
+import numpy as np
 import pytest
 
-from app.simulation_session import PlaybackController, SessionControlError
+from app.simulation_session import PlaybackController, SessionControlError, step_ai
 
 
 def test_playback_controller_applies_controls_and_reset_callback() -> None:
@@ -22,7 +25,9 @@ def test_playback_controller_applies_controls_and_reset_callback() -> None:
     assert playback.timeout is None
     playback.apply({"type": "control", "action": "play"}, lambda: None)
     assert playback.timeout == pytest.approx(0.25)
-    playback.apply({"type": "control", "action": "reset"}, lambda: reset_calls.append(True))
+    playback.apply(
+        {"type": "control", "action": "reset"}, lambda: reset_calls.append(True)
+    )
     assert reset_calls == [True]
     assert playback.playing is False
     assert playback.complete is False
@@ -53,3 +58,44 @@ def test_backend_core_does_not_import_fastapi_application_layer() -> None:
                 offenders.append(str(path.relative_to(backend_src)))
 
     assert offenders == []
+
+
+def test_attention_decision_latency_is_recorded_on_the_wrapped_base_environment() -> (
+    None
+):
+    class BaseEnvironment:
+        vehicle_ids: tuple[str, ...] = ()
+
+        def __init__(self) -> None:
+            self.latencies: list[float] = []
+
+        def record_decision_latency(self, latency_ms: float) -> None:
+            self.latencies.append(latency_ms)
+
+    class WrappedEnvironment:
+        def __init__(self) -> None:
+            self.base_environment = BaseEnvironment()
+
+        def step(
+            self, action: np.ndarray
+        ) -> tuple[dict[str, Any], float, bool, bool, dict[str, Any]]:
+            return {"next": True}, 0.0, True, False, {"action": action.tolist()}
+
+    class AttentionAgent:
+        def predict_raw_with_attention(
+            self, observation: dict[str, Any]
+        ) -> tuple[np.ndarray, None]:
+            del observation
+            return np.asarray([4, 1, 2, 5]), None
+
+    environment = WrappedEnvironment()
+    result = step_ai(
+        AttentionAgent(),
+        environment,
+        {},
+        SimpleNamespace(events=()),
+    )
+
+    assert len(environment.base_environment.latencies) == 1
+    assert environment.base_environment.latencies[0] >= 0
+    assert result.action.tolist() == [4, 1, 2, 5]

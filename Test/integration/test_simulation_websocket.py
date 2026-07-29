@@ -101,6 +101,7 @@ def test_simulation_websocket_streams_ten_complete_state_updates(
         "selected_receivers",
         "priority",
         "bandwidth_allocation",
+        "bandwidth_fraction",
         "candidate_vehicles",
         "selected_vehicles",
         "selection_reason",
@@ -116,6 +117,7 @@ def test_simulation_websocket_streams_ten_complete_state_updates(
         first["decision"]["selected_receivers"]
     )
     assert sum(first["decision"]["bandwidth_allocation"]) == pytest.approx(0.5)
+    assert first["decision"]["bandwidth_fraction"] == pytest.approx(0.5)
     assert completion == {"type": "simulation_complete", "timestamp": 9.0}
 
 

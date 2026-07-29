@@ -38,6 +38,10 @@ export function stageAt(elapsedMs: number): PresentationStage {
   return 'summary'
 }
 
+export function freezesEvidenceFrame(stage: PresentationStage): boolean {
+  return stage === 'broadcast' || stage === 'ai'
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
 }

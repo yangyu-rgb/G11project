@@ -54,6 +54,18 @@ export type CandidateVehicle = {
   risk_class?: 'following_lane' | 'adjacent_lane' | 'ahead' | 'opposite_direction' | 'unrelated' | string
 }
 
+export type ReceiverRelation = {
+  id: string
+  distance_m: number
+  longitudinal_m: number
+  lateral_m: number
+  lane_relation: 'same' | 'adjacent' | 'other' | string
+  risk_class: 'following_lane' | 'adjacent_lane' | 'ahead' | 'opposite_direction' | 'unrelated' | string
+  selected: boolean
+  outcome: 'selected' | 'ahead' | 'opposite_direction' | 'outside_lane_scope' | 'outside_corridor'
+  corridor_limit_m: number
+}
+
 export type SimulationDecision = {
   selected_receivers: string[]
   priority: 'low' | 'medium' | 'high'
@@ -65,6 +77,9 @@ export type SimulationDecision = {
   action_mode?: 'directional_corridor' | 'individual' | string
   corridor_radius_m?: number
   corridor_lane_scope?: 'same' | 'same_and_adjacent' | string
+  structured_action?: [number, number, number, number]
+  bandwidth_fraction?: number
+  receiver_relations?: ReceiverRelation[]
 }
 
 export type TestMessage = {

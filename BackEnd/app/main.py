@@ -15,11 +15,13 @@ from app.simulation_session import (
     SessionControlError,
     step_ai,
 )
-from src.environment.v2x_env import V2XEnv
 from src.environment.adaptive_radius_wrapper import DirectionalCorridorActionWrapper
+from src.environment.v2x_env import V2XEnv
+from src.experiments.io import load_yaml
 from src.models.ppo_agent import PPOAgent
 
 BACKEND_DIRECTORY = Path(__file__).resolve().parents[1]
+PRESENTATION_CONFIG = load_yaml("configs/adaptive_demo_training.yaml")
 app = FastAPI(
     title="G11project API",
     version="0.1.0",
@@ -73,7 +75,34 @@ def _create_environment(
     return V2XEnv(scenario_path, seed=seed, **(environment_kwargs or {}))
 
 
-def _load_agent(model_path: Path, environment: V2XEnv) -> PPOAgent:
+def _presentation_environment_kwargs(
+    overrides: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Recreate the accepted model's observation schema with optional network overrides."""
+    environment = dict(PRESENTATION_CONFIG["environment"])
+    network = dict(PRESENTATION_CONFIG["network"])
+    network_options = {
+        key: float(value) for key, value in network.items() if key not in {"mode", "scenario"}
+    }
+    resolved: dict[str, object] = {
+        **environment,
+        "reward_mode": "full",
+        "reward_weights": PRESENTATION_CONFIG["reward_weights"],
+        "safety_window_ms": float(PRESENTATION_CONFIG["safety_window_ms"]),
+        "network_mode": str(network["mode"]),
+        "network_scenario": str(network["scenario"]),
+        "network_options": network_options,
+    }
+    if overrides:
+        override_options = dict(overrides.get("network_options", {}))  # type: ignore[arg-type]
+        resolved.update(
+            {key: value for key, value in overrides.items() if key != "network_options"}
+        )
+        resolved["network_options"] = {**network_options, **override_options}
+    return resolved
+
+
+def _load_agent(model_path: Path, environment: object) -> PPOAgent:
     return PPOAgent.load(model_path, environment)
 
 
@@ -112,8 +141,22 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
 
     try:
         scenario_path = _resolve_simulation_path(scenario_query, kind="scenario")
+        model_status = presentation_model_status()
+        presentation_inference = model_query == model_status["model"]
+        if presentation_inference and not model_status["eligible"]:
+            raise RuntimeError(str(model_status["reason"]))
         model_path = _resolve_simulation_path(model_query, kind="model")
-        environment = _create_environment(scenario_path)
+        base_environment = _create_environment(
+            scenario_path,
+            environment_kwargs=(
+                _presentation_environment_kwargs() if presentation_inference else None
+            ),
+        )
+        environment = (
+            DirectionalCorridorActionWrapper(base_environment)
+            if presentation_inference
+            else base_environment
+        )
         agent = _load_agent(model_path, environment)
         observation, _ = environment.reset()
     except (FileNotFoundError, RuntimeError, ValueError, OSError) as exc:
@@ -124,7 +167,8 @@ async def run_simulation_websocket(websocket: WebSocket) -> None:
     try:
         while True:
             if playback.playing and not playback.complete:
-                snapshot = environment.snapshot()
+                snapshot_environment = getattr(environment, "base_environment", environment)
+                snapshot = snapshot_environment.snapshot()
                 result = step_ai(agent, environment, observation, snapshot)
                 observation = result.observation
                 await websocket.send_json(
@@ -200,26 +244,31 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
             if experiment
             else _resolve_simulation_path(str(scenario_query), kind="scenario")
         )
-        editor_presentation = bool(
+        editor_scenario = bool(
             (scenario_query and str(scenario_query).startswith("editor:"))
             or (experiment and experiment.scenario_ref.startswith("editor:"))
         )
-        if editor_presentation:
-            model_status = presentation_model_status()
+        model_status = presentation_model_status()
+        presentation_inference = model_query == model_status["model"]
+        if editor_scenario:
             if not model_status["eligible"]:
                 raise RuntimeError(str(model_status["reason"]))
-            if model_query != model_status["model"]:
+            if not presentation_inference:
                 raise RuntimeError("临时高速事故场景只能使用通过资格门禁的正式模型")
+        elif presentation_inference and not model_status["eligible"]:
+            raise RuntimeError(str(model_status["reason"]))
         model_path = _resolve_simulation_path(model_query, kind="model")
         seed = experiment.seed if experiment else 42
         environment_kwargs = experiment.network.environment_kwargs() if experiment else None
+        if presentation_inference:
+            environment_kwargs = _presentation_environment_kwargs(environment_kwargs)
         ai_base_environment = _create_environment(
             scenario_path, seed=seed, environment_kwargs=environment_kwargs
         )
         baseline_environment = _create_environment(
             scenario_path, seed=seed, environment_kwargs=environment_kwargs
         )
-        if editor_presentation:
+        if presentation_inference:
             ai_environment = DirectionalCorridorActionWrapper(ai_base_environment)
             baseline_environment.receiver_relevance_mode = "directional_corridor"
         else:

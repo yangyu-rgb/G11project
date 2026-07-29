@@ -67,17 +67,52 @@ export const DEFAULT_EDITOR_SCENARIO: EditorScenario = {
 }
 
 const presentationLanes = [-8, -4.8, -1.6] as const
+const presentationLaneOffsets = [0, 23, 46] as const
+export const PRESENTATION_ROW_SPACING_METERS = 70
+const PRESENTATION_START_X_METERS = 650
 
-export const HIGHWAY_PRESENTATION_SCENARIO: EditorScenario = {
-  schema_version: 1,
-  name: '高速公路选择性V2X演示',
-  vehicles: Array.from({ length: 50 }, (_, index) => {
-    const lane = index % presentationLanes.length
-    const lanePosition = Math.floor(index / presentationLanes.length)
-    return vehicle(index, 820 + lanePosition * 26 + lane * 7, presentationLanes[lane])
-  }).map((item, index) => ({ ...item, speed_kmh: 88 + (index % 5) * 4 })),
-  events: [],
+export type PresentationDensity = 'light' | 'medium' | 'dense'
+
+export const PRESENTATION_DENSITIES: Record<PresentationDensity, {
+  label: string
+  vehicleCount: 30 | 36 | 50
+  description: string
+}> = {
+  light: { label: '稀疏', vehicleCount: 30, description: '30辆 · 低交通压力' },
+  medium: { label: '中等', vehicleCount: 36, description: '36辆 · 中等交通压力' },
+  dense: { label: '密集', vehicleCount: 50, description: '50辆 · 推荐答辩场景' },
 }
+
+export function buildHighwayPresentationScenario(
+  density: PresentationDensity = 'dense',
+): EditorScenario {
+  const setting = PRESENTATION_DENSITIES[density]
+  return {
+    schema_version: 1,
+    name: `高速公路选择性V2X演示-${setting.label}${setting.vehicleCount}辆`,
+    vehicles: Array.from({ length: setting.vehicleCount }, (_, index) => {
+      const lane = index % presentationLanes.length
+      const lanePosition = Math.floor(index / presentationLanes.length)
+      return vehicle(
+        index,
+        PRESENTATION_START_X_METERS + lanePosition * PRESENTATION_ROW_SPACING_METERS
+          + presentationLaneOffsets[lane],
+        presentationLanes[lane],
+      )
+    }).map((item, index) => ({ ...item, speed_kmh: 88 + (index % 5) * 4 })),
+    events: [],
+  }
+}
+
+export function recommendedIncidentVehicleId(scenario: EditorScenario): string {
+  const outerLaneVehicles = scenario.vehicles
+    .filter((item) => item.y === presentationLanes[0])
+    .sort((left, right) => left.x - right.x)
+  const targetIndex = Math.floor(Math.max(0, outerLaneVehicles.length - 1) * 0.75)
+  return outerLaneVehicles[targetIndex]?.id ?? scenario.vehicles[0]?.id ?? ''
+}
+
+export const HIGHWAY_PRESENTATION_SCENARIO = buildHighwayPresentationScenario('dense')
 
 export function withEmergencyIncident(
   scenario: EditorScenario,

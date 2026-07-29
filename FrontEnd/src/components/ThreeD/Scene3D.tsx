@@ -1,10 +1,11 @@
-import { OrbitControls, Sky } from '@react-three/drei'
+import { Environment, Lightformer, OrbitControls, Sky } from '@react-three/drei'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ACESFilmicToneMapping,
   Color,
   MathUtils,
+  Object3D,
   SRGBColorSpace,
   Vector3,
 } from 'three'
@@ -25,7 +26,14 @@ import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
 import { ShockwaveEffect3D } from '../effects/ShockwaveEffect3D'
 import { Message3D } from './Message3D'
 import { Road3D } from './Road3D'
-import { toScenePosition } from './sceneCoordinates'
+import { enforceHighwaySpacing } from './highwaySpacing'
+import {
+  HIGHWAY_LANE_CENTERS_METERS,
+  HIGHWAY_LANE_WIDTH,
+  SCENE_SCALE,
+  nearestHighwayLaneIndex,
+  toScenePosition,
+} from './sceneCoordinates'
 import { VehicleFleet3D } from './VehicleFleet3D'
 import {
   beginManualCamera,
@@ -48,6 +56,9 @@ type Scene3DProps = {
   accidentVehicleId?: string | null
   stage?: PresentationStage
   elapsedMs?: number
+  freezeEvidenceFrame?: boolean
+  corridorRadiusM?: number
+  corridorLaneScope?: string
   priorityByVehicle?: Readonly<Record<string, number>>
   interactive?: boolean
   onVehicleSelect?: (vehicleId: string) => void
@@ -56,11 +67,41 @@ type Scene3DProps = {
 
 type CameraStatus = { mode: CameraControlMode; remainingMs: number }
 
-function FollowCameraRig({ focus, shot, followVehicleId, animationChannel, resetToken, onStatus }: {
+function UrbanDaylight({ focus }: { focus: Vector3 }) {
+  const sunTarget = useMemo(() => new Object3D(), [])
+  return (
+    <>
+      <primitive object={sunTarget} position={[focus.x + 1.5, 0, focus.z]} />
+      <Environment resolution={64} frames={1} environmentIntensity={0.58}>
+        <Lightformer form="rect" color="#fff1d6" intensity={3.2}
+          position={[-8, 10, -10]} rotation={[Math.PI / 2, 0, 0]} scale={[10, 10, 1]} />
+        <Lightformer form="rect" color="#b9d5e3" intensity={1.5}
+          position={[10, 5, 4]} rotation={[0, -Math.PI / 2, 0]} scale={[8, 5, 1]} />
+        <Lightformer form="ring" color="#dce9ee" intensity={1.1}
+          position={[0, 8, 8]} scale={6} />
+      </Environment>
+      <hemisphereLight args={['#dcecf3', '#59665a', 1.18]} />
+      <ambientLight color="#dbe5e8" intensity={0.2} />
+      <directionalLight castShadow color="#fff4df" target={sunTarget}
+        position={[focus.x - 18, 24, focus.z + 14]} intensity={2.65}
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048}
+        shadow-camera-near={2} shadow-camera-far={65}
+        shadow-camera-left={-26} shadow-camera-right={26}
+        shadow-camera-top={22} shadow-camera-bottom={-22}
+        shadow-bias={-0.00012} shadow-normalBias={0.035} />
+      <directionalLight color="#b8d8e7" position={[focus.x + 20, 9, focus.z - 18]}
+        intensity={0.42} />
+    </>
+  )
+}
+
+function FollowCameraRig({ focus, shot, followVehicleId, animationChannel, fixedVehicles, resetToken,
+  onStatus }: {
   focus: Vector3
   shot: CameraShot
   followVehicleId: string | null
   animationChannel: AnimationChannel
+  fixedVehicles?: readonly SimulationVehicle[]
   resetToken: number
   onStatus: (status: CameraStatus) => void
 }) {
@@ -85,7 +126,11 @@ function FollowCameraRig({ focus, shot, followVehicleId, animationChannel, reset
   }, [onStatus, resetToken])
 
   useFrame((_, delta) => {
-    const animated = followVehicleId ? animation.getVehicle(animationChannel, followVehicleId) : null
+    const animated = followVehicleId
+      ? fixedVehicles
+        ? fixedVehicles.find((vehicle) => vehicle.id === followVehicleId) ?? null
+        : animation.getVehicle(animationChannel, followVehicleId)
+      : null
     if (animated) target.current.set(...toScenePosition(animated.x, animated.y, 'highway'))
     else target.current.copy(focus)
     const deltaTarget = desired.current.copy(target.current).sub(previousTarget.current)
@@ -140,8 +185,51 @@ function FollowCameraRig({ focus, shot, followVehicleId, animationChannel, reset
   }
 
   return <OrbitControls ref={controls} makeDefault target={target.current.toArray()}
-    enableRotate enableZoom enablePan={false} minDistance={3.8} maxDistance={70}
+    enableRotate enableZoom enablePan={false} minDistance={3.8} maxDistance={140}
     maxPolarAngle={Math.PI / 2.08} enableDamping onStart={startManual} onEnd={endManual} />
+}
+
+function CorridorBand({ focus, laneIndex, radiusM, opacity }: {
+  focus: Vector3
+  laneIndex: number
+  radiusM: number
+  opacity: number
+}) {
+  const length = radiusM * SCENE_SCALE
+  const laneZ = toScenePosition(0, HIGHWAY_LANE_CENTERS_METERS[laneIndex], 'highway')[2]
+  return <group>
+    <mesh position={[focus.x - length / 2, 0.042, laneZ]}
+      rotation={[-Math.PI / 2, 0, 0]} renderOrder={2}>
+      <planeGeometry args={[length, HIGHWAY_LANE_WIDTH * 0.9]} />
+      <meshBasicMaterial color="#36d7bd" transparent opacity={opacity}
+        depthWrite={false} toneMapped={false} />
+    </mesh>
+    {[0.2, 0.45, 0.7, 0.9].map((ratio) => <mesh key={ratio}
+      position={[focus.x - length * ratio, 0.052, laneZ]} rotation={[0, 0, Math.PI / 4]}>
+      <boxGeometry args={[0.24, 0.018, 0.035]} />
+      <meshBasicMaterial color="#b7fff0" transparent opacity={Math.min(0.9, opacity * 4)}
+        depthWrite={false} toneMapped={false} />
+    </mesh>)}
+  </group>
+}
+
+function RiskCorridor3D({ focus, sourceY, radiusM, laneScope }: {
+  focus: Vector3
+  sourceY: number
+  radiusM: number
+  laneScope: string
+}) {
+  const laneIndex = nearestHighwayLaneIndex(sourceY)
+  const adjacent = laneScope === 'same_and_adjacent'
+    ? [laneIndex - 1, laneIndex + 1].filter((index) => (
+      index >= 0 && index < HIGHWAY_LANE_CENTERS_METERS.length
+    ))
+    : []
+  return <group>
+    <CorridorBand focus={focus} laneIndex={laneIndex} radiusM={radiusM} opacity={0.2} />
+    {adjacent.map((index) => <CorridorBand key={index} focus={focus} laneIndex={index}
+      radiusM={radiusM * 0.5} opacity={0.11} />)}
+  </group>
 }
 
 function IncidentAnalysis3D({ focus, progress }: { focus: Vector3; progress: number }) {
@@ -181,6 +269,9 @@ export function Scene3D({
   accidentVehicleId,
   stage = 'normal',
   elapsedMs = 0,
+  freezeEvidenceFrame = false,
+  corridorRadiusM,
+  corridorLaneScope = 'same',
   priorityByVehicle = {},
   interactive = false,
   onVehicleSelect,
@@ -190,60 +281,95 @@ export function Scene3D({
   const [cameraStatus, setCameraStatus] = useState<CameraStatus>({ mode: 'directed', remainingMs: 0 })
   const [cameraFollow, setCameraFollow] = useState<'accident' | 'selected'>('accident')
   const cue = useMemo(() => presentationCueAt(elapsedMs), [elapsedMs])
+  const evidenceVehicles = useMemo(() => enforceHighwaySpacing(vehicles), [vehicles])
+  const fixedVehicles = freezeEvidenceFrame ? evidenceVehicles : undefined
+  const evidenceVehicleIds = useMemo(
+    () => new Set(evidenceVehicles.map((vehicle) => vehicle.id)),
+    [evidenceVehicles],
+  )
+  const evidenceError = freezeEvidenceFrame && messages.some((message) => (
+    !evidenceVehicleIds.has(message.from) || !evidenceVehicleIds.has(message.to)
+  ))
   const focus = useMemo(() => {
-    const selected = vehicles.find((vehicle) => vehicle.id === (accidentVehicleId ?? selectedVehicleId))
+    const selected = evidenceVehicles.find(
+      (vehicle) => vehicle.id === (accidentVehicleId ?? selectedVehicleId),
+    )
     const event = events[0]
     if (event) return new Vector3(...toScenePosition(event.x, event.y, 'highway'))
     if (selected) return new Vector3(...toScenePosition(selected.x, selected.y, 'highway'))
-    const ordered = vehicles.map((vehicle) => vehicle.x).sort((left, right) => left - right)
+    const ordered = evidenceVehicles.map((vehicle) => vehicle.x).sort((left, right) => left - right)
     return new Vector3(...toScenePosition(ordered[Math.floor(ordered.length / 2)] ?? 1000, -4.8, 'highway'))
-  }, [accidentVehicleId, events, selectedVehicleId, vehicles])
+  }, [accidentVehicleId, events, evidenceVehicles, selectedVehicleId])
+  const overviewFocus = useMemo(() => {
+    if (!evidenceVehicles.length) return focus
+    const xs = evidenceVehicles.map((vehicle) => vehicle.x)
+    return new Vector3(...toScenePosition((Math.min(...xs) + Math.max(...xs)) / 2, -4.8, 'highway'))
+  }, [evidenceVehicles, focus])
+  const comparisonOverview = stage === 'broadcast' || (stage === 'ai' && elapsedMs < 23_000)
+  const cameraFocus = comparisonOverview ? overviewFocus : focus
+  const cameraShot = useMemo<CameraShot>(() => {
+    if (!comparisonOverview || evidenceVehicles.length < 2) return cue.camera
+    const xs = evidenceVehicles.map((vehicle) => vehicle.x)
+    const span = (Math.max(...xs) - Math.min(...xs)) * SCENE_SCALE
+    return {
+      offset: [0, Math.max(17, span * 0.38), Math.max(23, span * 0.52)],
+      fov: 48,
+      lookAhead: 0,
+    }
+  }, [comparisonOverview, cue.camera, evidenceVehicles])
+  const sourceVehicle = evidenceVehicles.find((vehicle) => vehicle.id === accidentVehicleId)
   const showEvent = stage !== 'normal' && stage !== 'summary' && events.length > 0
   const showShockwave = stage === 'accident' && cue.stageProgress < 0.42
 
   return (
-    <div className="presentation-scene" data-testid="scene-3d" aria-label="三维高速公路通信演示">
+    <div className={`presentation-scene ${freezeEvidenceFrame ? 'presentation-scene--evidence' : ''}`}
+      data-testid="scene-3d" aria-label="三维高速公路通信演示">
       <Canvas
         shadows="percentage"
-        dpr={[1, 1.6]}
+        dpr={[1, 1.5]}
         camera={{ position: [focus.x - 4.8, 4.8, focus.z + 6.9], fov: 40, near: 0.05, far: 650 }}
-        gl={{ antialias: true, powerPreference: 'high-performance' }}
+        gl={{ antialias: true, alpha: false, stencil: false, powerPreference: 'high-performance' }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = SRGBColorSpace
           gl.toneMapping = ACESFilmicToneMapping
-          gl.toneMappingExposure = 0.98
-          gl.setClearColor(new Color('#9aafbd'))
+          gl.toneMappingExposure = 0.94
+          gl.setClearColor(new Color('#aebdc4'))
         }}
       >
-        <fog attach="fog" args={['#a6b4bb', 72, 250]} />
-        <Sky distance={420} sunPosition={[65, 30, -26]} inclination={0.49} azimuth={0.2}
-          turbidity={4.5} rayleigh={1.18} mieCoefficient={0.006} mieDirectionalG={0.76} />
-        <hemisphereLight args={['#edf6fa', '#435047', 1.52]} />
-        <ambientLight color="#dce8ed" intensity={0.26} />
-        <directionalLight castShadow position={[focus.x - 13, 25, 14]} intensity={3.05}
-          shadow-mapSize-width={2048} shadow-mapSize-height={2048}
-          shadow-camera-near={1} shadow-camera-far={70}
-          shadow-camera-left={-32} shadow-camera-right={32}
-          shadow-camera-top={25} shadow-camera-bottom={-25} />
-        <FollowCameraRig focus={focus} shot={cue.camera}
-          followVehicleId={(cameraFollow === 'selected' ? selectedVehicleId : accidentVehicleId)
-            ?? accidentVehicleId ?? selectedVehicleId ?? null}
-          animationChannel={animationChannel} resetToken={cameraResetToken} onStatus={setCameraStatus} />
+        <fog attach="fog" args={['#aebcc2', 62, 218]} />
+        <Sky distance={430} sunPosition={[-58, 34, -30]} inclination={0.5} azimuth={0.16}
+          turbidity={5.2} rayleigh={1.45} mieCoefficient={0.0055} mieDirectionalG={0.79} />
+        <UrbanDaylight focus={cameraFocus} />
+        <FollowCameraRig focus={cameraFocus} shot={cameraShot}
+          followVehicleId={comparisonOverview ? null
+            : (cameraFollow === 'selected' ? selectedVehicleId : accidentVehicleId)
+              ?? accidentVehicleId ?? selectedVehicleId ?? null}
+          animationChannel={animationChannel} fixedVehicles={fixedVehicles}
+          resetToken={cameraResetToken} onStatus={setCameraStatus} />
         <Suspense fallback={null}>
           <Road3D layout="highway" />
           <VehicleFleet3D vehicles={vehicles} animationChannel={animationChannel}
+            fixedVehicles={fixedVehicles}
             selectedVehicleId={selectedVehicleId} accidentVehicleId={accidentVehicleId}
             relevantIds={candidateIds} notifiedIds={notifiedIds}
             stage={stage} elapsedMs={elapsedMs}
             interactive={interactive} onVehicleSelect={onVehicleSelect} />
           <IncidentAnalysis3D focus={focus} progress={cue.riskProgress} />
+          {stage === 'ai' && corridorRadiusM && sourceVehicle && <RiskCorridor3D
+            focus={focus} sourceY={sourceVehicle.y} radiusM={corridorRadiusM}
+            laneScope={corridorLaneScope} />}
           <ShockwaveEffect3D events={showEvent ? events : []} animationChannel={animationChannel}
             active={showShockwave} layout="highway" />
-          <Message3D messages={messages} vehicles={vehicles} animationChannel={animationChannel}
+          <Message3D messages={evidenceError ? [] : messages} vehicles={vehicles}
+            animationChannel={animationChannel}
+            fixedVehicles={fixedVehicles}
             tone={messageTone} layout="highway" revealProgress={cue.linkRevealProgress}
             priorityByVehicle={priorityByVehicle} />
         </Suspense>
       </Canvas>
+      {evidenceError && <div className="scene-evidence-error" role="alert">
+        证据时间不同步：通信端点缺少对应车辆，已停止绘制异常连线。
+      </div>}
       {showCameraControls && <div className="camera-control-status" aria-live="polite">
         <span>{cameraStatus.mode === 'directed' ? '自动机位'
           : cameraStatus.mode === 'returning' ? '正在恢复视角'

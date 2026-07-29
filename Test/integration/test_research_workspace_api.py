@@ -1,7 +1,12 @@
 """Research experiment and deterministic copilot API coverage."""
 
+import json
+from pathlib import Path
+
+import pytest
 from fastapi.testclient import TestClient
 
+import app.model_registry as model_registry
 from app.main import app
 
 
@@ -90,7 +95,9 @@ def test_local_copilot_cites_structured_evidence() -> None:
     result = response.json()
     assert result["mode"] == "local"
     assert "vehicle_002" in result["answer"]
-    assert any(item["source"] == "decision.selected_receivers" for item in result["evidence"])
+    assert any(
+        item["source"] == "decision.selected_receivers" for item in result["evidence"]
+    )
 
 
 def test_pressure_presets_are_allowlisted_and_describe_ood_status() -> None:
@@ -111,10 +118,33 @@ def test_pressure_presets_are_allowlisted_and_describe_ood_status() -> None:
     assert client.get("/api/v1/experiments/presets/unknown").status_code == 404
 
 
-def test_presentation_model_registry_fails_closed_for_rejected_legacy_model() -> None:
+def test_presentation_model_registry_fails_closed_for_rejected_legacy_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_path = tmp_path / model_registry.PRESENTATION_MODEL
+    manifest_path = tmp_path / model_registry.PRESENTATION_MANIFEST
+    model_path.parent.mkdir(parents=True)
+    model_path.write_bytes(b"legacy-model")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "eligible": True,
+                "acceptance": {"passed": True},
+                "action_mode": "individual",
+                "observation_schema_version": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(model_registry, "BACKEND_ROOT", tmp_path)
+    model_registry._validated_status.cache_clear()
+
     result = TestClient(app).get("/api/v1/demo/model-status")
 
     assert result.status_code == 200
     assert result.json()["eligible"] is False
-    assert result.json()["model"] == "experiments/highway_corridor/champion/model_best.zip"
+    assert (
+        result.json()["model"] == "experiments/highway_corridor/champion/model_best.zip"
+    )
     assert result.json()["reason"]
+    model_registry._validated_status.cache_clear()
