@@ -3,13 +3,18 @@ import { describe, it } from 'node:test'
 
 import {
   comparisonMetrics,
+  comparisonModeAt,
   conclusionFor,
   findIncidentPair,
-  freezesEvidenceFrame,
   presentationCueAt,
   selectionPrecision,
   stageAt,
 } from '../../FrontEnd/src/components/Presentation/presentationTimeline'
+import {
+  decisionPipelineData,
+  traceSeries,
+} from '../../FrontEnd/src/components/Presentation/AcademicEvidence'
+import { buildLiveTelemetry } from '../../FrontEnd/src/hooks/useLiveComparisonTelemetry'
 import {
   aggregateDirectedTransmissions,
   linkLifecycleAt,
@@ -30,11 +35,13 @@ import {
 } from '../../FrontEnd/src/components/ThreeD/vehiclePresentationColors'
 import {
   beginManualCamera,
-  cameraCountdownMs,
-  cameraStateAt,
+  clampCameraTarget,
   endManualCamera,
+  requestDirectedCamera,
+  settleDirectedCamera,
 } from '../../FrontEnd/src/components/ThreeD/cameraControl'
 import type { ComparisonPair, StateUpdateMessage } from '../../FrontEnd/src/types/simulation'
+import { RESEARCH_EVIDENCE_FRAME_FROZEN } from '../../FrontEnd/src/types/research'
 
 function update(method: 'ai' | 'broadcast', messages: number): StateUpdateMessage {
   return {
@@ -98,6 +105,10 @@ describe('highway presentation vehicle colors', () => {
 })
 
 describe('highway comparison evidence', () => {
+  it('freezes laboratory evidence so messages and vehicle positions use one frame', () => {
+    assert.equal(RESEARCH_EVIDENCE_FRAME_FROZEN, true)
+  })
+
   it('uses one synchronized incident and reports real reductions', () => {
     const pair: ComparisonPair = { ai: update('ai', 3), baseline: update('broadcast', 8) }
     assert.equal(findIncidentPair([pair]), pair)
@@ -133,22 +144,85 @@ describe('highway comparison evidence', () => {
 })
 
 describe('academic presentation choreography', () => {
-  it('keeps the five-stage contract and exposes deterministic sub-stage cues', () => {
+  it('keeps the four-stage contract and exposes deterministic sub-stage cues', () => {
     assert.equal(stageAt(4_999), 'normal')
     assert.equal(stageAt(5_000), 'accident')
-    assert.equal(stageAt(11_000), 'broadcast')
-    assert.equal(stageAt(20_000), 'ai')
+    assert.equal(stageAt(11_000), 'comparison')
+    assert.equal(stageAt(20_000), 'comparison')
     assert.equal(stageAt(30_000), 'summary')
-    assert.equal(freezesEvidenceFrame('accident'), false)
-    assert.equal(freezesEvidenceFrame('broadcast'), true)
-    assert.equal(freezesEvidenceFrame('ai'), true)
-    assert.equal(freezesEvidenceFrame('summary'), false)
     assert.equal(presentationCueAt(11_000).linkRevealProgress, 0)
     assert(presentationCueAt(14_000).linkRevealProgress > 0.99)
-    assert.equal(presentationCueAt(20_000).linkRevealProgress, 0)
-    assert(presentationCueAt(23_200).linkRevealProgress > 0.99)
+    assert(presentationCueAt(20_000).linkRevealProgress > 0.99)
+    assert.equal(presentationCueAt(30_000).linkRevealProgress, 1)
     assert.equal(presentationCueAt(30_450).summaryMetricCount, 1)
     assert.equal(presentationCueAt(35_300).showSummaryTagline, true)
+  })
+
+  it('enters synchronized comparison at the summary boundary while preserving manual control', () => {
+    assert.equal(comparisonModeAt('comparison', null), true)
+    assert.equal(comparisonModeAt('summary', null), true)
+    assert.equal(comparisonModeAt('summary', false), false)
+    assert.equal(comparisonModeAt('normal', true), true)
+  })
+
+  it('derives the four-step academic decision chain only from the real state update', () => {
+    const ai = update('ai', 3)
+    ai.events[0].severity = 0.85
+    ai.attention_weights = [{ vehicle_id: 'v2', event_id: 'e0', weight: 0.72 }]
+    ai.decision.action_mode = 'directional_corridor'
+    ai.decision.corridor_radius_m = 300
+    ai.decision.corridor_lane_scope = 'same_and_adjacent'
+    ai.decision.bandwidth_fraction = 0.4
+    const steps = decisionPipelineData(ai)
+    assert.equal(steps.length, 4)
+    assert.match(steps[0].primary, /严重度 0.85/)
+    assert.match(steps[1].primary, /v2.*72.0%/)
+    assert.match(steps[2].primary, /300 m.*同车道 \+ 相邻/)
+    assert.match(steps[2].secondary, /40%带宽/)
+    assert.match(steps[3].primary, /3 辆被选/)
+  })
+
+  it('builds synchronized live traces from pair timestamps without inventing samples', () => {
+    const first: ComparisonPair = { ai: update('ai', 2), baseline: update('broadcast', 7) }
+    const second: ComparisonPair = {
+      ai: { ...update('ai', 3), timestamp: 4 },
+      baseline: { ...update('broadcast', 8), timestamp: 4 },
+    }
+    const series = traceSeries([first, second])
+    assert.deepEqual(series.map((point) => point.progress), [0, 1])
+    assert.deepEqual(series.map((point) => point.aiReceivers), [2, 3])
+    assert.deepEqual(series.map((point) => point.baselineReceivers), [7, 8])
+  })
+
+  it('derives current-frame telemetry and PPO funnel from synchronized evidence', () => {
+    const pair: ComparisonPair = { ai: update('ai', 3), baseline: update('broadcast', 8) }
+    pair.ai.decision.receiver_relations = [
+      { id: 'v1', distance_m: 30, longitudinal_m: -30, lateral_m: 0, lane_relation: 'same',
+        risk_class: 'following_lane', selected: true, outcome: 'selected', corridor_limit_m: 300 },
+      { id: 'v2', distance_m: 50, longitudinal_m: 50, lateral_m: 0, lane_relation: 'same',
+        risk_class: 'ahead', selected: false, outcome: 'ahead', corridor_limit_m: 300 },
+    ]
+    pair.ai.decision.action_mode = 'directional_corridor'
+    pair.ai.decision.corridor_radius_m = 300
+    pair.ai.decision.corridor_lane_scope = 'same_and_adjacent'
+    pair.ai.decision.bandwidth_fraction = 0.4
+    pair.ai.events[0].source_vehicle_id = 'v0'
+    pair.ai.events[0].pre_brake_speed_kmh = 96
+    pair.ai.events[0].post_brake_speed_kmh = 18
+    const telemetry = buildLiveTelemetry(pair, [pair], 'v0')
+    assert.equal(telemetry.baseline.selectedCount, 8)
+    assert.equal(telemetry.ai.selectedCount, 3)
+    assert.equal(telemetry.funnel.behindSameDirection, 1)
+    assert.equal(telemetry.action.corridorRadiusM, 300)
+    assert.equal(telemetry.baseline.priority, 'high')
+    assert.equal(telemetry.baseline.bandwidthFraction, 1)
+    assert.equal(telemetry.ai.bandwidthFraction, 0.4)
+    assert.equal(telemetry.delta.fewerVehicles, 5)
+    assert.equal(telemetry.delta.loadReductionPercent, 62.5)
+    assert.equal(telemetry.accidentSpeedKmh, 18)
+    const partial = buildLiveTelemetry(pair, [pair], 'v0', 0.5)
+    assert.equal(partial.baseline.sentCount, 4)
+    assert.equal(partial.ai.sentCount, 2)
   })
 
   it('stages link propagation and orders AI links by existing attention evidence', () => {
@@ -163,17 +237,21 @@ describe('academic presentation choreography', () => {
 })
 
 describe('follow camera takeover', () => {
-  it('keeps manual control for six seconds before returning to the directed shot', () => {
-    assert.deepEqual(beginManualCamera(), { mode: 'manual_follow', resumeAtMs: null })
-    const released = endManualCamera(1_000)
-    assert.equal(cameraCountdownMs(released, 2_500), 4_500)
-    assert.equal(cameraStateAt(released, 6_999).mode, 'manual_follow')
-    assert.equal(cameraStateAt(released, 7_000).mode, 'returning')
+  it('keeps manual control until the user explicitly requests a directed shot', () => {
+    assert.deepEqual(beginManualCamera(), { mode: 'free' })
+    assert.deepEqual(endManualCamera(), { mode: 'free' })
+    assert.equal(requestDirectedCamera().mode, 'returning')
+    assert.equal(settleDirectedCamera().mode, 'directed')
   })
 
   it('allows a new gesture to interrupt camera return immediately', () => {
-    const returning = cameraStateAt(endManualCamera(0), 6_000)
-    assert.equal(returning.mode, 'returning')
-    assert.equal(beginManualCamera().mode, 'manual_follow')
+    assert.equal(requestDirectedCamera().mode, 'returning')
+    assert.equal(beginManualCamera().mode, 'free')
+  })
+
+  it('keeps camera panning near the highway without changing valid targets', () => {
+    assert.deepEqual(clampCameraTarget([160, 4, -6]), [160, 4, -6])
+    assert.deepEqual(clampCameraTarget([-20, -3, -40]), [0, 0, -18])
+    assert.deepEqual(clampCameraTarget([470, 20, 35]), [400, 12, 18])
   })
 })

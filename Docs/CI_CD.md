@@ -16,7 +16,7 @@ GitHub Actions 工作流位于 `.github/workflows/ci.yml`，以下事件会触�
 | 检查名称 | 运行内容 |
 |---|---|
 | `Frontend checks` | `npm ci`、ESLint、TypeScript/Vite 生产构建 |
-| `Backend checks` | 安装后端开发依赖、Ruff lint/格式检查、pytest |
+| `Backend checks` | 安装后端开发依赖、Ruff lint/格式检查、pytest（含公开文档与证据资产一致性） |
 | `Project checks` | 校验根目录一键启动脚本的 Bash 语法 |
 
 同一分支有新提交时，旧的未完成运行会自动取消。工作流使用 npm 与 pip 缓存，并为每个任务设置 10 分钟超时。
@@ -43,7 +43,7 @@ GitHub Actions 工作流位于 `.github/workflows/ci.yml`，以下事件会触�
    ```
 
 3. push 功能分支并通过 pull request 合并。
-4. CI 两项检查全部通过后再进行审查与合并；检查失败时先在 Actions 日志中定位失败步骤。
+4. CI 三项检查全部通过后再进行审查与合并；检查失败时先在 Actions 日志中定位失败步骤。
 
 ## GitHub 仓库保护设置
 

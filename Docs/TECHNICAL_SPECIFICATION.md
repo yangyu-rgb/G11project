@@ -1,112 +1,110 @@
-# 技术规范
+# Technical Specification / 技术规范
 
-## 1. 项目定位与交付物
+## 1. Scope
 
-- 项目名称：面向6G自动驾驶的AI驱动V2X智能通信优化。
-- 核心目标：利用 Transformer 建模车辆、事件与网络状态之间的风险关系，再由 PPO 联合决定消息接收者、优先级与带宽档位。
-- 最终交付：可复现的交通与通信仿真、模型训练和评估管道、FastAPI 实时服务、React 可视化演示系统及实验报告。
-- 范围边界：本项目完成端到端概念验证，不包含车规硬件部署、真实道路测试或底层蜂窝协议改造。
+The project is an end-to-end research prototype for selective emergency-message scheduling in a simulated V2X highway. Its evidence boundary ends at SUMO traffic simulation, a 3GPP-inspired network abstraction, trained-policy inference, and a browser-based academic demo. It does not modify a cellular protocol stack or claim vehicle deployment readiness.
 
-## 2. 系统组成
+项目交付的是可训练、可评价、可审计、可演示的概念验证系统，而非真实道路通信产品。
 
-### 2.1 Transformer 环境编码器
+## 2. Observation model
 
-- 输入：车辆 token、事件 token，二者使用独立的特征投影。
-- 车辆特征：位置、速度、航向、车道及其他可配置状态。
-- 事件特征：类型、位置、发生时间、严重程度。
-- 架构：标准 Transformer Encoder，默认4层、8个注意力头，隐藏维度256。
-- 输出：一个256维全局环境嵌入，以及每辆候选车辆的256维局部嵌入。
-- 可解释性输出：保留注意力权重，供前端展示车辆与事件之间的关联。
+The observation schema v2 contains padded vehicle features \(V_t\), vehicle mask \(M_t^V\), event features \(E_t\), event mask \(M_t^E\), and network state \(N_t\):
 
-### 2.2 PPO 通信调度器
+\[
+o_t=\{V_t,M_t^V,E_t,M_t^E,N_t\}.
+\]
 
-- 算法：Proximal Policy Optimization（PPO）。
-- 决策粒度：对当前时间窗中的消息进行批量决策。
-- 状态：全局环境嵌入、候选车辆嵌入、消息队列状态、可用带宽及当前网络负载。
-- 动作：候选车辆二进制接收选择、低/中/高三级优先级、十档带宽份额。
-- Actor：`state_dim → 512 → 256 → action logits`。
-- Critic：`state_dim → 512 → 256 → 1`。
-- 默认训练参数：学习率 `3e-4`、clip `0.2`、entropy coefficient `0.01`、batch size `64`、每次更新10个epoch；参数均由配置文件管理。
+Vehicle and event features are projected separately and combined under masked self-attention:
 
-### 2.3 SUMO 与环境封装
+\[
+H_t=\operatorname{Transformer}([\phi_v(V_t);\phi_e(E_t)]).
+\]
 
-- M1先生成离线SUMO轨迹训练初始策略，M2再通过TraCI进行在线微调和验证。
-- 环境遵循Gymnasium接口：`reset()`返回初始观察，`step(action)`返回观察、奖励、终止标志、截断标志及诊断信息。
-- 起步场景为30–50辆车的高速与单交叉口；目标场景扩展到100辆车的多交叉口；数百辆车的真实地图属于可选扩展。
-- 支持急刹、障碍物和交叉口碰撞预警，并预留自定义事件类型。
+The mask is part of the model contract: padded tokens cannot become receivers or contribute as real traffic actors.
 
-### 2.4 网络抽象层
+## 3. Structured PPO action
 
-- 使用3GPP TR 38.901相关公式构造城市与高速场景的简化信道模型。
-- 时延由决策、基础、传播、排队和传输时延组成，各项分别记录后再汇总。
-- 丢包率由距离、信道负载、干扰和接收信号质量共同决定。
-- 带宽状态为总带宽扣除当前占用，PPO只在离散档位中分配。
-- 网络层保持独立接口，后续可在不改变调度器公共输入输出的前提下接入NS-3。
+The accepted action mode is `directional_corridor`:
 
-### 2.5 服务与可视化
+\[
+a_t=(r_t,\ell_t,p_t,b_t),
+\]
 
-- FastAPI提供健康检查、仿真状态查询、场景和控制接口以及实时WebSocket流。
-- `WS /ws/simulation` 在M0阶段每秒发送测试消息；后续保持端点不变，将消息扩展为真实仿真状态。
-- M0测试消息格式：
+where
 
-```json
-{
-  "type": "test",
-  "timestamp": 1234567890.123,
-  "message": "Hello from backend"
-}
-```
+\[
+r_t\in\{75,150,225,300,375\}\text{ m},\quad
+\ell_t\in\{\text{same lane},\text{same+adjacent lanes}\},
+\]
 
-- 完整状态消息将包含车辆、事件、消息传播、指标、注意力权重和调度决策。
-- React前端以Three.js/React Three Fiber渲染三维高速场景，并使用React界面叠层展示指标、阶段说明和控制；正式演示不再保留2D地图运行时。
-- 重点视图包括消息传播动画、注意力关联、调度决策、实时指标和AI/基线同步对比。
+\[
+p_t\in\{0,1,2\},\qquad
+b_t\in\{0.1,0.2,\ldots,1.0\}.
+\]
 
-## 3. 数据与实验设计
+The PPO clipped surrogate is
 
-### 3.1 数据生成与划分
+\[
+L^{\mathrm{CLIP}}(\theta)=\mathbb E_t\left[
+\min\left(\rho_t(\theta)\hat A_t,
+\operatorname{clip}(\rho_t(\theta),1-\epsilon,1+\epsilon)\hat A_t\right)
+\right].
+\]
 
-- 完整目标为50个场景配置，每个配置使用10个随机种子运行，共约500轮；M1可先使用100–200轮验证管道。
-- 配置1–35用于训练，36–42用于验证，43–50用于测试。
-- 同一场景配置的所有随机种子必须属于同一个集合，禁止跨训练、验证和测试集合，避免数据泄漏。
-- 按高速/城市道路类型分层，并额外评估跨道路类型泛化。
+Geometry maps the action to receiver identities. A vehicle must be behind the incident along the relevant travel direction and satisfy lane/radius scope; forward and opposite-direction vehicles are illegal even if their Euclidean distance is small.
 
-### 3.2 受影响车辆
+## 4. Reward
 
-受影响车辆由可配置的混合规则判定：事件距离、车辆速度和航向、相对运动趋势、车道关系及事件类型。该规则同时用于生成监督信号、计算覆盖率和判断漏送。
+The configurable multi-objective reward is expressed as
 
-### 3.3 奖励函数
+\[
+R_t=w_dD_t+w_cC_t-w_lL_t-w_oO_t-w_mM_t-w_bB_t-w_sS_t-w_fF_t,
+\]
 
-```text
-R = α·有效送达 + β·覆盖率 - γ·时延 - δ·通信开销 - ε·漏送
-```
+where \(D_t\) is effective delivery, \(C_t\) affected-vehicle coverage, \(L_t\) latency, \(O_t\) redundant-message overhead, \(M_t\) missed-risk penalty, \(B_t\) bandwidth cost, \(S_t\) safety violation penalty, and \(F_t\) fairness penalty. Exact weights are experiment configuration, not UI constants.
 
-- 奖励权重只使用训练集与验证集选择，测试集保持锁定。
-- 所有分项、权重和总奖励都写入实验日志，确保可解释和可复现。
+## 5. Network abstraction
 
-### 3.4 基线和评价指标
+The network layer models delivery probability, segmented delay, contention/load effects, and resource cost using highway geometry and 5.9 GHz configuration. It remains an abstraction rather than a packet-level implementation. P95 latency measures valid delivered-message latency; channel cost includes the allocated resource fraction and differs from raw receiver count.
 
-基线方法：全量广播、固定距离筛选、预设紧急度优先。
+## 6. Baseline contracts
 
-核心指标：
+| ID | Receiver rule | Resource rule |
+|---|---|---|
+| `broadcast` | all non-sender vehicles | full bandwidth, high priority |
+| `distance` | all vehicles within 300 m | full bandwidth, high priority |
+| `urgency` | same 300 m set | severity-dependent priority/bandwidth |
+| `fixed_directional_corridor` | fixed 300 m rear corridor | 50% bandwidth, high priority |
+| `ai` | learned radius/lane scope | learned priority/bandwidth |
 
-- 端到端时延：均值、P50、P95、P99和超时率。
-- 有效送达率：在时限内送达且接收者确实受影响。
-- 受影响车辆覆盖率。
-- 通信开销：发送消息数及每次有效送达对应的消息数。
-- 紧急响应及时率：安全时间窗内完成传播的事件比例。
+All methods are evaluated from the same scenario state and network seed. The live presentation exposes AI versus one selected baseline; batch evaluation includes all five.
 
-实验至少包含完整方法与三种基线的性能表、仅Transformer/仅RL/完整方法的消融实验，以及同类型和跨道路类型的泛化评估。
+## 7. Model eligibility
 
-## 4. 环境与复现
+The formal inference path checks:
 
-- 开发基线：Python 3.12、Node.js 22、SUMO稳定版。
-- ML/RL：PyTorch、Gymnasium、Stable-Baselines3。
-- 本地Mac CPU必须支持安装、导入和小规模验证；大规模训练优先使用组员GPU，可选云端GPU。
-- 所有依赖记录在 `BackEnd/requirements.txt` 和 `BackEnd/environment.yml`。
-- 前后端统一通过根目录 `./start.sh` 启动；训练和实验使用独立脚本与配置。
+- checkpoint and manifest existence;
+- SHA-256 integrity;
+- observation schema v2;
+- `directional_corridor` action compatibility;
+- protocol `directional-v2` and metric schema v2;
+- held-out evaluation artifact;
+- receiver/action diversity;
+- nearest-follower coverage;
+- zero forward notification.
 
-## 5. 结果陈述规则
+The currently referenced accepted checkpoint hash is `b4119963acd28d87283ca5d9108897621da3a8aec0ba0dccb3cdac49758f2465`. A replacement model must publish its own manifest and must not inherit this value.
 
-- 在真实实验完成前，覆盖率、时延、开销和推理时间只能写成目标值或演示占位值。
-- 不得把“降低50%”“时延30ms”等未验证数字陈述为已有结果。
-- 最终演示和报告中的所有数字必须能追溯到固定配置、随机种子、原始日志和生成脚本。
+## 8. API and frontend responsibilities
+
+FastAPI owns model eligibility, scenario/session state, synchronized AI/baseline computation, and WebSocket evidence. React owns user input and presentation state. Three.js renders vehicles, road environment, directional communication links, highlights, camera control, and evidence panels. Continuous visual interpolation may occur between backend keyframes; inference and metric truth may not be fabricated client-side.
+
+## 9. Evaluation semantics
+
+For affected set \(A\) and receiver set \(R\):
+
+\[
+\mathrm{Coverage}=\frac{|A\cap R|}{|A|},\quad |A|>0.
+\]
+
+If \(|A|=0\), coverage is undefined and is excluded from its aggregate mean. Every aggregate therefore reports a metric-specific valid sample count. See [Experimental Protocol](EXPERIMENTS.md).

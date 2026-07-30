@@ -5,7 +5,7 @@ import type {
 
 export const PRESENTATION_DURATION_MS = 38_000
 
-export type PresentationStage = 'normal' | 'accident' | 'broadcast' | 'ai' | 'summary'
+export type PresentationStage = 'normal' | 'accident' | 'comparison' | 'summary'
 
 export type CameraShot = {
   offset: readonly [number, number, number]
@@ -33,13 +33,12 @@ export type ComparisonMetric = {
 export function stageAt(elapsedMs: number): PresentationStage {
   if (elapsedMs < 5_000) return 'normal'
   if (elapsedMs < 11_000) return 'accident'
-  if (elapsedMs < 20_000) return 'broadcast'
-  if (elapsedMs < 30_000) return 'ai'
+  if (elapsedMs < 30_000) return 'comparison'
   return 'summary'
 }
 
-export function freezesEvidenceFrame(stage: PresentationStage): boolean {
-  return stage === 'broadcast' || stage === 'ai'
+export function comparisonModeAt(stage: PresentationStage, override: boolean | null): boolean {
+  return override ?? (stage === 'comparison' || stage === 'summary')
 }
 
 function clamp01(value: number): number {
@@ -63,13 +62,12 @@ export function presentationCueAt(elapsedMs: number): PresentationCue {
   const elapsed = Math.max(0, Math.min(PRESENTATION_DURATION_MS, elapsedMs))
   const stage = stageAt(elapsed)
   const stageBounds: Record<PresentationStage, readonly [number, number]> = {
-    normal: [0, 5_000], accident: [5_000, 11_000], broadcast: [11_000, 20_000],
-    ai: [20_000, 30_000], summary: [30_000, PRESENTATION_DURATION_MS],
+    normal: [0, 5_000], accident: [5_000, 11_000], comparison: [11_000, 30_000],
+    summary: [30_000, PRESENTATION_DURATION_MS],
   }
   const [start, end] = stageBounds[stage]
-  const linkRevealProgress = stage === 'broadcast'
-    ? easedProgress(elapsed, 11_450, 2_350)
-    : stage === 'ai' ? easedProgress(elapsed, 20_650, 2_250) : 0
+  const linkRevealProgress = stage === 'comparison'
+    ? easedProgress(elapsed, 11_450, 2_350) : stage === 'summary' ? 1 : 0
   return {
     stage,
     stageProgress: clamp01((elapsed - start) / (end - start)),
@@ -85,8 +83,7 @@ export function presentationCueAt(elapsedMs: number): PresentationCue {
 export const STAGE_LABELS: Record<PresentationStage, string> = {
   normal: '正常车流',
   accident: '事故发生',
-  broadcast: '传统全量广播',
-  ai: 'AI选择性广播',
+  comparison: '同步算法对比',
   summary: '结果对比',
 }
 

@@ -12,7 +12,7 @@ import {
 } from '../components/SceneEditor/PresetScenes'
 import type { EditorScenario, EditorScenarioResponse } from '../components/SceneEditor/sceneTypes'
 import { useAnimationRuntime } from '../runtime/AnimationRuntimeContext'
-import type { ComparisonPair } from '../types/simulation'
+import type { ComparisonBaseline, ComparisonPair } from '../types/simulation'
 import { DEFAULT_MODEL, useSimulationSession } from './useSimulationSession'
 
 export type PresentationPhase = 'selecting' | 'preparing' | 'exploring' | 'playing' | 'paused' | 'complete'
@@ -47,6 +47,7 @@ export function usePresentationDemo(template: EditorScenario) {
     () => recommendedIncidentVehicleId(template) || null,
   )
   const [inspectedVehicleId, setInspectedVehicleId] = useState<string | null>(null)
+  const [selectedBaseline, setSelectedBaseline] = useState<ComparisonBaseline>('broadcast')
   const [scenario, setScenario] = useState<EditorScenario>(template)
   const [pairs, setPairs] = useState<ComparisonPair[]>([])
   const [elapsedMs, setElapsedMs] = useState(0)
@@ -130,14 +131,14 @@ export function usePresentationDemo(template: EditorScenario) {
         model: modelStatus.model,
         speed: 5,
         mode: 'comparison',
-        baseline: 'broadcast',
+        baseline: selectedBaseline,
       })
     } catch (error) {
       stopSession()
       setPhase('selecting')
       setNotice(error instanceof Error ? error.message : '真实模型不可用')
     }
-  }, [modelStatus, phase, selectedVehicleId, startSession, stopSession, template])
+  }, [modelStatus, phase, selectedBaseline, selectedVehicleId, startSession, stopSession, template])
 
   useEffect(() => {
     if (phase !== 'preparing') return
@@ -165,9 +166,16 @@ export function usePresentationDemo(template: EditorScenario) {
       setNotice('AI与基线证据时间戳不同步；演示已停止，未绘制通信连线。')
       return
     }
+    const wrongMethod = comparisonHistory.find((pair) => pair.baseline.method !== selectedBaseline)
+    if (wrongMethod) {
+      stopSession()
+      setPhase('selecting')
+      setNotice('后端返回的基线方法与演示配置不一致；结果已拒绝加载。')
+      return
+    }
     loadPlayback(comparisonHistory, 'real', 'explore')
-    setNotice('真实PPO与全量广播结果已同步，可自由选择证据书签。')
-  }, [comparisonHistory, completed, loadPlayback, phase, stopSession])
+    setNotice('真实PPO与所选基线结果已同步，可自由选择证据书签。')
+  }, [comparisonHistory, completed, loadPlayback, phase, selectedBaseline, stopSession])
 
   useEffect(() => {
     if (phase !== 'playing') return
@@ -239,6 +247,8 @@ export function usePresentationDemo(template: EditorScenario) {
     mode,
     selectedVehicleId,
     setSelectedVehicleId,
+    selectedBaseline,
+    setSelectedBaseline,
     inspectedVehicleId,
     setInspectedVehicleId,
     scenario,

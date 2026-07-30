@@ -1,6 +1,10 @@
 import type { EditorScenario } from '../components/SceneEditor/sceneTypes'
 import type { ComparisonPair, StateUpdateMessage } from './simulation'
 
+// The laboratory is an evidence inspector: vehicles and message endpoints must
+// always come from the same selected StateUpdateMessage, never a stale replay channel.
+export const RESEARCH_EVIDENCE_FRAME_FROZEN = true
+
 export type NetworkOverrides = {
   critical_radius_m: number
   total_bandwidth_mbps: number

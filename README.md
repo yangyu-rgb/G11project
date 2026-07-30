@@ -1,269 +1,347 @@
-# G11project
+# Transformer-PPO Selective V2X Communication for 6G Autonomous Driving
 
-**AI-Driven Intelligent V2X Communication Optimization for Autonomous Driving in 6G Networks**
+**面向6G自动驾驶的 Transformer-PPO 选择性 V2X 通信调度**
 
-面向6G自动驾驶的人工智能驱动车联网智能通信优化项目。采用 Transformer 环境理解与强化学习调度的融合方法，实现安全消息的智能选择性传播。
+[![CI](https://github.com/yangyu-rgb/G11project/actions/workflows/ci.yml/badge.svg)](https://github.com/yangyu-rgb/G11project/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](BackEnd/pyproject.toml)
+[![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)](FrontEnd/package.json)
+[![SUMO](https://img.shields.io/badge/Eclipse%20SUMO-1.27.1-2F6F9F)](https://sumo.dlr.de/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-research%20prototype-orange)](#limitations-and-scope)
 
----
+An end-to-end research prototype for learning **who should receive an emergency V2X message,
+with what priority, and with how much communication resource** under dynamic highway conditions.
+The system combines SUMO traffic traces, a 3GPP-inspired network abstraction, Transformer state
+encoding, PPO scheduling, a fail-closed model registry, and an interactive 3D evidence interface.
 
-## 项目架构
+本项目研究动态高速场景中紧急消息的接收者、优先级和带宽联合决策，并提供从仿真、训练、验收到三维答辩演示的完整链路。
 
-前后端分离 + ML训练管道 + 可视化演示系统：
+<p align="center">
+  <img src="Docs/assets/demo/synchronized-comparison.webp" width="96%" alt="Synchronized V2X comparison between an urgency baseline and the learned Transformer-PPO policy">
+</p>
+
+## Abstract
+
+Broadcasting safety messages to every connected vehicle is simple but can create unnecessary
+traffic and contention. Fixed-radius filtering reduces the communication domain but does not model
+directional risk or adapt resource allocation to context. This project encodes padded vehicle,
+event, and network observations with a Transformer and uses Proximal Policy Optimization (PPO) to
+select a physically valid rear-risk corridor. The learned action jointly controls corridor radius,
+lane scope, priority, and bandwidth fraction. A synchronized evaluation pipeline compares the
+policy with broadcast, distance, urgency, and fixed-directional baselines using isolated held-out
+scenarios. A React/Three.js interface presents the same decision evidence as directional links,
+vehicle states, live telemetry, and auditable per-vehicle explanations.
+
+中文摘要：项目使用Transformer理解车辆—事件—网络关系，再由PPO输出方向风险走廊和通信资源，在保证风险车辆覆盖的同时减少无效传播。
+
+## Research Questions
+
+1. Can a learned policy preserve affected-vehicle coverage while reducing redundant V2X traffic?
+2. Can receiver geometry, priority, and bandwidth be optimized as one structured action?
+3. Does the learned policy adapt its action across unseen incident positions without notifying
+   vehicles ahead of the incident?
+4. Can every result shown in the demo be traced back to a synchronized state, model manifest, and
+   held-out evaluation artifact?
+
+研究问题聚焦覆盖率、通信效率、上下文自适应和结果可追溯性，而不是单纯追求视觉效果。
+
+## Key Contributions
+
+- **Structured Transformer-PPO policy.** Vehicle, event, mask, and network tensors are encoded by a
+  Transformer feature extractor before PPO actor and critic heads.
+- **Directional action space.** PPO selects rear-corridor radius, same-lane or adjacent-lane scope,
+  three-level priority, and one of ten bandwidth fractions.
+- **Auditable safety gate.** A champion is accepted only when schema, hash, held-out metrics,
+  nearest-follower coverage, action diversity, and zero-forward-notification checks all pass.
+- **Unified comparison protocol.** AI and deterministic baselines consume the same scenario,
+  network seed, and timestamp, with undefined coverage cases excluded rather than converted to zero.
+- **Evidence-oriented 3D interface.** The frontend exposes synchronized comparison, current resource
+  actions, held-out results, and a frozen-frame validation laboratory.
+
+核心贡献是将风险关系理解、方向接收范围和无线资源调度统一为可训练、可审计、可演示的端到端系统。
+
+## System Overview
+
+<p align="center">
+  <img src="Docs/assets/architecture/system-overview.svg" width="96%" alt="End-to-end architecture of the G11 V2X research prototype">
+</p>
 
 ```text
-G11project/
-├── FrontEnd/          # React + TypeScript + Vite 前端界面
-├── BackEnd/           # FastAPI 后端 + ML/RL 核心算法
-│   ├── app/           # FastAPI 服务与 WebSocket
-│   ├── src/           # 核心算法实现
-│   │   ├── models/         # Transformer + PPO 模型
-│   │   ├── environment/    # SUMO 仿真 + 网络抽象层
-│   │   ├── training/       # 训练循环
-│   │   ├── evaluation/     # 指标计算与基线对比
-│   │   └── deployment/     # 模型导出
-│   ├── configs/       # 配置文件与场景定义
-│   ├── experiments/   # 实验日志和结果（git忽略）
-│   ├── notebooks/     # Jupyter notebooks
-│   └── scripts/       # 工具脚本
-├── Test/              # 单元/集成/端到端测试
-├── Docs/              # 技术文档与协作规范
-├── README.md          # 项目入口说明（本文件）
-├── ARCHITECTURE.md    # 系统架构详细说明
-├── ARCHITECT_CODEX_BRIDGE.md  # 架构师-Codex 任务桥接
-├── task_memory.md     # 工作交接历史记录
-└── TODO.md            # 项目路线图与待办事项
+SUMO scenarios and traces
+        │
+        ▼
+Gymnasium V2X environment ──► vehicle/event/network observations
+        │
+        ▼
+Transformer encoder ──► global and per-vehicle embeddings
+        │
+        ▼
+PPO policy ──► radius, lane scope, priority, bandwidth
+        │
+        ▼
+Network model + reward + held-out evaluation
+        │
+        ▼
+FastAPI/WebSocket ──► synchronized React/Three.js evidence interface
 ```
 
----
+系统严格区分训练、离线评价和现场推理：演示只加载已训练模型，不在播放期间更新策略。
 
-## 快速开始
+## Method
 
-### 前置要求
-- Python 3.12（项目基准版本）
-- Node.js 18+
-- SUMO 交通仿真器（安装说明见下方）
+### Observation and Transformer encoding
 
-### 一键启动
+At time $t$, the environment produces padded observations
 
-首次启动会自动安装前端依赖，并创建包含仿真和PPO运行依赖的后端虚拟环境。
+\[
+o_t = \{V_t, M^V_t, E_t, M^E_t, N_t\},
+\]
 
-第一次执行 `./start.sh` 后，如果终端提示演示资源尚未准备，请保持服务运行并另开终端执行以下命令。生成与训练不会由启动脚本自动执行：
+where $V_t$ and $E_t$ are vehicle and event feature tensors, $M^V_t$ and $M^E_t$
+are validity masks, and $N_t$ represents available bandwidth and network load. Separate feature
+projections are followed by masked self-attention:
+
+\[
+H_t = \operatorname{Transformer}([\phi_v(V_t);\phi_e(E_t)]).
+\]
+
+### PPO structured action
+
+The presentation champion uses the four-dimensional action
+
+\[
+a_t=(r_t,\ell_t,p_t,b_t),
+\]
+
+with corridor radius $r_t\in\{75,150,225,300,375\}$ metres, lane scope
+$\ell_t\in\{\text{same},\text{same+adjacent}\}$, priority $p_t\in\{0,1,2\}$,
+and bandwidth fraction $b_t\in\{0.1,\ldots,1.0\}$. Receiver identities are derived from this
+action and relative road geometry; vehicles ahead, moving in the opposite direction, or outside the
+selected corridor are not legal receivers.
+
+PPO optimizes the clipped objective
+
+\[
+L^{\mathrm{CLIP}}(\theta)=
+\mathbb{E}_t\left[\min\left(
+\rho_t(\theta)\hat A_t,
+\operatorname{clip}(\rho_t(\theta),1-\epsilon,1+\epsilon)\hat A_t
+\right)\right].
+\]
+
+### Multi-objective reward
+
+The full reward combines effective delivery and affected-vehicle coverage with latency,
+communication overhead, missed receivers, resource use, safety violations, and fairness penalties:
+
+\[
+R_t=w_dD_t+w_cC_t-w_lL_t-w_oO_t-w_mM_t-w_rB_t-w_sS_t-w_fF_t.
+\]
+
+Exact weights are configuration-controlled and are reported with each experiment rather than
+embedded in the interface. See the [technical specification](Docs/TECHNICAL_SPECIFICATION.md).
+
+方法核心不是“只给后车发消息”的固定规则，而是让PPO在合法方向约束中学习走廊尺度、车道范围、优先级和带宽组合。
+
+## Baselines and Evaluation
+
+| Method | Receiver rule | Resource rule | Used in live UI |
+|---|---|---|---|
+| Broadcast | All non-sender vehicles | Fixed high priority, full bandwidth | Yes |
+| Distance | All vehicles within 300 m | Fixed high priority, full bandwidth | Yes |
+| Urgency | Same 300 m receiver set | Severity-driven priority and bandwidth | Yes |
+| Fixed directional corridor | Fixed 300 m rear corridor | Fixed high priority, 50% bandwidth | Offline evaluation |
+| Transformer + PPO | Learned rear corridor and lane scope | Learned priority and bandwidth | Yes |
+
+The principal metrics are affected-vehicle coverage, selection coverage, effective delivery,
+P50/P95/P99 latency, timeout rate, message overhead, normalized channel cost, and timely-event rate.
+
+固定范围与紧急度在当前基线定义中共享接收集合，区别体现在优先级、带宽和信道成本；固定方向走廊用于离线参考。
+
+## Preliminary Held-out Results
+
+The current accepted artifact uses protocol `directional-v2`, metric schema v2, 72 independent
+highway incident configurations, and five methods, producing 360 result rows. Sixty cases contain
+at least one affected vehicle and are eligible for coverage aggregation; zero-affected cases remain
+in the test matrix but are excluded from undefined coverage means.
+
+Evidence status: **preliminary highway-only course-demo evidence**.
+
+| Method | Affected coverage | P95 latency | Msg. overhead | Channel cost |
+|---|---:|---:|---:|---:|
+| **Transformer + PPO** | **1.000** (n=60) | 35.52 ms (n=61) | 1.161 (n=60) | **0.321** (n=60) |
+| Broadcast | 0.833 (n=60) | 52.70 ms (n=72) | 25.552 (n=58) | 25.552 (n=58) |
+| Distance | 0.770 (n=60) | 33.66 ms (n=70) | 3.226 (n=56) | 3.226 (n=56) |
+| Urgency | 0.770 (n=60) | 37.42 ms (n=70) | 3.226 (n=56) | 1.173 (n=56) |
+| Fixed corridor | 0.929 (n=60) | **30.94 ms** (n=60) | **1.017** (n=59) | 0.508 (n=59) |
+
+<p align="center">
+  <img src="Docs/assets/results/heldout-metrics.svg" width="92%" alt="Held-out metric comparison with metric-specific valid sample counts">
+</p>
+
+The champion manifest records 100% nearest-follower coverage across six opportunities, ten receiver
+signatures across twelve unique test incidents, four structured-action signatures, and zero
+notifications to vehicles ahead. These values describe this locked simulated test protocol; they do
+not establish real-road performance.
+
+初步结果仅适用于当前高速单事故、SUMO交通分布和网络抽象模型；城市、多事件、真实信道与车规硬件仍属于后续验证。
+
+## Demo Gallery
+
+| Synchronized comparison | Held-out summary |
+|---|---|
+| ![Synchronized baseline and learned policy](Docs/assets/demo/synchronized-comparison.webp) | ![Held-out results in the final presentation stage](Docs/assets/demo/results-summary.webp) |
+
+| Validation laboratory |
+|---|
+| ![Frozen-frame evidence and receiver audit](Docs/assets/demo/validation-lab.webp) |
+
+The 38-second presentation contains four stages: normal traffic, incident onset, synchronized
+algorithm comparison, and result summary. Camera control remains available during comparison.
+
+演示不是预渲染视频：事故车、对照方法和场景可在入口配置，结果来自同步后端推理与基线计算。
+
+## Quick Start
+
+### Requirements
+
+- Python 3.12 recommended; package metadata supports Python 3.11+
+- Node.js 22
+- Eclipse SUMO 1.27.x with `sumo`, `netgenerate`, `traci`, and `sumolib`
+
+### Start the application
 
 ```bash
-BackEnd/.venv/bin/python BackEnd/scripts/generate_highway_scenario.py --output experiments/test_scenario
-BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py --config configs/training_config.yaml --episodes 10 --output experiments/test_ppo
-```
-
-日常开发使用一条命令同时启动前后端：
-
-```bash
+git clone https://github.com/yangyu-rgb/G11project.git
+cd G11project
 ./start.sh
 ```
 
-按 `Ctrl+C` 同时停止前后端。
+The script creates `BackEnd/.venv`, installs missing frontend packages, and starts:
 
-**默认地址**：
-- 前端：http://localhost:5173
-- 后端：http://localhost:8000
-- API 文档：http://localhost:8000/docs
-- 健康检查：http://localhost:8000/api/v1/health
+- Frontend: <http://localhost:5173>
+- Backend: <http://localhost:8000>
+- OpenAPI: <http://localhost:8000/docs>
+- Health check: <http://localhost:8000/api/v1/health>
 
-**自定义端口**：
-```bash
-FRONTEND_PORT=3000 BACKEND_PORT=9000 ./start.sh
-```
+Model checkpoints and runtime experiment directories are intentionally ignored by Git. Without an
+eligible directional-v2 champion, the frontend remains usable for inspection but the formal AI demo
+fails closed. Follow [Reproducibility](Docs/REPRODUCIBILITY.md) to train and promote a champion.
 
-可配置环境变量：`FRONTEND_HOST`, `FRONTEND_PORT`, `BACKEND_HOST`, `BACKEND_PORT`
+克隆仓库后可直接启动开发环境；正式AI按钮只有在模型、清单、哈希和验收门禁全部一致时才会启用。
 
----
+### Local smoke assets
 
-## 安装依赖
-
-### Python 环境（后端）
-
-```bash
-# 创建虚拟环境（推荐 Python 3.12）
-cd BackEnd
-python3.12 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# 安装依赖
-pip install -r requirements.txt
-```
-
-**核心依赖**：PyTorch, Stable-Baselines3, Gymnasium, SUMO (traci), FastAPI
-
-也可以使用 Conda 创建等价环境：
-
-```bash
-conda env create -f BackEnd/environment.yml
-conda activate g11-v2x
-```
-
-### SUMO 交通仿真器
-
-**macOS**：优先使用 [SUMO 官方安装包](https://sumo.dlr.de/docs/Downloads.php)。也可以使用 Homebrew：
-```bash
-brew tap dlr-ts/sumo
-brew install sumo
-```
-
-**Ubuntu/Debian**:
-```bash
-sudo add-apt-repository ppa:sumo/stable
-sudo apt-get update
-sudo apt-get install sumo sumo-tools sumo-doc
-```
-
-**Windows**：从 [SUMO Releases](https://sumo.dlr.de/docs/Downloads.php) 下载64位安装包或压缩包，将安装目录的 `bin` 加入 `PATH`，并将 `SUMO_HOME` 指向SUMO安装目录。
-
-安装后确认 `sumo --version` 和 `netgenerate --version` 均可运行。图形界面不是自动验证的必需条件。
-
-**验证安装**:
-```bash
-BackEnd/.venv/bin/python BackEnd/scripts/verify_sumo.py
-```
-
-### 前端依赖
-
-```bash
-cd FrontEnd
-npm install
-```
-
----
-
-## 开发指南
-
-### 代码检查
-
-**后端**（Python）:
 ```bash
 cd BackEnd
-ruff check .           # Lint 检查
-ruff format --check .  # 格式检查
-pytest                 # 运行测试
-```
-
-**前端**（TypeScript）:
-```bash
-cd FrontEnd
-npm run lint           # ESLint 检查
-npm run build          # 生产构建测试
-```
-
-### 训练模型
-
-```bash
-BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
+.venv/bin/python scripts/generate_highway_scenario.py --output experiments/test_scenario
+.venv/bin/python src/training/train_ppo.py \
   --config configs/training_config.yaml \
   --episodes 10 \
   --output experiments/test_ppo
 ```
 
-### Google Colab Pro正式实验
+These smoke assets verify the pipeline; they are not the accepted presentation champion.
 
-任务024–032的GPU训练使用
-[`BackEnd/notebooks/colab_formal_training.ipynb`](BackEnd/notebooks/colab_formal_training.ipynb)。
-Notebook负责挂载Google Drive、安装SUMO、验证CUDA，并通过统一可恢复流水线依次完成奖励、特征、架构选择、
-高速/城市批训练及后续对比、消融、泛化和论文图表。单次运行默认在9小时内安全暂停；Runtime重建后重复同一命令即可恢复。
-不要同时使用多个Colab Runtime写入同一个实验目录，也不要加入自动点击或Keep Alive代码。
-
-### Google Colab课程演示轻量实验
-
-若只需要为课程展示生成高速场景的初步比较结果，使用
-[`BackEnd/notebooks/colab_demo_lite_training.ipynb`](BackEnd/notebooks/colab_demo_lite_training.ipynb)。
-该入口固定轻量Transformer和默认奖励，跳过奖励/特征/架构搜索、城市训练、消融与泛化，只运行
-4配置×2种子的高速训练以及5个锁定测试配置×2种子×4方法的40行比较。结果写入独立的
-`G11project-demo-lite` Drive目录，不读取或覆盖`G11project-formal`进度。所有输出必须标注为
-highway-only preliminary course-demo results，不得作为论文级正式结论。
-
-正式三维答辩使用的方向走廊模型通过
-[`BackEnd/notebooks/colab_directional_corridor_v2.ipynb`](BackEnd/notebooks/colab_directional_corridor_v2.ipynb)
-训练。v2保持Transformer-PPO和四维方向走廊动作不变，使用与现场演示一致的单事故协议、全新留出集及五方法比较；输出写入独立的
-`G11project-directional-corridor-v2` Drive目录。metric schema v2会保留但排除无受影响车辆用例的未定义Coverage/Timely均值，重新验证已有champion，并导出逐事故四维动作证据。只有覆盖率、风险范围内最近后车覆盖、前车误通知、跨事故动作多样性和效率门禁全部通过时才生成可晋级的模型清单。
-
-### 演示模式
+### Verify SUMO
 
 ```bash
-./start.sh
+BackEnd/.venv/bin/python BackEnd/scripts/verify_sumo.py
 ```
 
-打开前端后先在三维高速场景中选择事故车，再点击“开始演示”。系统会为同一事故预载PPO选择性通信与全量广播结果，并按38秒五幕时间线自动展示正常行驶、急刹事故、传统广播、AI精准通知和总结对比。演示支持暂停、重播和重新选择事故车；后端不可用时会明确标注“规则降级演示”，不会把规则结果冒充为模型结果。
+## Training and Reproduction
 
-M2城市100车场景可单独生成并开始训练：
+- Formal multi-stage research pipeline:
+  [`colab_formal_training.ipynb`](BackEnd/notebooks/colab_formal_training.ipynb)
+- Lightweight course-demo pipeline:
+  [`colab_demo_lite_training.ipynb`](BackEnd/notebooks/colab_demo_lite_training.ipynb)
+- Accepted directional corridor v2 pipeline:
+  [`colab_directional_corridor_v2.ipynb`](BackEnd/notebooks/colab_directional_corridor_v2.ipynb)
+- Model eligibility and promotion:
+  [`MODEL_TRAINING_ACCEPTANCE.md`](BackEnd/MODEL_TRAINING_ACCEPTANCE.md)
+- Full commands and artifact lineage:
+  [`REPRODUCIBILITY.md`](Docs/REPRODUCIBILITY.md)
+
+正式结果必须携带配置、随机种子、代码提交、模型哈希、协议版本和原始汇总文件。
+
+## Repository Structure
+
+```text
+G11project/
+├── FrontEnd/                 React, TypeScript, Three.js, synchronized evidence UI
+├── BackEnd/
+│   ├── app/                  FastAPI, WebSocket sessions, model registry
+│   ├── src/
+│   │   ├── models/           Transformer, Graph Transformer, PPO integration
+│   │   ├── environment/      Gymnasium, receiver relevance, network and reward models
+│   │   ├── evaluation/       Deterministic baselines and metrics
+│   │   ├── experiments/      Splits, statistics, gates, artifact I/O
+│   │   └── training/         PPO training entry point
+│   ├── configs/              Scenario, training, comparison, ablation configurations
+│   ├── notebooks/            Colab entry points
+│   └── scripts/              Scenario, training, evaluation and promotion pipelines
+├── Test/                     Unit, integration, frontend and end-to-end tests
+├── Docs/                     Research, reproduction, demo and workflow documentation
+├── ARCHITECTURE.md           Implemented architecture and data contracts
+├── CONTRIBUTING.md           Research-aware contribution rules
+├── CITATION.cff              Software citation metadata
+└── LICENSE                   MIT License
+```
+
+代码目录保持现有前后端边界，科研文档和证据素材集中在 `Docs/` 中维护。
+
+## Quality Assurance
 
 ```bash
-BackEnd/.venv/bin/python BackEnd/scripts/generate_urban_scenario.py --output experiments/test_urban
-BackEnd/.venv/bin/python BackEnd/src/training/train_ppo.py \
-  --config configs/training_urban.yaml \
-  --episodes 10 \
-  --output experiments/urban_ppo
+cd FrontEnd
+npm run lint
+npm test
+npm run build
+
+cd ../BackEnd
+.venv/bin/python -m ruff check . ../Test
+.venv/bin/python -m ruff format --check . ../Test
+.venv/bin/python -m pytest
 ```
 
----
+GitHub Actions runs frontend, backend, and project checks on pushes, pull requests, merge queues,
+and manual dispatches.
 
-## 项目文档
+自动测试覆盖模型环境、基线、网络模型、实验流水线、WebSocket、动画引擎、几何关系和证据一致性。
 
-### 核心文档
-- [ARCHITECTURE.md](ARCHITECTURE.md) - 系统架构详细说明
-- [ARCHITECT_CODEX_BRIDGE.md](ARCHITECT_CODEX_BRIDGE.md) - 当前任务与协作
-- [TODO.md](TODO.md) - 项目路线图
-- [task_memory.md](task_memory.md) - 工作交接历史
+## Documentation
 
-### 技术文档（Docs/）
-- [Capstone Project Proposal](Docs/Capstone_Project_Proposal.pdf) - 项目提案
-- [CI/CD 规范](Docs/CI_CD.md) - 持续集成与代码合并
-- [技术规范](Docs/TECHNICAL_SPECIFICATION.md) - 详细技术方案
-- [实施路线图](Docs/IMPLEMENTATION_ROADMAP.md) - 分阶段计划
-- [演示指南](Docs/DEMO_GUIDE.md) - 演示脚本
+- [Documentation index](Docs/README.md)
+- [System architecture](ARCHITECTURE.md)
+- [Technical specification](Docs/TECHNICAL_SPECIFICATION.md)
+- [Experiment protocol and results](Docs/EXPERIMENTS.md)
+- [Reproducibility guide](Docs/REPRODUCIBILITY.md)
+- [Presentation and demo guide](Docs/DEMO_GUIDE.md)
+- [Implementation roadmap](Docs/IMPLEMENTATION_ROADMAP.md)
 
----
+## Limitations and Scope
 
-## 技术栈
+- The accepted evidence currently covers simulated single-incident highway scenarios only.
+- SUMO behavior and the network abstraction do not replace real-road or hardware-in-the-loop tests.
+- The 3GPP mode is an analytical abstraction, not a full protocol-stack or ns-3 simulation.
+- Urban, multi-event, ablation, and cross-domain formal conclusions remain future work.
+- Attention is exposed for diagnosis and presentation but is not claimed as causal explanation.
+- The software is a research and course-demonstration prototype, not a safety-certified product.
 
-| 层级 | 技术 |
-|------|------|
-| 前端框架 | React + TypeScript + Vite |
-| 3D高速场景 | Three.js + React Three Fiber |
-| 指标与界面 | React + CSS |
-| 后端框架 | FastAPI |
-| 通信协议 | WebSocket |
-| ML框架 | PyTorch |
-| RL库 | Stable-Baselines3 |
-| 仿真工具 | SUMO |
-| 环境接口 | Gymnasium |
-| 测试框架 | Pytest（后端）, Node test + tsx（前端） |
-| 代码检查 | Ruff（后端）, ESLint（前端） |
-| CI/CD | GitHub Actions |
+项目当前定位是可复现的科研概念验证，不代表真实道路部署效果，也不具备车规安全认证。
 
----
+## Citation
 
-## 贡献指南
+Use the repository's [`CITATION.cff`](CITATION.cff) metadata. No DOI has been assigned.
 
-### 工作流程
-1. 从 `main` 分支创建功能分支
-2. 完成开发并通过本地检查
-3. 提交 Pull Request
-4. 等待 CI 检查通过
-5. Code Review 后合并
+```text
+Yang Yu. Transformer-PPO Selective V2X Communication for 6G Autonomous Driving.
+Version 0.1.0, 2026. https://github.com/yangyu-rgb/G11project
+```
 
-### 任务完成后必须同步维护
-1. 更新 `ARCHITECTURE.md` 或 `Docs/` 相关文档
-2. 在 `task_memory.md` 追加任务记录
-3. 更新 `TODO.md` 任务状态
+## Contributing and License
 
-详细规则见 [Docs/WORKFLOW.md](Docs/WORKFLOW.md)
+Contributions are welcome under the requirements in [CONTRIBUTING.md](CONTRIBUTING.md).
+The software is released under the [MIT License](LICENSE).
 
----
-
-## 许可证
-
-待定
-
----
-
-## 联系方式
-
-项目负责人：Yang Yu  
-课程：6G 与人工智能物联网（AIoT）
+贡献代码或实验结果前，请确保所有数字可追溯且不会把规则降级输出标记为AI推理。

@@ -17,17 +17,13 @@ from app.main import app
 
 
 class DeterministicAgent:
-    def predict_raw(
-        self, observation: dict[str, Any], *, deterministic: bool = True
-    ) -> np.ndarray:
+    def predict_raw(self, observation: dict[str, Any], *, deterministic: bool = True) -> np.ndarray:
         del observation, deterministic
         return np.asarray([1] * 50 + [2, 4], dtype=np.int64)
 
 
 class DirectionalAgent:
-    def predict_raw(
-        self, observation: dict[str, Any], *, deterministic: bool = True
-    ) -> np.ndarray:
+    def predict_raw(self, observation: dict[str, Any], *, deterministic: bool = True) -> np.ndarray:
         del observation, deterministic
         return np.asarray([4, 1, 2, 5], dtype=np.int64)
 
@@ -96,10 +92,7 @@ def test_editor_scenario_reports_current_model_capacity() -> None:
 def test_editor_scenario_rejects_duplicates_and_invalid_references() -> None:
     payload = _payload()
     payload["vehicles"][1]["id"] = payload["vehicles"][0]["id"]
-    assert (
-        TestClient(app).post("/api/v1/scenarios/preview", json=payload).status_code
-        == 422
-    )
+    assert TestClient(app).post("/api/v1/scenarios/preview", json=payload).status_code == 422
 
     with pytest.raises(FileNotFoundError):
         scenario_routes.resolve_editor_scenario("editor:../../outside")
@@ -147,10 +140,7 @@ def test_editor_scenario_runs_with_the_presentation_action_wrapper(
         lambda _model_path, _environment: DirectionalAgent(),
     )
     result = TestClient(app).post("/api/v1/scenarios/preview", json=_payload()).json()
-    endpoint = (
-        f"/ws/simulation/run?scenario={result['scenario_ref']}"
-        f"&model={model_path}&speed=5"
-    )
+    endpoint = f"/ws/simulation/run?scenario={result['scenario_ref']}&model={model_path}&speed=5"
 
     with TestClient(app).websocket_connect(endpoint) as websocket:
         update = websocket.receive_json()
@@ -236,9 +226,7 @@ def test_bound_incident_brakes_selected_vehicle_without_overlap(
     selected_speeds = [
         float(
             next(
-                item
-                for item in frame.findall("vehicle")
-                if item.attrib["id"] == "vehicle_3"
+                item for item in frame.findall("vehicle") if item.attrib["id"] == "vehicle_3"
             ).attrib["speed"]
         )
         for frame in frames
@@ -248,16 +236,11 @@ def test_bound_incident_brakes_selected_vehicle_without_overlap(
 
     for frame in frames:
         positions = sorted(float(item.attrib["x"]) for item in frame.findall("vehicle"))
-        assert all(
-            right - left >= 8
-            for left, right in zip(positions, positions[1:], strict=False)
-        )
+        assert all(right - left >= 8 for left, right in zip(positions, positions[1:], strict=False))
 
     event = json.loads((scenario_path / "events.json").read_text(encoding="utf-8"))[0]
     source_at_event = next(
-        item
-        for item in frames[2].findall("vehicle")
-        if item.attrib["id"] == "vehicle_3"
+        item for item in frames[2].findall("vehicle") if item.attrib["id"] == "vehicle_3"
     )
     assert event["x"] == pytest.approx(float(source_at_event.attrib["x"]))
     assert event["source_vehicle_id"] == "vehicle_3"
@@ -274,10 +257,7 @@ def test_bound_incident_rejects_unknown_source_and_unsafe_spacing() -> None:
             "post_brake_speed_kmh": 18,
         }
     )
-    assert (
-        TestClient(app).post("/api/v1/scenarios/preview", json=unknown).status_code
-        == 422
-    )
+    assert TestClient(app).post("/api/v1/scenarios/preview", json=unknown).status_code == 422
 
     overlapping = _payload()
     overlapping["vehicles"][1]["x"] = overlapping["vehicles"][0]["x"] + 5
@@ -288,7 +268,4 @@ def test_bound_incident_rejects_unknown_source_and_unsafe_spacing() -> None:
             "post_brake_speed_kmh": 18,
         }
     )
-    assert (
-        TestClient(app).post("/api/v1/scenarios/preview", json=overlapping).status_code
-        == 422
-    )
+    assert TestClient(app).post("/api/v1/scenarios/preview", json=overlapping).status_code == 422

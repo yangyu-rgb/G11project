@@ -8,6 +8,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { buildFallbackComparison } from '../Presentation/presentationFallback'
 import type { EditorScenario } from '../SceneEditor/sceneTypes'
 import { Scene3D } from '../ThreeD/Scene3D'
+import {
+  presentationEnvironmentDefinition,
+  type PresentationEnvironment,
+} from '../ThreeD/environmentPresets'
 import { DEFAULT_MODEL, useSimulationSession } from '../../hooks/useSimulationSession'
 import type { ComparisonPair, SimulationTransmission, StateUpdateMessage } from '../../types/simulation'
 import {
@@ -15,6 +19,7 @@ import {
   DEFAULT_NETWORK_OVERRIDES,
   evidenceFrameIndex,
   evidenceForVehicle,
+  RESEARCH_EVIDENCE_FRAME_FROZEN,
   type ExperimentNotebookEntry,
   type ExperimentPreset,
   type ExperimentPreview,
@@ -27,8 +32,11 @@ type ResearchWorkspaceProps = {
   presentationSource: 'real' | 'rule' | null
   modelEligible: boolean
   modelReason: string | null
+  initialTask?: ValidationTask
+  environmentPreset: PresentationEnvironment
 }
 
+export type ValidationTask = 'decision' | 'stress' | 'evidence'
 type SideView = 'evidence' | 'relations' | 'copilot'
 type DrawerView = 'trace' | 'compare' | 'experiment' | 'notebook'
 type Strategy = 'ai' | 'baseline'
@@ -84,7 +92,7 @@ function EvidencePanel({ update, vehicleId, accidentVehicleId, source, selective
     <div className="evidence-identity evidence-identity--sender">
       <CarFront aria-hidden="true" /><div><span>事故消息发送源</span><strong>{vehicleId}</strong></div><b className="status-chip">发送方</b>
     </div>
-    <section className="evidence-reason"><span>如何验证选择策略</span><p>事故车不是接收者选择对象。进入“车辆证据”步骤后，系统会定位一辆传统广播通知、{selectiveLabel}未通知的差异车辆。</p></section>
+    <section className="evidence-reason"><span>如何验证选择策略</span><p>事故车是消息发送方，不属于接收者集合。请点击道路中的其他车辆，逐车核对传统广播与{selectiveLabel}选择结果。</p></section>
   </div>
   return <div className="research-panel-content">
     <div className="evidence-identity">
@@ -144,7 +152,7 @@ function CopilotPanel({ update, vehicleId, onLocate, onOpenExperiment }: {
   onLocate: () => void
   onOpenExperiment: () => void
 }) {
-  const [answer, setAnswer] = useState('选择一个快捷问题，副驾驶会只基于当前仿真证据作答。')
+  const [answer, setAnswer] = useState('选择一个快捷问题，系统会只基于当前仿真证据作答。')
   const [items, setItems] = useState<{ label: string; value: string; source: string }[]>([])
   const [loading, setLoading] = useState(false)
   const ask = async (query: string) => {
@@ -162,7 +170,7 @@ function CopilotPanel({ update, vehicleId, onLocate, onOpenExperiment }: {
           },
         }),
       })
-      if (!response.ok) throw new Error('副驾驶服务不可用')
+      if (!response.ok) throw new Error('本地解释服务不可用')
       const result = await response.json() as { answer: string; evidence: typeof items }
       setAnswer(result.answer)
       setItems(result.evidence)
@@ -176,7 +184,7 @@ function CopilotPanel({ update, vehicleId, onLocate, onOpenExperiment }: {
     }
   }
   return <div className="research-panel-content copilot-panel">
-    <div className="copilot-state"><Bot aria-hidden="true" /><span><strong>Research Copilot</strong><small>本地证据模式 · 不修改仿真</small></span></div>
+    <div className="copilot-state"><Bot aria-hidden="true" /><span><strong>本地证据解释</strong><small>受当前证据约束 · 不修改仿真</small></span></div>
     <div className="copilot-quick-actions">
       <button type="button" onClick={() => void ask(`为什么选择或不选择 ${vehicleId}`)}>为什么选择它？</button>
       <button type="button" onClick={() => void ask(`${vehicleId} 与传统广播有什么差异`)}>与基线有何差异？</button>
@@ -300,7 +308,8 @@ function ExperimentBuilder({ scenario, incidentVehicleId, pair, source, session,
   </div>
 }
 
-export function ResearchWorkspace({ scenario, presentationPairs, presentationSource, modelEligible, modelReason }: ResearchWorkspaceProps) {
+export function ResearchWorkspace({ scenario, presentationPairs, presentationSource, modelEligible, modelReason,
+  initialTask = 'decision', environmentPreset }: ResearchWorkspaceProps) {
   const incidentVehicleId = scenario.events.find((event) => event.source_vehicle_id)?.source_vehicle_id
     ?? scenario.vehicles[Math.floor(scenario.vehicles.length / 2)]?.id ?? scenario.vehicles[0].id
   const fallbackPairs = useMemo(() => buildFallbackComparison(configuredScenario(scenario, incidentVehicleId), incidentVehicleId), [incidentVehicleId, scenario])
@@ -315,11 +324,16 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
   const [sideView, setSideView] = useState<SideView>('evidence')
   const [drawerView, setDrawerView] = useState<DrawerView>('trace')
   const [onlyDifferences, setOnlyDifferences] = useState(false)
-  const [drawerCollapsed, setDrawerCollapsed] = useState(true)
-  const [validationStep, setValidationStep] = useState(1)
+  const [task, setTask] = useState<ValidationTask>(initialTask)
+  const [drawerCollapsed, setDrawerCollapsed] = useState(initialTask === 'decision')
   const [notebook, setNotebook] = useState<ExperimentNotebookEntry[]>(loadNotebook)
 
   useEffect(() => setFrameIndex(evidenceFrameIndex(pairs)), [pairs])
+  useEffect(() => {
+    setTask(initialTask)
+    setDrawerCollapsed(initialTask === 'decision')
+    setDrawerView(initialTask === 'stress' ? 'experiment' : initialTask === 'evidence' ? 'notebook' : 'trace')
+  }, [initialTask])
   const pair = pairs[Math.min(frameIndex, pairs.length - 1)] ?? fallbackPairs[0]
   const update = strategy === 'ai' ? pair.ai : pair.baseline
   const candidateIds = update.decision.candidate_vehicles?.map((item) => item.id) ?? []
@@ -338,7 +352,7 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
       source,
     }
     const next = [entry, ...notebook].slice(0, 20)
-    setNotebook(next); window.localStorage.setItem(NOTEBOOK_KEY, JSON.stringify(next)); setDrawerView('notebook'); setDrawerCollapsed(false)
+    setNotebook(next); window.localStorage.setItem(NOTEBOOK_KEY, JSON.stringify(next)); setTask('evidence'); setDrawerView('notebook'); setDrawerCollapsed(false)
   }
   const exportNotebook = () => {
     const blob = new Blob([JSON.stringify(notebook, null, 2)], { type: 'application/json' })
@@ -347,40 +361,45 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
   }
 
   const openDrawer = (view: DrawerView) => { setDrawerView(view); setDrawerCollapsed(false) }
-  const goValidationStep = (step: number) => {
-    setValidationStep(step)
-    if (step === 1) { setDrawerCollapsed(true); setSideView('evidence') }
-    if (step === 2) { setSelectedVehicleId(differenceVehicleId); setSideView('evidence'); setDrawerCollapsed(true) }
-    if (step === 3) openDrawer('compare')
-    if (step === 4) openDrawer('experiment')
+  const selectTask = (nextTask: ValidationTask) => {
+    setTask(nextTask)
+    if (nextTask === 'decision') {
+      setSelectedVehicleId(differenceVehicleId)
+      setSideView('evidence')
+      setDrawerView('trace')
+      setDrawerCollapsed(true)
+    } else {
+      setDrawerView(nextTask === 'stress' ? 'experiment' : 'notebook')
+      setDrawerCollapsed(false)
+    }
   }
-  const validationCopy = [
-    { title: '确认公平比较', detail: source === 'real'
-      ? `同一事故 · 种子42 · 时间戳 ${pair.ai.timestamp.toFixed(1)}s`
-      : '当前为规则回退证据；需要现场真实运行后确认PPO结论', action: source === 'real' ? '确认可比' : '继续检查结构' },
-    { title: '检查车辆决策', detail: `推荐追问 ${differenceVehicleId}：传统通知、${selectiveLabel}未通知`, action: '确认车辆差异' },
-    { title: '比较策略结果', detail: `${selectiveLabel}通知 ${pair.ai.decision.selected_receivers.length} 辆，传统通知 ${pair.baseline.decision.selected_receivers.length} 辆`, action: '指标已确认，继续' },
-    { title: '进行压力测试', detail: '选择低带宽、高时延或高丢包预设，再确认现场运行', action: '打开压力预设' },
-  ][validationStep - 1]
 
-  return <section className={`research-workspace${drawerCollapsed ? ' research-workspace--drawer-collapsed' : ''}`} aria-label="V2X研究实验台">
+  return <section className={`research-workspace research-workspace--${task}${drawerCollapsed ? ' research-workspace--drawer-collapsed' : ''}`} aria-label="V2X验证实验室">
     <div className="research-stage">
       <Scene3D vehicles={update.vehicles} events={update.events} messages={visibleMessages}
         animationChannel={strategy === 'ai' ? 'comparison-ai' : 'comparison-baseline'}
         messageTone={strategy === 'ai' ? 'ai' : 'baseline'} candidateIds={candidateIds}
         notifiedIds={notifiedIds} selectedVehicleId={selectedVehicleId} accidentVehicleId={incidentVehicleId}
-        stage={strategy === 'ai' ? 'ai' : 'broadcast'} elapsedMs={strategy === 'ai' ? 25_000 : 15_000}
+        stage="comparison" elapsedMs={18_000} strategyRole={strategy === 'ai' ? 'ai' : 'baseline'}
+        freezeEvidenceFrame={RESEARCH_EVIDENCE_FRAME_FROZEN}
+        environmentPreset={environmentPreset}
         priorityByVehicle={priorities} interactive onVehicleSelect={(id) => { setSelectedVehicleId(id); setSideView('evidence') }} />
 
-      <div className="validation-guide">
-        <div className="validation-title"><span>验证任务</span><strong>{source === 'real' ? 'AI选择性广播是否有效？' : '规则结构预览（非AI证据）'}</strong></div>
-        <nav aria-label="验证步骤">{[1, 2, 3, 4].map((step) => <button type="button" key={step}
-          className={step === validationStep ? 'is-active' : step < validationStep ? 'is-complete' : ''}
-          onClick={() => goValidationStep(step)}><span>{step < validationStep ? '✓' : step}</span>
-          {['公平性', '车辆证据', '结果', '压力测试'][step - 1]}</button>)}</nav>
-        <div className="validation-current"><span><strong>{validationCopy.title}</strong><small>{validationCopy.detail}</small></span>
-          <button type="button" onClick={() => goValidationStep(Math.min(4, validationStep + 1))}>{validationCopy.action}</button></div>
+      <div className="research-environment-badge">
+        {presentationEnvironmentDefinition(environmentPreset).label} · 视觉环境沿用演示配置
       </div>
+
+      <nav className="validation-task-nav" aria-label="验证实验室任务">
+        <button type="button" aria-pressed={task === 'decision'} className={task === 'decision' ? 'is-active' : ''} onClick={() => selectTask('decision')}>
+          <CarFront aria-hidden="true" /><span><strong>逐车决策验证</strong><small>为什么通知或忽略这辆车？</small></span>
+        </button>
+        <button type="button" aria-pressed={task === 'stress'} className={task === 'stress' ? 'is-active' : ''} onClick={() => selectTask('stress')}>
+          <FlaskConical aria-hidden="true" /><span><strong>网络压力实验</strong><small>低带宽、高时延下是否仍有效？</small></span>
+        </button>
+        <button type="button" aria-pressed={task === 'evidence'} className={task === 'evidence' ? 'is-active' : ''} onClick={() => selectTask('evidence')}>
+          <BookOpen aria-hidden="true" /><span><strong>证据记录与导出</strong><small>如何复现并提交本次结果？</small></span>
+        </button>
+      </nav>
 
       <div className="research-toolbar research-toolbar--compact">
         <div className="strategy-switch" aria-label="通信策略">
@@ -399,30 +418,31 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
         <span><small>送达率</small><strong>{formatPercent(update.metrics.delivery_rate)}</strong></span>
       </div>
 
-      <aside className="research-side-panel" aria-label="上下文分析面板">
+      {task === 'decision' && <aside className="research-side-panel" aria-label="上下文分析面板">
         <nav>
           <button type="button" className={sideView === 'evidence' ? 'is-active' : ''} onClick={() => setSideView('evidence')}><CarFront aria-hidden="true" />证据</button>
           <button type="button" className={sideView === 'relations' ? 'is-active' : ''} onClick={() => setSideView('relations')}><Network aria-hidden="true" />关系</button>
-          <button type="button" className={sideView === 'copilot' ? 'is-active' : ''} onClick={() => setSideView('copilot')}><Bot aria-hidden="true" />副驾驶</button>
+          <button type="button" className={sideView === 'copilot' ? 'is-active' : ''} onClick={() => setSideView('copilot')}><Bot aria-hidden="true" />解释</button>
         </nav>
         {sideView === 'evidence' && <EvidencePanel update={update} vehicleId={selectedVehicleId}
           accidentVehicleId={incidentVehicleId} source={source} selectiveLabel={selectiveLabel} />}
         {sideView === 'relations' && <RelationsPanel update={pair.ai} onSelect={(id) => { setSelectedVehicleId(id); setSideView('evidence') }} />}
         {sideView === 'copilot' && <CopilotPanel update={pair.ai} vehicleId={selectedVehicleId}
-          onLocate={() => setSideView('evidence')} onOpenExperiment={() => openDrawer('experiment')} />}
-      </aside>
+          onLocate={() => setSideView('evidence')} onOpenExperiment={() => selectTask('stress')} />}
+      </aside>}
     </div>
 
     <section className="research-drawer" aria-label="实验数据抽屉">
       <div className="drawer-heading">
         <nav>
-          <button type="button" className={drawerView === 'trace' ? 'is-active' : ''} onClick={() => openDrawer('trace')}><Radio aria-hidden="true" />消息追踪</button>
-          <button type="button" className={drawerView === 'compare' ? 'is-active' : ''} onClick={() => openDrawer('compare')}><GitCompareArrows aria-hidden="true" />同步对比</button>
-          <button type="button" className={drawerView === 'experiment' ? 'is-active' : ''} onClick={() => openDrawer('experiment')}><SlidersHorizontal aria-hidden="true" />反事实实验</button>
-          <button type="button" className={drawerView === 'notebook' ? 'is-active' : ''} onClick={() => openDrawer('notebook')}><BookOpen aria-hidden="true" />实验笔记</button>
+          {task === 'decision' && <><button type="button" className={drawerView === 'trace' ? 'is-active' : ''} onClick={() => openDrawer('trace')}><Radio aria-hidden="true" />消息追踪</button>
+            <button type="button" className={drawerView === 'compare' ? 'is-active' : ''} onClick={() => openDrawer('compare')}><GitCompareArrows aria-hidden="true" />同步指标</button></>}
+          {task === 'stress' && <button type="button" className="is-active"><SlidersHorizontal aria-hidden="true" />网络压力实验 · 结果仅保留在实验室</button>}
+          {task === 'evidence' && <button type="button" className="is-active"><BookOpen aria-hidden="true" />可复现实验记录</button>}
         </nav>
-        <button type="button" className="drawer-collapse" aria-label={drawerCollapsed ? '展开实验抽屉' : '折叠实验抽屉'}
+        {task === 'decision' && <button type="button" className="drawer-collapse" aria-label={drawerCollapsed ? '展开实验抽屉' : '折叠实验抽屉'}
           aria-expanded={!drawerCollapsed} onClick={() => setDrawerCollapsed((value) => !value)}><ChevronDown aria-hidden="true" /></button>
+        }
       </div>
       {!drawerCollapsed && <><div className="drawer-body">
         {drawerView === 'trace' && <MessageTrace pair={pair} strategy={strategy} onlyDifferences={onlyDifferences} onToggleDifferences={() => setOnlyDifferences((value) => !value)} aiLabel={selectiveLabel} />}

@@ -39,6 +39,7 @@ type VehicleFleet3DProps = {
   elapsedMs?: number
   interactive?: boolean
   onVehicleSelect?: (vehicleId: string) => void
+  strategyRole?: 'baseline' | 'ai'
 }
 
 const VEHICLE_HEIGHT = 1.45 * SCENE_SCALE
@@ -91,6 +92,7 @@ export function VehicleFleet3D({
   elapsedMs = 0,
   interactive = false,
   onVehicleSelect,
+  strategyRole = 'ai',
 }: VehicleFleet3DProps) {
   const { animation } = useAnimationRuntime()
   const body = useRef<InstancedMesh>(null)
@@ -203,7 +205,7 @@ export function VehicleFleet3D({
       haloTransform.position.set(x, 0.018, z)
       haloTransform.rotation.set(-Math.PI / 2, 0, 0)
       const haloScale = vehicle.id === accidentVehicleId ? 0.34
-        : stage === 'broadcast' && notified.has(vehicle.id) ? 0.13 : 0.25
+        : strategyRole === 'baseline' && notified.has(vehicle.id) ? 0.13 : 0.25
       haloTransform.scale.setScalar(important ? haloScale : 0.001)
       haloTransform.updateMatrix()
       haloMesh.setMatrixAt(index, haloTransform.matrix)

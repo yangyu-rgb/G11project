@@ -1,31 +1,64 @@
-# 工作与交接规范
+# Research Engineering Workflow / 科研工程流程
 
-更新时间：2026-07-21
+## 1. Source-of-truth hierarchy
 
-## 每次任务的完成标准
+1. executable code, versioned configuration, tests and generated manifests;
+2. [`ARCHITECTURE.md`](../ARCHITECTURE.md) for implemented module boundaries;
+3. [`TECHNICAL_SPECIFICATION.md`](TECHNICAL_SPECIFICATION.md) for model and metric contracts;
+4. [`EXPERIMENTS.md`](EXPERIMENTS.md) for evaluation semantics and current evidence;
+5. [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) for commands and artifact lineage;
+6. `ARCHITECT_CODEX_BRIDGE.md`, `task_memory.md`, and `TODO.md` for internal history and hand-off.
 
-代码修改、验证和必要的文档同步全部完成后，任务才视为完成。每次任务结束前按职责检查以下记录：
+If narrative documentation conflicts with an artifact manifest, stop and resolve the discrepancy before presenting a result.
 
-1. `ARCHITECT_CODEX_BRIDGE.md`：更新当前任务状态、完成说明、阻塞问题和待批准决策。
-2. `task_memory.md`：任务完成后在文件末尾追加历史记录。
-3. `TODO.md`：仅同步跨任务路线图、已完成事项和明确的后续计划。
-4. `ARCHITECTURE.md`：仅在架构获确认并实际生效后更新。
-5. `README.md` 或 `Docs/`：仅在用户可见行为、使用方式或专题内容变化时更新。
-
-各文档的详细职责和冲突优先级以 `ARCHITECT_CODEX_BRIDGE.md` 的“文档职责与同步边界”为准。同一信息只详细维护一次，其他位置使用链接或摘要。
-
-## 记录要求
-
-- 时间使用 `YYYY-MM-DD HH:mm`，默认时区为 Asia/Hong_Kong。
-- 记录任务目标、实际变更、验证结果、未完成事项和关键决策。
-- 暂不记录操作者姓名。
-- 不记录密码、令牌、私钥或其他敏感信息。
-- `task_memory.md` 使用二级标题分隔任务，按完成时间顺序追加。
-
-## 推荐流程
+## 2. Change workflow
 
 ```text
-确认需求 → 检查 TODO/交接记录 → 实现 → 验证
-       → 更新桥接任务 → 按需更新架构/Docs
-       → 写 task_memory.md → 更新 TODO → 完成
+Define question and scope
+        ↓
+Inspect current code, configuration and artifact contract
+        ↓
+Implement the smallest coherent change
+        ↓
+Run unit, integration, lint and build checks
+        ↓
+Regenerate evidence from source artifacts
+        ↓
+Update architecture / experiment / reproduction documents
+        ↓
+Review claims, limitations and repository diff
 ```
+
+## 3. Experiment workflow
+
+```text
+Versioned scenario groups + seeds
+        ↓
+SUMO preflight and trace generation
+        ↓
+Train candidates on train groups
+        ↓
+Select candidate using validation groups
+        ↓
+Evaluate once on isolated test groups
+        ↓
+Run schema, hash and behavioral gates
+        ↓
+Promote immutable champion bundle
+        ↓
+Serve the bundle to the live demo
+```
+
+Do not select reward weights or checkpoints by repeatedly consulting test results. Do not edit plot values by hand. Do not copy a checkpoint without its manifest and evidence bundle.
+
+## 4. Definition of done
+
+A change is complete when relevant code and documents agree, automated checks pass, generated results retain their provenance, UI claims match backend semantics, and limitations are stated. A visually successful run is insufficient if model source or metric meaning cannot be audited.
+
+## 5. Documentation style
+
+- Root README is English-first with a short Chinese summary after each major section.
+- Public figures must come from real UI captures, code-derived diagrams, or real experiment artifacts.
+- Every result figure states protocol, scope and metric-specific sample size.
+- Historical planning documents remain historical; current public documents must not describe planned components as implemented.
+- Never store tokens, private credentials, unredacted personal data, or machine-specific absolute paths.

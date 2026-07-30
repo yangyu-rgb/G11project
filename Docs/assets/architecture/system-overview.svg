@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">G11 end-to-end research system architecture</title>
+  <desc id="desc">Five-layer flow from scenario generation through Transformer PPO learning, evaluation and model governance to the interactive Three.js evidence interface.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="1" stop-color="#eef5fb"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e9f3ff"/>
+      <stop offset="1" stop-color="#dcecff"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e7faf5"/>
+      <stop offset="1" stop-color="#d6f1eb"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff7e8"/>
+      <stop offset="1" stop-color="#ffedc9"/>
+    </linearGradient>
+    <linearGradient id="violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f3efff"/>
+      <stop offset="1" stop-color="#e8e1ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-20%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#41627d" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M1 1 L11 6 L1 11 Z" fill="#55738c"/>
+    </marker>
+    <style>
+      .title{font:700 38px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#17324a}
+      .subtitle{font:400 19px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#5a7184}
+      .label{font:700 21px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#18364e}
+      .body{font:400 16px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#466176}
+      .small{font:600 14px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#61788b}
+      .pill{font:700 14px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#215774}
+      .flow{stroke:#55738c;stroke-width:3;fill:none;marker-end:url(#arrow)}
+      .dash{stroke:#7792a7;stroke-width:2.5;stroke-dasharray:8 7;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" rx="32" fill="url(#bg)"/>
+  <text x="76" y="72" class="title">Transformer–PPO Selective V2X Research System</text>
+  <text x="76" y="106" class="subtitle">训练、评价、模型治理与现场证据展示相互隔离 · implemented directional-v2 contract</text>
+
+  <g filter="url(#shadow)">
+    <rect x="75" y="160" width="255" height="205" rx="22" fill="url(#blue)" stroke="#a8cbea"/>
+    <rect x="369" y="160" width="320" height="205" rx="22" fill="url(#teal)" stroke="#96d5c5"/>
+    <rect x="728" y="160" width="350" height="205" rx="22" fill="url(#violet)" stroke="#bfb2ec"/>
+    <rect x="1117" y="160" width="408" height="205" rx="22" fill="url(#amber)" stroke="#e5c47f"/>
+  </g>
+
+  <circle cx="111" cy="201" r="18" fill="#2f79b9"/><text x="105" y="208" fill="#fff" font-size="19" font-weight="700">1</text>
+  <text x="141" y="208" class="label">Traffic &amp; Scenario</text>
+  <text x="103" y="248" class="body">SUMO / TraCI</text>
+  <text x="103" y="276" class="body">3-lane highway · 50 vehicles</text>
+  <text x="103" y="304" class="body">incident configs + seeds</text>
+  <rect x="103" y="326" width="171" height="26" rx="13" fill="#d4eaff"/><text x="119" y="344" class="pill">vehicle/event traces</text>
+
+  <circle cx="405" cy="201" r="18" fill="#268a75"/><text x="399" y="208" fill="#fff" font-size="19" font-weight="700">2</text>
+  <text x="435" y="208" class="label">Learning Environment</text>
+  <text x="397" y="248" class="body">Gymnasium observation schema v2</text>
+  <text x="397" y="276" class="body">vehicle · event · mask · network</text>
+  <text x="397" y="304" class="body">network outcomes + reward</text>
+  <rect x="397" y="326" width="225" height="26" rx="13" fill="#cdf0e7"/><text x="413" y="344" class="pill">legal action / transition</text>
+
+  <circle cx="764" cy="201" r="18" fill="#6a55b6"/><text x="758" y="208" fill="#fff" font-size="19" font-weight="700">3</text>
+  <text x="794" y="208" class="label">Transformer + PPO</text>
+  <text x="756" y="248" class="body">masked relation encoding</text>
+  <text x="756" y="276" class="body">actor / critic optimization</text>
+  <text x="756" y="304" class="body">radius · lane · priority · bandwidth</text>
+  <rect x="756" y="326" width="248" height="26" rx="13" fill="#e4ddff"/><text x="772" y="344" class="pill">structured policy action</text>
+
+  <circle cx="1153" cy="201" r="18" fill="#bd7b16"/><text x="1147" y="208" fill="#fff" font-size="19" font-weight="700">4</text>
+  <text x="1183" y="208" class="label">Evaluation &amp; Governance</text>
+  <text x="1145" y="248" class="body">5 aligned methods · isolated holdout</text>
+  <text x="1145" y="276" class="body">metric-specific n · behavior audit</text>
+  <text x="1145" y="304" class="body">schema + manifest + SHA-256</text>
+  <rect x="1145" y="326" width="244" height="26" rx="13" fill="#ffe7b8"/><text x="1161" y="344" class="pill">eligible champion bundle</text>
+
+  <path d="M330 262 H355" class="flow"/>
+  <path d="M689 262 H714" class="flow"/>
+  <path d="M1078 262 H1103" class="flow"/>
+
+  <g filter="url(#shadow)">
+    <rect x="250" y="454" width="1100" height="257" rx="26" fill="#ffffff" stroke="#bdd0de"/>
+  </g>
+  <circle cx="291" cy="497" r="18" fill="#315c78"/><text x="285" y="504" fill="#fff" font-size="19" font-weight="700">5</text>
+  <text x="322" y="504" class="label">Serving &amp; Interactive Evidence Interface</text>
+  <text x="322" y="532" class="small">Formal inference loads an eligible champion; the browser never trains or invents decisions.</text>
+
+  <rect x="287" y="567" width="280" height="105" rx="17" fill="#edf5fb" stroke="#bfd4e4"/>
+  <text x="311" y="599" class="label">Model Registry</text>
+  <text x="311" y="628" class="body">eligibility · hash · source audit</text>
+  <text x="311" y="654" class="body">fail-closed formal inference</text>
+
+  <rect x="660" y="567" width="280" height="105" rx="17" fill="#edf8f5" stroke="#b6dcd2"/>
+  <text x="684" y="599" class="label">FastAPI Session</text>
+  <text x="684" y="628" class="body">same incident + timestamp</text>
+  <text x="684" y="654" class="body">REST controls + WebSocket evidence</text>
+
+  <rect x="1033" y="567" width="280" height="105" rx="17" fill="#f5f1ff" stroke="#d3c8ef"/>
+  <text x="1057" y="599" class="label">React / Three.js</text>
+  <text x="1057" y="628" class="body">directional links · live telemetry</text>
+  <text x="1057" y="654" class="body">camera + validation laboratory</text>
+
+  <path d="M567 619 H646" class="flow"/>
+  <path d="M940 619 H1019" class="flow"/>
+  <path d="M1321 365 V410 C1321 430 1220 440 1098 454" class="flow"/>
+
+  <rect x="75" y="780" width="1450" height="68" rx="18" fill="#e9f0f5" stroke="#c6d4df"/>
+  <text x="101" y="809" class="small">TRUST BOUNDARY</text>
+  <text x="101" y="833" class="body">Training ≠ held-out evaluation ≠ live inference  ·  geometry enforces safety legality  ·  every headline metric retains protocol, scope and valid sample count</text>
+
+  <path d="M900 454 C900 418 884 402 884 377" class="dash"/>
+  <text x="917" y="418" class="small">audit feedback; no live learning</text>
+</svg>

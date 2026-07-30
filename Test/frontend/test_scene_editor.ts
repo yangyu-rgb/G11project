@@ -14,6 +14,12 @@ import {
   editorLimitations,
   parseEditorScenario,
 } from '../../FrontEnd/src/components/SceneEditor/sceneTypes.ts'
+import {
+  DEFAULT_PRESENTATION_ENVIRONMENT,
+  PRESENTATION_ENVIRONMENT_ORDER,
+  PRESENTATION_ENVIRONMENTS,
+  presentationEnvironmentVisuals,
+} from '../../FrontEnd/src/components/ThreeD/environmentPresets.ts'
 
 describe('scene data validation', () => {
   it('defaults to the dense presentation within the real model limit', () => {
@@ -67,5 +73,24 @@ describe('scene data validation', () => {
     const invalid = structuredClone(PRESET_SCENES[2])
     invalid.vehicles[1].id = invalid.vehicles[0].id
     assert.throws(() => parseEditorScenario(invalid), /ID必须各自唯一/)
+  })
+
+  it('keeps environment presets visual-only and outside the simulation scenario', () => {
+    assert.equal(DEFAULT_PRESENTATION_ENVIRONMENT, 'open_highway')
+    assert.deepEqual(PRESENTATION_ENVIRONMENT_ORDER, [
+      'open_highway', 'city_elevated', 'tunnel',
+    ])
+    const referenceScenario = JSON.stringify(buildHighwayPresentationScenario('dense'))
+    for (const environment of PRESENTATION_ENVIRONMENT_ORDER) {
+      const definition = PRESENTATION_ENVIRONMENTS[environment]
+      assert(definition.label.length > 0)
+      assert.match(definition.evidenceNote, /视觉|沿用|仅切换/)
+      assert.equal(JSON.stringify(buildHighwayPresentationScenario('dense')), referenceScenario)
+      assert.equal('environmentPreset' in buildHighwayPresentationScenario('dense'), false)
+    }
+    assert.equal(new Set(PRESENTATION_ENVIRONMENT_ORDER.map(
+      (environment) => presentationEnvironmentVisuals(environment).background,
+    )).size, PRESENTATION_ENVIRONMENT_ORDER.length)
+    assert.equal(presentationEnvironmentVisuals('tunnel').sky, false)
   })
 })

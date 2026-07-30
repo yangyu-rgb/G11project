@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="920" viewBox="0 0 1600 920" role="img" aria-labelledby="title desc">
+  <title id="title">Directional-v2 preliminary held-out metric comparison</title>
+  <desc id="desc">Four horizontal bar panels compare affected coverage, P95 latency, message overhead on a logarithmic axis, and channel cost on a logarithmic axis for five methods. Each value includes its valid sample count.</desc>
+  <defs>
+    <style>
+      .title{font:700 34px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#183449}
+      .sub{font:400 17px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#617687}
+      .panel{font:700 20px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#233f53}
+      .method{font:600 14px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#526a7d}
+      .value{font:700 13px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#314f63}
+      .axis{font:400 12px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#718594}
+      .note{font:400 15px -apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;fill:#5a7183}
+      .grid{stroke:#dce6ed;stroke-width:1}
+    </style>
+  </defs>
+  <rect width="1600" height="920" rx="30" fill="#f7fafc"/>
+  <text x="70" y="62" class="title">Preliminary Held-out Comparison · directional-v2</text>
+  <text x="70" y="92" class="sub">72 highway incident configurations · 5 methods · 360 rows · metric-specific valid n</text>
+
+  <g transform="translate(70 130)">
+    <rect width="710" height="325" rx="22" fill="#fff" stroke="#d8e4eb"/>
+    <text x="28" y="40" class="panel">Affected-vehicle coverage ↑</text>
+    <text x="28" y="63" class="sub">12 zero-affected cases excluded; n=60 for each method</text>
+    <line x1="185" y1="86" x2="185" y2="284" class="grid"/><line x1="425" y1="86" x2="425" y2="284" class="grid"/><line x1="665" y1="86" x2="665" y2="284" class="grid"/>
+    <text x="181" y="306" class="axis">0</text><text x="418" y="306" class="axis">0.5</text><text x="656" y="306" class="axis">1.0</text>
+    <text x="28" y="112" class="method">Transformer + PPO</text><rect x="185" y="95" width="480" height="22" rx="11" fill="#167c80"/><text x="573" y="112" class="value" fill="#fff">1.000 · n=60</text>
+    <text x="28" y="151" class="method">Broadcast</text><rect x="185" y="134" width="400" height="22" rx="11" fill="#8195a5"/><text x="491" y="151" class="value" fill="#fff">0.833 · n=60</text>
+    <text x="28" y="190" class="method">Distance</text><rect x="185" y="173" width="370" height="22" rx="11" fill="#8195a5"/><text x="461" y="190" class="value" fill="#fff">0.770 · n=60</text>
+    <text x="28" y="229" class="method">Urgency</text><rect x="185" y="212" width="370" height="22" rx="11" fill="#8195a5"/><text x="461" y="229" class="value" fill="#fff">0.770 · n=60</text>
+    <text x="28" y="268" class="method">Fixed corridor</text><rect x="185" y="251" width="446" height="22" rx="11" fill="#8195a5"/><text x="537" y="268" class="value" fill="#fff">0.929 · n=60</text>
+  </g>
+
+  <g transform="translate(820 130)">
+    <rect width="710" height="325" rx="22" fill="#fff" stroke="#d8e4eb"/>
+    <text x="28" y="40" class="panel">P95 delivered-message latency ↓</text>
+    <text x="28" y="63" class="sub">milliseconds; valid delivery samples vary by method</text>
+    <line x1="185" y1="86" x2="185" y2="284" class="grid"/><line x1="425" y1="86" x2="425" y2="284" class="grid"/><line x1="665" y1="86" x2="665" y2="284" class="grid"/>
+    <text x="181" y="306" class="axis">0</text><text x="418" y="306" class="axis">30</text><text x="655" y="306" class="axis">60 ms</text>
+    <text x="28" y="112" class="method">Transformer + PPO</text><rect x="185" y="95" width="284" height="22" rx="11" fill="#167c80"/><text x="477" y="112" class="value">35.52 · n=61</text>
+    <text x="28" y="151" class="method">Broadcast</text><rect x="185" y="134" width="422" height="22" rx="11" fill="#8195a5"/><text x="615" y="151" class="value">52.70 · n=72</text>
+    <text x="28" y="190" class="method">Distance</text><rect x="185" y="173" width="269" height="22" rx="11" fill="#8195a5"/><text x="462" y="190" class="value">33.66 · n=70</text>
+    <text x="28" y="229" class="method">Urgency</text><rect x="185" y="212" width="299" height="22" rx="11" fill="#8195a5"/><text x="492" y="229" class="value">37.42 · n=70</text>
+    <text x="28" y="268" class="method">Fixed corridor</text><rect x="185" y="251" width="248" height="22" rx="11" fill="#8195a5"/><text x="441" y="268" class="value">30.94 · n=60</text>
+  </g>
+
+  <g transform="translate(70 495)">
+    <rect width="710" height="325" rx="22" fill="#fff" stroke="#d8e4eb"/>
+    <text x="28" y="40" class="panel">Message overhead ↓</text>
+    <text x="28" y="63" class="sub">log₁₀ visual scale; labels show untransformed means</text>
+    <line x1="185" y1="86" x2="185" y2="284" class="grid"/><line x1="345" y1="86" x2="345" y2="284" class="grid"/><line x1="505" y1="86" x2="505" y2="284" class="grid"/><line x1="665" y1="86" x2="665" y2="284" class="grid"/>
+    <text x="177" y="306" class="axis">0.1</text><text x="341" y="306" class="axis">1</text><text x="497" y="306" class="axis">10</text><text x="655" y="306" class="axis">100</text>
+    <text x="28" y="112" class="method">Transformer + PPO</text><rect x="185" y="95" width="171" height="22" rx="11" fill="#167c80"/><text x="364" y="112" class="value">1.161 · n=60</text>
+    <text x="28" y="151" class="method">Broadcast</text><rect x="185" y="134" width="385" height="22" rx="11" fill="#8195a5"/><text x="578" y="151" class="value">25.552 · n=58</text>
+    <text x="28" y="190" class="method">Distance</text><rect x="185" y="173" width="242" height="22" rx="11" fill="#8195a5"/><text x="435" y="190" class="value">3.226 · n=56</text>
+    <text x="28" y="229" class="method">Urgency</text><rect x="185" y="212" width="242" height="22" rx="11" fill="#8195a5"/><text x="435" y="229" class="value">3.226 · n=56</text>
+    <text x="28" y="268" class="method">Fixed corridor</text><rect x="185" y="251" width="161" height="22" rx="11" fill="#8195a5"/><text x="354" y="268" class="value">1.017 · n=59</text>
+  </g>
+
+  <g transform="translate(820 495)">
+    <rect width="710" height="325" rx="22" fill="#fff" stroke="#d8e4eb"/>
+    <text x="28" y="40" class="panel">Normalized channel cost ↓</text>
+    <text x="28" y="63" class="sub">log₁₀ visual scale; includes allocated resource fraction</text>
+    <line x1="185" y1="86" x2="185" y2="284" class="grid"/><line x1="345" y1="86" x2="345" y2="284" class="grid"/><line x1="505" y1="86" x2="505" y2="284" class="grid"/><line x1="665" y1="86" x2="665" y2="284" class="grid"/>
+    <text x="177" y="306" class="axis">0.1</text><text x="341" y="306" class="axis">1</text><text x="497" y="306" class="axis">10</text><text x="655" y="306" class="axis">100</text>
+    <text x="28" y="112" class="method">Transformer + PPO</text><rect x="185" y="95" width="81" height="22" rx="11" fill="#167c80"/><text x="274" y="112" class="value">0.321 · n=60</text>
+    <text x="28" y="151" class="method">Broadcast</text><rect x="185" y="134" width="385" height="22" rx="11" fill="#8195a5"/><text x="578" y="151" class="value">25.552 · n=58</text>
+    <text x="28" y="190" class="method">Distance</text><rect x="185" y="173" width="242" height="22" rx="11" fill="#8195a5"/><text x="435" y="190" class="value">3.226 · n=56</text>
+    <text x="28" y="229" class="method">Urgency</text><rect x="185" y="212" width="171" height="22" rx="11" fill="#8195a5"/><text x="364" y="229" class="value">1.173 · n=56</text>
+    <text x="28" y="268" class="method">Fixed corridor</text><rect x="185" y="251" width="113" height="22" rx="11" fill="#8195a5"/><text x="306" y="268" class="value">0.508 · n=59</text>
+  </g>
+
+  <text x="70" y="870" class="note">Scope: preliminary highway-only course-demo evidence. Lower latency/overhead/cost is better; higher coverage is better. Values are not real-road measurements.</text>
+  <text x="70" y="897" class="note">Source: curated directional-v2 summary committed beside this figure; deterministic SVG, no hand-edited experimental values.</text>
+</svg>
+

@@ -117,11 +117,11 @@ describe('particle pool and narrative timing', () => {
     assert.equal(system.activeCount(), 26)
   })
 
-  it('uses the five-stage 38 second presentation boundaries', () => {
+  it('uses the four-stage 38 second presentation boundaries', () => {
     assert.equal(stageAt(0), 'normal')
     assert.equal(stageAt(5_000), 'accident')
-    assert.equal(stageAt(11_000), 'broadcast')
-    assert.equal(stageAt(20_000), 'ai')
+    assert.equal(stageAt(11_000), 'comparison')
+    assert.equal(stageAt(20_000), 'comparison')
     assert.equal(stageAt(30_000), 'summary')
   })
 

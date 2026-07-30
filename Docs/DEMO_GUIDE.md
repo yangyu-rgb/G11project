@@ -1,138 +1,66 @@
-# 演示指南
+# Classroom Demonstration Guide / 课堂演示指南
 
-## 1. 演示目标
+## 1. What the demo must prove
 
-在20分钟内回答五个核心问题：为什么V2X通信调度值得研究、相关领域已经做到什么、关键研究挑战是什么、仍存在哪些研究机会、团队目前完成了什么。
+The demonstration should make one defensible claim: under the locked simulated highway protocol, Transformer-PPO uses contextual risk and network state to choose a smaller legal receiver corridor and communication-resource action, achieving a different coverage–latency–overhead trade-off from deterministic baselines.
 
-建议核心表述：
+演示的目标不是“播放一段好看的动画”，而是让老师看见同一事故、同一时刻、不同决策，以及每个决策对应的可核查证据。
 
-> 我们研究在动态自动驾驶场景中，如何结合Transformer的关系建模能力与强化学习调度，在可靠覆盖受影响车辆的同时减少无效通信并控制关键消息时延。
+## 2. Pre-demo checklist
 
-这句话描述研究目标，不承诺尚未由实验验证的提升幅度。
+1. Start with `./start.sh` and confirm backend health.
+2. Confirm the UI reports an eligible `directional-v2` model rather than a rule fallback.
+3. Select environment, incident type, accident vehicle, and baseline at the entry screen.
+4. Prefer an incident vehicle with enough traffic behind and across multiple lanes to expose method differences.
+5. Rehearse camera orbit, zoom, pan, and “follow accident vehicle” reset.
+6. Keep a static held-out result slide ready in case the live browser fails.
 
-## 2. 20分钟脚本与七人分工
+## 3. Four-stage live script
 
-| 时间 | 负责人 | 内容 | 必须回答的问题 |
-|---|---|---|---|
-| 0:00–2:00 | 成员1 | Motivation | 为什么问题重要，传统广播造成什么矛盾？ |
-| 2:00–5:00 | 成员2 | Background | V2X/6G、安全消息和通信调度的基本机制是什么？ |
-| 5:00–7:00 | 成员3 | Related background | 规则、Transformer、RL及相关成果分别解决了什么？ |
-| 7:00–10:00 | 成员4 | Key research challenges | 动态拓扑、可靠性、联合动作与泛化为什么困难？ |
-| 10:00–14:00 | 成员5 | Research opportunities与方案 | 现有成果缺少什么，本项目如何切入？ |
-| 14:00–18:00 | 成员6 | Preliminary results / demo | 展示当前已验证原型、流程或真实实验结果。 |
-| 18:00–20:00 | 成员7 | 总结、限制与下一步 | 贡献是什么，哪些仍待验证？ |
+| Stage | Presenter action | Evidence to explain |
+|---|---|---|
+| Normal traffic | Establish road direction, lanes, sender and candidate vehicles | This is a configurable simulation, not a video |
+| Incident | Trigger/observe hard braking and sender highlight | The event defines a safety-relevant rear-risk context |
+| Synchronized comparison | Show AI and selected baseline simultaneously; adjust camera if needed | Same incident state, different receiver/resource policy |
+| Result summary | Point to coverage, receiver count, latency, overhead and channel cost | Explain trade-off and sample scope, not universal superiority |
 
-排练目标为18–19分钟，剩余时间用于切换和现场波动；不得把20分钟讲述设计成25分钟后依赖临场删减。
+The current timeline is approximately 38 seconds. Stage navigation can be used during rehearsal and Q&A; it must not be described as rerunning training.
 
-## 3. 各部分内容
+## 4. Recommended narration
 
-### 3.1 Motivation
+> 左右两侧使用同一事故车、同一交通状态和同一网络条件。传统方法根据固定规则选择接收者；我们的Transformer先编码车辆、事件与网络关系，PPO再在安全合法的后向走廊中联合选择半径、车道范围、优先级和带宽。黄色车辆表示风险候选而非必然接收者，发光方向线表示本次实际通知。最后的数值来自锁定测试协议，不是前端随机生成。
 
-- 用一个具体事件开场，例如前车急刹后只有部分车辆真正受影响。
-- 说明安全消息必须及时覆盖相关车辆，但无差别广播会消耗带宽并增加拥塞风险。
-- 将问题收束为三个决策：发给谁、以什么优先级发送、分配多少通信资源。
-- 不在此处展开算法或大段文献综述。
+If asked “why not simply notify every vehicle behind?”, answer that direction is a safety constraint, while AI still decides corridor size, lane scope, priority, and bandwidth according to context. A fixed corridor is included specifically to isolate that distinction.
 
-### 3.2 Background
+## 5. Validation laboratory
 
-- 解释V2X安全消息、车辆状态、事件、时延、可靠性和通信开销。
-- 说明SUMO用于交通仿真，网络抽象层用于估计通信结果。
-- 简要介绍Transformer的注意力关系建模和RL的序列决策能力。
-- 用分类表说明全量广播、距离筛选、紧急度规则、学习式调度的差异。
+The laboratory is a frozen-frame evidence inspector, not a second simulation mode. Use it only when a teacher asks:
 
-### 3.3 Key research challenges
+- Why was this vehicle selected or rejected?
+- Was any forward vehicle notified?
+- Which action did PPO output?
+- Is this model a trained checkpoint or fallback rule?
+- Which held-out result supports the headline claim?
 
-- 车辆拓扑、事件和网络负载持续变化，固定规则难以适应。
-- 安全覆盖、时延、丢包和开销是相互制约的多目标问题。
-- 接收者集合、优先级和带宽构成组合动作空间。
-- “受影响车辆”需要一致、可解释且可复现的判定。
-- 仿真策略可能无法泛化到未见道路、密度和事件组合。
+The panel should expose incident-relative geometry, lane eligibility, affected/receiver state, decision source, action tuple, checkpoint/manifest identity, and the relevant held-out statistic. A value that does not change with the inspected vehicle should be described as run-level provenance, not live telemetry.
 
-挑战部分描述“为什么难”，不要提前把拟议方法当作已验证答案。
+## 6. Interpreting the baselines
 
-### 3.4 Research opportunities
+- **Broadcast:** maximizes reach but creates the largest recipient set and resource demand.
+- **Distance:** removes far vehicles but ignores direction and uses fixed resources.
+- **Urgency:** uses the same distance receiver set in the current implementation and changes priority/bandwidth; similar coverage and overhead are expected.
+- **Fixed directional corridor:** is the strongest rule baseline for answering whether AI does more than “send backward.”
+- **Transformer-PPO:** adapts four action dimensions inside the legal corridor.
 
-- 现有工作通常分别研究风险建模、接收者筛选或无线资源调度；本项目评估端到端联合建模是否能带来价值。
-- Transformer负责车辆—事件关系和全局环境编码，PPO联合输出接收者、优先级和带宽档位。
-- 通过统一场景、相同随机种子和相同指标与三种基线比较。
-- 通过消融实验区分Transformer与RL各自贡献，通过配置隔离的测试集评估泛化。
+During the live presentation, compare AI against one baseline to keep the scene legible. Use the held-out five-method table when asked about the other methods.
 
-机会部分必须说明“准备验证什么”，不能仅重复背景或动机。
+## 7. Claims and limits
 
-### 3.5 Preliminary results / demo
+Safe claims:
 
-展示顺序按当前完成度选择：
+- the full simulation–training–evaluation–serving–visualization pipeline is implemented;
+- the accepted model passes zero-forward-notification and diversity gates;
+- current held-out evidence shows highest affected coverage and lowest channel cost for AI;
+- fixed directional corridor remains better on P95 latency and message overhead in this artifact.
 
-1. 已验证的前后端、WebSocket和SUMO最小链路。
-2. 高速急刹或城市交叉口原型。
-3. AI与基线的同步对比、注意力或资源分配视图。
-4. 真实实验结果表；如果尚未完成，则明确标注为“实验设计”或“目标展示”。
-
-任何百分比、毫秒值或覆盖率都必须来自保存的实验日志。示意数据使用明显的“占位/待替换”标签，不进入结论。
-
-## 4. 演示场景
-
-### 场景A：高速急刹
-
-- 展示事件发生、候选车辆、接收者选择和消息传播。
-- 对比全量广播的消息数与AI方法的选择过程。
-- 只根据真实日志解释时延、覆盖率和开销。
-
-### 场景B：城市交叉口
-
-- 展示转向、车道、遮挡或相对运动关系带来的复杂性。
-- 使用注意力视图说明模型关注了哪些车辆，但不把注意力权重直接等同于因果解释。
-- 对比固定距离方法是否漏选或多选车辆。
-
-### 场景C：现场添加事件
-
-- 只有在经过多次稳定排练后才用于正式现场互动。
-- 评审点击事件后展示状态更新、调度决策与指标变化。
-- 准备相同操作的本地录像，实时演示失败时立即切换。
-
-## 5. 准备与应急
-
-### 提前一天
-
-- 在正式设备完整运行三次，记录每次时长和故障。
-- 预装Python、Node、SUMO和全部依赖，禁止现场下载。
-- 保存演示配置、模型、日志和完整录像。
-- 检查投影分辨率、字体和颜色对比度。
-
-### 演示前一小时
-
-- 运行健康检查、SUMO验证、WebSocket连接和场景预加载。
-- 关闭通知和自动更新，准备本地离线备份。
-- 确认每位成员的切换句和超时删减点。
-
-### 故障处理
-
-- 系统崩溃：切换到录像，同时继续解释数据和方法。
-- WebSocket断开：重新点击“运行仿真”；仍失败则执行统一启动脚本重启。
-- 渲染卡顿：切换到较少车辆的备用场景。
-- 时间不足：删减第二个案例，不删动机、挑战、机会或结论。
-
-## 6. 常见问题
-
-### 为什么使用Transformer而不是GNN？
-
-Transformer便于直接建模车辆与事件token之间的全局关系并输出注意力；GNN同样是合理方案，但本项目当前不声称Transformer天然优于GNN。若时间允许，可把GNN作为后续基线或未来工作。
-
-### 结果能否代表真实道路？
-
-当前结论只适用于所定义的SUMO交通分布和网络抽象模型。真实信道、驾驶行为、硬件时延和安全认证尚未验证，因此项目定位为概念验证。
-
-### 如何避免测试集泄漏？
-
-按场景配置划分训练、验证和测试；同一配置的所有随机种子只属于一个集合，测试集在奖励权重和超参数确定后才使用。
-
-### 计算是否满足实时要求？
-
-回答实际测得的P50/P95推理和端到端时延，并说明测试硬件、车辆规模和批大小。在测量前不提供估计数字。
-
-## 7. 成功标准
-
-- 总时长不超过20分钟，七人均参与讲述。
-- motivation、background、challenges和opportunities边界清楚，不重复同一段内容。
-- 演示故障不影响研究问题、方法和证据链的表达。
-- 所有定量结论可追溯，限制和未完成项被明确说明。
+Do not claim real-road safety, 6G deployment, causal superiority, or publication-level significance. State clearly that city roads, concurrent incidents, packet-level networking and hardware validation are future work.

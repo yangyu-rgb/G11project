@@ -95,9 +95,7 @@ def test_local_copilot_cites_structured_evidence() -> None:
     result = response.json()
     assert result["mode"] == "local"
     assert "vehicle_002" in result["answer"]
-    assert any(
-        item["source"] == "decision.selected_receivers" for item in result["evidence"]
-    )
+    assert any(item["source"] == "decision.selected_receivers" for item in result["evidence"])
 
 
 def test_pressure_presets_are_allowlisted_and_describe_ood_status() -> None:
@@ -143,8 +141,6 @@ def test_presentation_model_registry_fails_closed_for_rejected_legacy_model(
 
     assert result.status_code == 200
     assert result.json()["eligible"] is False
-    assert (
-        result.json()["model"] == "experiments/highway_corridor/champion/model_best.zip"
-    )
+    assert result.json()["model"] == "experiments/highway_corridor/champion/model_best.zip"
     assert result.json()["reason"]
     model_registry._validated_status.cache_clear()

@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this research prototype, please cite the software using this metadata."
+title: "Transformer-PPO Selective V2X Communication for 6G Autonomous Driving"
+type: software
+authors:
+  - family-names: "Yu"
+    given-names: "Yang"
+version: 0.1.0
+date-released: 2026-07-30
+repository-code: "https://github.com/yangyu-rgb/G11project"
+url: "https://github.com/yangyu-rgb/G11project"
+license: MIT
+keywords:
+  - V2X
+  - autonomous driving
+  - reinforcement learning
+  - PPO
+  - Transformer
+  - SUMO
+  - 6G

@@ -156,11 +156,7 @@ def test_directional_receiver_audit_explains_selected_and_excluded_vehicles() ->
             VehicleSnapshot("far", -100.0, -8.0, 10.0, 90.0, "highway_0"),
             VehicleSnapshot("other-lane", 200.0, -1.6, 10.0, 90.0, "highway_2"),
         ),
-        events=(
-            EmergencyEvent(
-                "event-0", "emergency_braking", 300.0, -8.0, 2.0, 0.9, "source"
-            ),
-        ),
+        events=(EmergencyEvent("event-0", "emergency_braking", 300.0, -8.0, 2.0, 0.9, "source"),),
     )
     action = np.asarray([3, 0, 2, 5], dtype=np.int64)
     update = build_state_update(
@@ -178,10 +174,7 @@ def test_directional_receiver_audit_explains_selected_and_excluded_vehicles() ->
         method="ai",
     )
 
-    outcomes = {
-        item["id"]: item["outcome"]
-        for item in update["decision"]["receiver_relations"]
-    }
+    outcomes = {item["id"]: item["outcome"] for item in update["decision"]["receiver_relations"]}
     assert outcomes == {
         "selected": "selected",
         "ahead": "ahead",

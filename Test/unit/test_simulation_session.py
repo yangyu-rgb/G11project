@@ -25,9 +25,7 @@ def test_playback_controller_applies_controls_and_reset_callback() -> None:
     assert playback.timeout is None
     playback.apply({"type": "control", "action": "play"}, lambda: None)
     assert playback.timeout == pytest.approx(0.25)
-    playback.apply(
-        {"type": "control", "action": "reset"}, lambda: reset_calls.append(True)
-    )
+    playback.apply({"type": "control", "action": "reset"}, lambda: reset_calls.append(True))
     assert reset_calls == [True]
     assert playback.playing is False
     assert playback.complete is False
@@ -60,9 +58,7 @@ def test_backend_core_does_not_import_fastapi_application_layer() -> None:
     assert offenders == []
 
 
-def test_attention_decision_latency_is_recorded_on_the_wrapped_base_environment() -> (
-    None
-):
+def test_attention_decision_latency_is_recorded_on_the_wrapped_base_environment() -> None:
     class BaseEnvironment:
         vehicle_ids: tuple[str, ...] = ()
 

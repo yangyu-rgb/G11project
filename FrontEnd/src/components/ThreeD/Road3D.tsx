@@ -7,12 +7,17 @@ import {
 } from 'three'
 
 import { HIGHWAY_LANE_WIDTH, SCENE_SCALE } from './sceneCoordinates'
-import { UrbanHighwayEnvironment3D } from './UrbanHighwayEnvironment3D'
+import {
+  DEFAULT_PRESENTATION_ENVIRONMENT,
+  type PresentationEnvironment,
+} from './environmentPresets'
+import { HighwayEnvironmentVariants3D } from './HighwayEnvironmentVariants3D'
 
 export type SceneLayout = 'highway' | 'urban' | 'custom'
 
 type Road3DProps = {
   layout?: SceneLayout
+  environmentPreset?: PresentationEnvironment
 }
 
 function createAsphaltTexture(): CanvasTexture {
@@ -223,7 +228,8 @@ function RoadsideContext({ length, offset }: { length: number; offset: number })
   )
 }
 
-export function Road3D({ layout = 'highway' }: Road3DProps) {
+export function Road3D({ layout = 'highway',
+  environmentPreset = DEFAULT_PRESENTATION_ENVIRONMENT }: Road3DProps) {
   const length = 5000 * SCENE_SCALE
   const asphaltTexture = useMemo(() => createAsphaltTexture(), [])
   useEffect(() => () => asphaltTexture.dispose(), [asphaltTexture])
@@ -252,10 +258,11 @@ export function Road3D({ layout = 'highway' }: Road3DProps) {
   const guardrailOffset = roadDepth / 2 + 0.14
   return (
     <group>
-      <UrbanHighwayEnvironment3D length={length} />
+      <HighwayEnvironmentVariants3D environment={environmentPreset} length={length} />
       <mesh position={[length / 2, -0.075, 0]} receiveShadow>
         <boxGeometry args={[length, 0.14, roadDepth + 0.34]} />
-        <meshStandardMaterial color="#8b8b87" roughness={0.96} metalness={0.01} />
+        <meshStandardMaterial color={environmentPreset === 'tunnel' ? '#676b6d' : '#8b8b87'}
+          roughness={0.96} metalness={0.01} />
       </mesh>
       <RoadStrip x={length / 2} z={0} width={length} depth={roadDepth} texture={asphaltTexture} />
       {[-outerBoundary, outerBoundary].map((z) => (

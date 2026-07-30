@@ -1,0 +1,58 @@
+{
+  "artifact_status": "preliminary highway-only course-demo evidence",
+  "protocol": "directional-v2",
+  "metric_schema_version": 2,
+  "run_mode": "demo_lite",
+  "incident_configurations": 72,
+  "method_count": 5,
+  "result_rows": 360,
+  "coverage_eligible_cases": 60,
+  "zero_affected_cases": 12,
+  "methods": {
+    "ai": {
+      "label": "Transformer + PPO",
+      "affected_coverage": {"mean": 1.0, "n": 60},
+      "p95_latency_ms": {"mean": 35.5224, "n": 61},
+      "message_overhead": {"mean": 1.1611, "n": 60},
+      "channel_cost": {"mean": 0.32111, "n": 60},
+      "effective_delivery": {"mean": 0.75926, "n": 72}
+    },
+    "broadcast": {
+      "label": "Broadcast",
+      "affected_coverage": {"mean": 0.83333, "n": 60},
+      "p95_latency_ms": {"mean": 52.7039, "n": 72},
+      "message_overhead": {"mean": 25.552, "n": 58},
+      "channel_cost": {"mean": 25.552, "n": 58}
+    },
+    "distance": {
+      "label": "Distance",
+      "affected_coverage": {"mean": 0.770278, "n": 60},
+      "p95_latency_ms": {"mean": 33.6621, "n": 70},
+      "message_overhead": {"mean": 3.22619, "n": 56},
+      "channel_cost": {"mean": 3.22619, "n": 56}
+    },
+    "urgency": {
+      "label": "Urgency",
+      "affected_coverage": {"mean": 0.770278, "n": 60},
+      "p95_latency_ms": {"mean": 37.4206, "n": 70},
+      "message_overhead": {"mean": 3.22619, "n": 56},
+      "channel_cost": {"mean": 1.172917, "n": 56}
+    },
+    "fixed_directional_corridor": {
+      "label": "Fixed directional corridor",
+      "affected_coverage": {"mean": 0.928611, "n": 60},
+      "p95_latency_ms": {"mean": 30.9391, "n": 60},
+      "message_overhead": {"mean": 1.01695, "n": 59},
+      "channel_cost": {"mean": 0.508475, "n": 59}
+    }
+  },
+  "behavior_gate": {
+    "unique_incidents": 12,
+    "receiver_signatures": 10,
+    "action_signatures": 4,
+    "forward_notifications": 0,
+    "nearest_follower_coverage": 1.0,
+    "nearest_follower_opportunities": 6
+  }
+}
+

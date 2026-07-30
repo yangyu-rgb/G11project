@@ -1,140 +1,62 @@
-# 实施路线图
+# Research Roadmap / 研究路线图
 
-## 1. 总体时间线
+This roadmap separates completed prototype capability from research extensions. It is not a promise that every future item already exists.
 
-| 周期 | 里程碑 | 核心交付 |
+## 1. Current classroom-demo baseline — completed
+
+- configurable three-lane highway with 50 vehicles and selectable incident sender;
+- SUMO/TraCI traffic traces and a 3GPP-inspired network abstraction;
+- observation schema v2 and four-dimensional directional-corridor action;
+- Transformer feature extractor and PPO actor/critic training;
+- fail-closed model registry, manifest, hash and behavioral gates;
+- broadcast, distance, urgency and fixed-directional baselines;
+- 72-configuration, five-method preliminary held-out artifact;
+- synchronized four-stage Three.js presentation, live telemetry and validation laboratory;
+- controllable comparison camera and receiver/source audit.
+
+当前版本已经满足课堂Demo的“真实AI、可对比、可解释、可追溯”底线，但实验范围仍是高速单事故。
+
+## 2. Immediate hardening
+
+| Priority | Work | Acceptance evidence |
 |---|---|---|
-| Week 1–2 | M0 环境与基础框架 | 可启动前后端、SUMO验证、WebSocket通信 |
-| Week 3–5 | M1 简单场景原型 | 30–50车、基础Transformer与PPO、两种基线 |
-| Week 6–9 | M2 中等场景与完整功能 | 100车、多事件、3GPP网络层、完整可视化 |
-| Week 10–12 | M3 大规模与优化（可选） | 真实地图、数百车辆、性能与3D增强 |
-| Week 13–14 | M4 实验与报告 | 性能、消融、泛化实验及可追溯图表 |
-| Week 15–16 | M5 展示与交付 | 20分钟presentation、稳定演示、完整文档 |
+| P0 | Freeze the presentation model and artifacts | Reproducible manifest and hashes on a clean clone |
+| P0 | Run full dress rehearsal on presentation hardware | Stable start, scenario load, camera and four stages |
+| P1 | Add multi-seed confidence intervals and significance tests | Machine-generated report with per-metric `n` |
+| P1 | Record performance and failure-mode evidence | Browser FPS, backend latency, fallback behavior |
+| P1 | Package a static backup video/slide | Same incident and claims as live demo |
 
-## 2. 里程碑
+## 3. Research extensions
 
-### M0：环境与基础框架
+### Scenario generalization
 
-任务：
+- urban expressway ramps and merge/diverge geometry;
+- curves, elevation, tunnels and partial occlusion;
+- concurrent incidents and event-priority conflicts;
+- density, weather and channel-condition sweeps.
 
-- 完成后端AI/ML目录和测试目录。
-- 建立Python 3.12环境，安装并验证核心依赖。
-- 安装SUMO，用TraCI运行1秒最小场景。
-- 后端提供测试WebSocket，前端显示消息并支持断线重连。
-- 建立技术规范、路线图和演示指南。
+### Algorithmic evaluation
 
-验收：
+- Transformer ablation and PPO ablation;
+- recurrent or graph-based encoder comparison;
+- constrained/safe RL and explicit risk budgets;
+- out-of-distribution detection and calibrated uncertainty;
+- sensitivity analysis for reward weights and legal corridor rules.
 
-- `./start.sh` 能统一启动前端和后端。
-- 前端每秒收到并显示后端测试消息。
-- SUMO验证脚本输出 `SUMO installation verified`。
-- 前后端lint、构建和测试全部通过。
+### Communication fidelity
 
-### M1：简单场景原型
+- packet-level NS-3 or equivalent co-simulation;
+- explicit queueing, retransmission and interference;
+- hardware-in-the-loop latency accounting;
+- standards-aligned message formats and radio profiles.
 
-后端与算法：
+### Presentation evidence
 
-- 生成5km、3车道、30–50辆车的高速场景，并随机触发1–2次急刹事件。
-- 实现4层、8头、256维的Transformer编码器。
-- 实现简化网络层、离线Gymnasium环境和基础PPO调度器。
-- 实现全量广播与300米固定半径两种基线。
-- 使用10–20个场景、约100轮仿真完成端到端训练验证。
+- replayable experiment runs selected from immutable artifacts;
+- multi-incident timeline and intervention controls;
+- per-vehicle counterfactual explanation;
+- side-by-side two-method live view plus five-method aggregate dashboard.
 
-前端与集成：
+## 4. Publication readiness gate
 
-- Leaflet显示道路、车辆和事件。
-- 动画显示发送者到接收者的消息传播。
-- 指标面板显示时延、覆盖率和通信开销。
-- WebSocket传输完整状态并驱动渲染。
-
-验收：
-
-- 固定随机种子下训练流程可复现，reward趋势和loss均有日志。
-- 30辆车场景可流畅展示。
-- 能生成AI与基线的初步对比数据；结果不预设胜负。
-
-### M2：中等场景与完整功能
-
-- 扩展到2–3个交叉口、100辆车和三类事件，并使用YAML配置场景。
-- 实现3GPP TR 38.901相关网络抽象、分段时延和完整奖励函数。
-- 增加紧急度优先基线、TraCI在线模式和消融开关。
-- 完成注意力、决策、资源分配、时序指标、事件统计和并排对比视图。
-- 目标数据规模为50个配置、每个10个随机种子。
-
-验收：
-
-- 100辆车场景保持可用帧率并能稳定完成一轮演示。
-- 四种方法使用相同场景、种子和评价脚本。
-- 输出覆盖率、有效送达率、时延分位数、开销和及时率。
-- 完整方法、仅Transformer和仅RL的消融结果均可复现。
-
-### M3：大规模与性能优化（可选）
-
-状态（2026-07-27）：3D高速交互演示、自动化检查和1920×1080完整视觉验收已完成；目标浏览器Performance录制，以及任务024–032的GPU训练和正式实验仍待执行。
-
-- 正式演示统一使用Three.js三维高速场景，运行时2D地图、分屏和场景编辑界面已移除。
-- 高速预设包含50辆车；用户可手动选择事故车，后端将96→18 km/h急刹绑定到该车，并保持同车道至少8米间距。
-- WebSocket只提供真实关键帧，由独立动画引擎连续插值；前端使用实例化渲染并增加视觉间距保护。
-- 同一事故依次预载全量广播与PPO选择性通信结果，按38秒五幕展示事故、两种方法和总结；后端不可用时只启用明确标注的规则降级。
-- NS-3仍作为可选后续能力；正式实验指标仍须来自固定配置、日志和生成脚本。
-
-验收：已在目标Mac Chrome 1920×1080走完38秒五幕视觉流程；仍需录制50辆车组合效果的Performance数据并确认P95帧间隔。若未达到目标，优先降低非必要光效密度，不改变真实轨迹、决策和指标。
-
-### M4：实验、对比与报告
-
-- 对完整方法和三种基线运行固定测试集。
-- 完成消融实验与高速到城市等跨道路泛化实验。
-- 生成表格、统计图、典型案例截图和备用演示视频。
-- 每个结果保存配置、随机种子、原始日志、模型版本和生成脚本。
-
-验收：
-
-- 训练、验证和测试按场景配置完全隔离。
-- 图表可从原始日志一键重建。
-- 结论只陈述实验实际支持的优势、限制和不确定性。
-
-### M5：展示与交付
-
-- 按正式评分要求准备20分钟presentation。
-- 完成高速急刹、城市交叉口和现场添加事件三个候选场景，根据稳定性选择正式演示内容。
-- 在目标设备完成至少3次全流程排练，并准备离线录像。
-- 检查README、架构、实验结果、贡献说明和所有文档链接。
-
-验收：
-
-- 正式讲述不超过20分钟，建议控制在18–19分钟并保留切换缓冲。
-- 每位组员都有明确讲述内容。
-- 演示无需临时下载依赖或访问外部网络。
-- 所有展示数字与实验记录一致。
-
-## 3. 七人分工
-
-### 三人开发组
-
-1. 算法与仿真：Transformer、PPO、SUMO环境和训练脚本。
-2. 后端与实验：FastAPI、WebSocket、网络抽象、评价与数据管道。
-3. 前端与集成：地图、图表、注意力、对比视图和端到端演示。
-
-开发组共同维护接口契约、自动化测试和演示稳定性，任何公共数据格式变更须共同评审。
-
-### 四人研究材料组
-
-1. Motivation：问题重要性、使用场景、传统广播的实际矛盾。
-2. Background：V2X/6G、Transformer、RL调度和现有方法分类。
-3. Research challenges：动态拓扑、时延与可靠性约束、联合动作空间、泛化和评估难点。
-4. Research opportunities：现有成果未覆盖的组合空白、拟议方法的切入点、可验证研究问题。
-
-四人共同维护文献证据表和引用；preliminary results由材料组整理、开发组核验，所有成员共同完成presentation。
-
-## 4. 风险与降级路径
-
-- PPO不稳定：先验证环境与规则基线，再缩小动作空间或使用监督预训练；更换算法必须获得架构师批准。
-- TraCI在线模式不稳定：保留离线轨迹作为主要训练与演示备份。
-- 100辆车渲染卡顿：批量更新、降低频率或固定50辆车演示。
-- 3GPP模型实现超期：明确标注为简化信道模型，不夸大真实性。
-- 3D或NS-3影响主线：直接推迟到未来工作。
-- 实验尚未完成：presentation可使用架构、原型和可复现流程，绝不把目标数字包装成初步结果。
-
-## 5. 每周检查点
-
-每周记录目标完成度、已完成任务、进行中任务、阻塞、下周计划和风险。检查后同步更新 `ARCHITECT_CODEX_BRIDGE.md`、`TODO.md` 和 `task_memory.md`。
+A future publication-grade claim requires preregistered hypotheses, isolated configurations, multiple independent seeds, confidence intervals, statistical tests with effect sizes, ablations, out-of-distribution scenarios, failure cases, complete configuration snapshots, and externally reproducible artifacts. Until then, figures must retain the label “preliminary highway-only course-demo evidence.”

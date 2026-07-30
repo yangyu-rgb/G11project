@@ -1,5 +1,8 @@
-import { AlertTriangle, Clapperboard, Pause, Play, RotateCcw, Satellite, ShieldCheck } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import {
+  AlertTriangle, CheckCircle2, Clapperboard, Cpu, FlaskConical, Gauge, Pause, Play,
+  RadioTower, RotateCcw, Ruler, Satellite, ShieldCheck,
+} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { AnimationChannel } from '../../engine/AnimationEngine'
 import { useAnimationRuntime } from '../../runtime/AnimationRuntimeContext'
@@ -7,66 +10,180 @@ import {
   PRESENTATION_DENSITIES,
   type PresentationDensity,
 } from '../SceneEditor/PresetScenes'
-import type { ComparisonPair, SimulationVehicle, StateUpdateMessage } from '../../types/simulation'
+import type {
+  ComparisonBaseline, ComparisonPair, SimulationVehicle,
+} from '../../types/simulation'
+import type { DemoResultsSummary } from '../../types/demoResults'
+import type { LiveComparisonTelemetry } from '../../types/liveTelemetry'
 import type { PresentationMode, PresentationPhase, PresentationSource } from '../../hooks/usePresentationDemo'
 import { evidenceForVehicle } from '../../types/research'
+import { nearestHighwayLaneIndex } from '../ThreeD/sceneCoordinates'
+import {
+  PRESENTATION_ENVIRONMENT_ORDER,
+  PRESENTATION_ENVIRONMENTS,
+  presentationEnvironmentDefinition,
+  type PresentationEnvironment,
+} from '../ThreeD/environmentPresets'
 import {
   comparisonMetrics,
   conclusionFor,
   PRESENTATION_DURATION_MS,
   presentationCueAt,
-  stageMetrics,
   STAGE_LABELS,
   type PresentationStage,
 } from './presentationTimeline'
+import { BASELINE_DEFINITIONS, baselineDefinition } from './presentationMethods'
+import { LiveTelemetryHud } from './LiveTelemetryHud'
 
 type SelectionPanelProps = {
   vehicles: SimulationVehicle[]
   selectedVehicleId: string | null
+  recommendedVehicleId: string
   preparing: boolean
   density: PresentationDensity
+  environmentPreset: PresentationEnvironment
   modelEligible: boolean
   modelReason: string | null
+  modelHash: string | null
   notice: string | null
+  baseline: ComparisonBaseline
   onDensityChange: (density: PresentationDensity) => void
+  onEnvironmentChange: (environment: PresentationEnvironment) => void
+  onVehicleSelect: (vehicleId: string) => void
+  onBaselineChange: (baseline: ComparisonBaseline) => void
   onStart: () => void
 }
 
-export function SelectionPanel({ vehicles, selectedVehicleId, preparing, density, modelEligible,
-  modelReason, notice, onDensityChange, onStart }: SelectionPanelProps) {
+const HIGHWAY_LANE_LABELS = ['外侧车道', '中间车道', '内侧车道'] as const
+
+function vehicleOptionLabel(vehicle: SimulationVehicle): string {
+  const lane = HIGHWAY_LANE_LABELS[nearestHighwayLaneIndex(vehicle.y)]
+  return `${vehicle.id} · ${lane} · ${vehicle.x.toFixed(0)} m`
+}
+
+export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicleId, preparing,
+  density, environmentPreset, modelEligible, modelReason, modelHash, notice, baseline,
+  onDensityChange, onEnvironmentChange, onVehicleSelect, onBaselineChange, onStart }: SelectionPanelProps) {
   const selected = vehicles.find((vehicle) => vehicle.id === selectedVehicleId)
-  return (
-    <aside className="selection-panel" aria-labelledby="selection-heading">
-      <p className="hud-kicker">事故场景配置</p>
-      <h2 id="selection-heading">选择交通密度</h2>
-      <p>系统将事故车自动放在最适合比较的位置，同时保留真实PPO推理和完整车辆关系。</p>
-      <fieldset className="density-selector" disabled={preparing}>
-        <legend>交通密度</legend>
-        {(Object.entries(PRESENTATION_DENSITIES) as Array<[
-          PresentationDensity, (typeof PRESENTATION_DENSITIES)[PresentationDensity]
-        ]>).map(([value, setting]) => <button type="button" key={value}
-          className={density === value ? 'is-active' : ''}
-          onClick={() => onDensityChange(value)}>
-          <strong>{setting.label}</strong><small>{setting.description}</small>
-        </button>)}
-      </fieldset>
-      <div className="selected-vehicle-card" aria-live="polite">
-        {selected ? <>
-          <span>自动选择的事故车辆</span>
-          <strong>{selected.id}</strong>
-          <small>外侧车道 · 车流纵向约75%位置 · 初始速度96 km/h</small>
-        </> : <span>正在确定事故车辆</span>}
-      </div>
-      <button type="button" className="primary-action" disabled={!selected || preparing || !modelEligible} onClick={onStart}>
-        <Play aria-hidden="true" />{preparing ? '正在计算真实对比…' : '创建事故并开始演示'}
-      </button>
-      {!modelEligible && <div className="model-gate-warning" role="status">
-        <AlertTriangle aria-hidden="true" /><span><strong>AI演示暂不可用</strong>{modelReason ?? '正在核验正式模型资格'}</span>
-      </div>}
-      {notice && <div className="selection-notice" role="status">{notice}</div>}
-      <small className="selection-help">计算完成后进入自由证据舞台；也可一键播放38秒答辩脚本。</small>
-    </aside>
+  const orderedVehicles = useMemo(
+    () => [...vehicles].sort((left, right) => right.x - left.x || left.id.localeCompare(right.id)),
+    [vehicles],
   )
+  const selectedLane = selected ? HIGHWAY_LANE_LABELS[nearestHighwayLaneIndex(selected.y)] : null
+  const selectedSpeed = selected ? Math.hypot(selected.vx, selected.vy) * 3.6 : null
+  const selectedPosition = selected && vehicles.length > 1
+    ? Math.round(100 * vehicles.filter((vehicle) => vehicle.x <= selected.x).length / vehicles.length)
+    : null
+  const recommended = selected?.id === recommendedVehicleId
+  const xs = vehicles.map((vehicle) => vehicle.x)
+  const minX = Math.min(...xs)
+  const spanX = Math.max(1, Math.max(...xs) - minX)
+  const lanes = [...new Set(vehicles.map((vehicle) => vehicle.y))].sort((a, b) => a - b)
+  const selectedMethod = baselineDefinition(baseline)
+  return <section className="demo-setup-stage" aria-labelledby="selection-heading">
+    <header className="demo-setup-heading">
+      <div><p className="hud-kicker">答辩演示配置</p>
+        <h2 id="selection-heading">创建可复现的同步算法对照</h2>
+        <p>先锁定场景、事故源和对照方法，再运行同一随机种子下的真实PPO与确定性基线。</p></div>
+      <span><b>38 s</b><small>四阶段演示</small></span>
+    </header>
+
+    <div className="demo-setup-grid">
+      <section className="setup-section setup-section--scenario">
+        <header><span>01</span><div><strong>事故场景</strong><small>控制交通规模与事故位置</small></div></header>
+        <fieldset className="environment-selector" disabled={preparing}
+          aria-describedby="environment-selector-help">
+          <legend>道路视觉环境</legend>
+          {PRESENTATION_ENVIRONMENT_ORDER.map((value) => {
+            const definition = PRESENTATION_ENVIRONMENTS[value]
+            return <button type="button" key={value}
+              className={environmentPreset === value ? 'is-active' : ''}
+              aria-pressed={environmentPreset === value}
+              onClick={() => onEnvironmentChange(value)}>
+              <i className={`environment-thumb environment-thumb--${value}`} aria-hidden="true"><b /><em /></i>
+              <span><strong>{definition.label}</strong><small>{definition.description}</small></span>
+            </button>
+          })}
+        </fieldset>
+        <p className="environment-selector-help" id="environment-selector-help">
+          仅改变三维材料、光影与路侧环境；车辆轨迹、事故参数、网络输入与PPO决策保持不变。
+        </p>
+        <fieldset className="density-selector" disabled={preparing}>
+          <legend>交通密度</legend>
+          {(Object.entries(PRESENTATION_DENSITIES) as Array<[
+            PresentationDensity, (typeof PRESENTATION_DENSITIES)[PresentationDensity]
+          ]>).map(([value, setting]) => <button type="button" key={value}
+            className={density === value ? 'is-active' : ''}
+            onClick={() => onDensityChange(value)}>
+            <strong>{setting.label}</strong><small>{setting.description}</small>
+          </button>)}
+        </fieldset>
+        <div className="setup-road-map" aria-label="三车道车辆位置预览">
+          {lanes.map((lane, laneIndex) => <div key={lane}>
+            <span>{HIGHWAY_LANE_LABELS[laneIndex] ?? `车道${laneIndex + 1}`}</span>
+            <i />
+          </div>)}
+          {vehicles.map((vehicle) => <button type="button" key={vehicle.id}
+            className={vehicle.id === selectedVehicleId ? 'is-selected' : ''}
+            aria-label={`选择 ${vehicleOptionLabel(vehicle)} 作为事故车辆`}
+            aria-pressed={vehicle.id === selectedVehicleId} disabled={preparing}
+            title={vehicleOptionLabel(vehicle)} onClick={() => onVehicleSelect(vehicle.id)} style={{
+              '--vehicle-x': `${3 + (vehicle.x - minX) / spanX * 94}%`,
+              '--vehicle-lane': lanes.indexOf(vehicle.y),
+            } as React.CSSProperties}><i aria-hidden="true" /></button>)}
+        </div>
+        <label htmlFor="incident-vehicle-select">精确选择事故车辆</label>
+        <select id="incident-vehicle-select" value={selectedVehicleId ?? ''} disabled={preparing}
+          onChange={(event) => onVehicleSelect(event.target.value)}>
+          {!selectedVehicleId && <option value="" disabled>请选择车辆</option>}
+          {orderedVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>
+            {vehicleOptionLabel(vehicle)}
+          </option>)}
+        </select>
+        <div className="selected-vehicle-card" aria-live="polite">
+          {selected ? <><span>当前事故车辆 <em>{recommended ? '系统推荐位置' : '自定义事故位置'}</em></span>
+            <strong>{selected.id}</strong><small>{selectedLane} · 路段纵向约{selectedPosition}% · 初始速度{selectedSpeed?.toFixed(0)} km/h</small></>
+            : <span>请选择事故车辆</span>}
+        </div>
+      </section>
+
+      <section className="setup-section setup-section--methods">
+        <header><span>02</span><div><strong>算法组合</strong><small>AI固定为验收模型，选择左侧对照基线</small></div></header>
+        <article className={`locked-model-card ${modelEligible ? 'is-eligible' : ''}`}>
+          <Cpu aria-hidden="true" /><div><small>LEARNED POLICY · LOCKED</small>
+            <strong>Transformer + PPO V2</strong><p>方向风险走廊结构动作 · 正式答辩模型</p>
+            <code>{modelHash ? `SHA ${modelHash.slice(0, 12)}…` : '正在核验模型清单'}</code></div>
+          <span>{modelEligible ? <><CheckCircle2 />资格通过</> : <><AlertTriangle />不可用</>}</span>
+        </article>
+        <fieldset className="baseline-selector" disabled={preparing}>
+          <legend>选择确定性基线</legend>
+          {BASELINE_DEFINITIONS.map((method) => {
+            const Icon = method.id === 'broadcast' ? RadioTower : method.id === 'distance' ? Ruler : Gauge
+            return <button type="button" key={method.id}
+              className={baseline === method.id ? 'is-active' : ''}
+              onClick={() => onBaselineChange(method.id)}>
+              <Icon aria-hidden="true" /><span><strong>{method.label}</strong><small>{method.description}</small>
+                <code>{method.rule}</code></span>{baseline === method.id && <CheckCircle2 aria-hidden="true" />}
+            </button>
+          })}
+        </fieldset>
+        {!modelEligible && <div className="model-gate-warning" role="status">
+          <AlertTriangle aria-hidden="true" /><span><strong>AI演示暂不可用</strong>{modelReason ?? '正在核验正式模型资格'}</span>
+        </div>}
+      </section>
+    </div>
+
+    <footer className="demo-setup-footer">
+      <div><span><small>场景</small><b>{presentationEnvironmentDefinition(environmentPreset).shortLabel} · {vehicles.length}辆</b></span>
+        <span><small>制动</small><b>96 → 18 km/h</b></span>
+        <span><small>事故源</small><b>{selected?.id ?? '未选择'}</b></span>
+        <span><small>同步对照</small><b>{selectedMethod.label} vs AI</b></span></div>
+      {notice && <p className="selection-notice" role="status">{notice}</p>}
+      <button type="button" className="primary-action" disabled={!selected || preparing || !modelEligible} onClick={onStart}>
+        <Play aria-hidden="true" />{preparing ? '正在计算真实对比…' : '确认配置并生成演示'}
+      </button>
+    </footer>
+  </section>
 }
 
 function AccidentSpeed({ vehicleId, channel }: { vehicleId: string; channel: AnimationChannel }) {
@@ -85,67 +202,8 @@ function AccidentSpeed({ vehicleId, channel }: { vehicleId: string; channel: Ani
 const DESCRIPTIONS: Record<PresentationStage, string> = {
   normal: '车辆在三车道高速公路上保持正常行驶。',
   accident: '目标车辆突然急刹，车联网系统立即生成安全警报。',
-  broadcast: '传统方法通知通信域内几乎所有车辆，产生大量不必要传输。',
-  ai: 'AI根据车辆位置和风险关系，只选择真正需要警报的接收者。',
+  comparison: '两种算法在完全相同的事故状态与时间戳下同步运行。',
   summary: '同一事故、同一时间戳下的通信结果对比。',
-}
-
-function StrategyActionReadout({ update }: { update: StateUpdateMessage | undefined }) {
-  if (!update || update.decision.action_mode !== 'directional_corridor') return null
-  const decision = update.decision
-  const bandwidth = decision.bandwidth_fraction
-    ?? decision.bandwidth_allocation.reduce((total, value) => total + value, 0)
-  return <div className="strategy-action" aria-label="PPO结构动作">
-    <span><small>走廊半径</small><strong>{decision.corridor_radius_m?.toFixed(0) ?? '—'} m</strong></span>
-    <span><small>车道范围</small><strong>{decision.corridor_lane_scope === 'same_and_adjacent'
-      ? '同车道 + 相邻' : '仅同车道'}</strong></span>
-    <span><small>优先级</small><strong>{({ low: '低', medium: '中', high: '高' })[decision.priority]}</strong></span>
-    <span><small>总带宽</small><strong>{(bandwidth * 100).toFixed(0)}%</strong></span>
-  </div>
-}
-
-function ReceiverOutcomeSummary({ update }: { update: StateUpdateMessage | undefined }) {
-  const relations = update?.decision.receiver_relations ?? []
-  if (!relations.length) return null
-  const selected = relations.filter((item) => item.outcome === 'selected').length
-  const ahead = relations.filter((item) => item.outcome === 'ahead').length
-  const excluded = relations.length - selected - ahead
-  return <div className="receiver-outcome-summary" aria-label="AI逐车关系判定汇总">
-    <span><strong>{selected}</strong><small>风险走廊内</small></span>
-    <span><strong>{ahead}</strong><small>事故车前方</small></span>
-    <span><strong>{excluded}</strong><small>过远 / 非目标车道</small></span>
-  </div>
-}
-
-type RelationCallout = { id: string; label: string; detail: string; selected: boolean }
-
-function relationCallouts(update: StateUpdateMessage | undefined): RelationCallout[] {
-  if (!update) return []
-  const selected = new Set(update.decision.selected_receivers)
-  const weights = new Map<string, number>()
-  for (const item of update.attention_weights ?? []) {
-    weights.set(item.vehicle_id, Math.max(weights.get(item.vehicle_id) ?? 0, item.weight))
-  }
-  const candidates = update.decision.candidate_vehicles ?? []
-  const chosen = candidates.filter((candidate) => selected.has(candidate.id))
-    .sort((left, right) => (weights.get(right.id) ?? 0) - (weights.get(left.id) ?? 0)
-      || left.distance_m - right.distance_m)
-    .slice(0, 2)
-    .map((candidate) => ({
-      id: candidate.id,
-      label: update.decision.selection_reason?.[candidate.id] ?? '风险关系优先',
-      detail: `${candidate.distance_m.toFixed(0)} m · ${weights.has(candidate.id)
-        ? `注意力 ${(weights.get(candidate.id) as number * 100).toFixed(0)}%` : '策略已选择'}`,
-      selected: true,
-    }))
-  const rejected = candidates.filter((candidate) => !selected.has(candidate.id))
-    .sort((left, right) => right.distance_m - left.distance_m)[0]
-  return rejected ? [...chosen, {
-    id: rejected.id,
-    label: '未进入优先接收集合',
-    detail: `${rejected.distance_m.toFixed(0)} m · 保持灰化`,
-    selected: false,
-  }] : chosen
 }
 
 type DemoHudProps = {
@@ -158,29 +216,31 @@ type DemoHudProps = {
   notice: string | null
   mode: PresentationMode
   inspectedVehicleId: string | null
+  results: DemoResultsSummary | null
+  comparisonMode: boolean
+  telemetry: LiveComparisonTelemetry | null
+  baseline: ComparisonBaseline
+  environmentPreset: PresentationEnvironment
   onTogglePause: () => void
   onReplay: () => void
   onAutoplay: () => void
   onSeek: (elapsedMs: number) => void
   onReset: () => void
+  onOpenValidation: () => void
 }
 
 export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVehicleId, notice,
-  mode, inspectedVehicleId, onTogglePause, onReplay, onAutoplay, onSeek, onReset }: DemoHudProps) {
-  const active = stage === 'broadcast' ? evidence?.baseline : evidence?.ai
+  mode, inspectedVehicleId, results, comparisonMode, telemetry, baseline, environmentPreset,
+  onTogglePause, onReplay, onAutoplay, onSeek, onReset, onOpenValidation }: DemoHudProps) {
   const cue = presentationCueAt(elapsedMs)
-  const metrics = stageMetrics(active, source === 'real', cue.linkRevealProgress)
-  const callouts = relationCallouts(evidence?.ai)
-  const visibleCallouts = stage === 'ai'
-    ? callouts.slice(0, Math.max(0, Math.min(3, Math.floor((cue.stageProgress - 0.1) / 0.12) + 1))) : []
-  const channel: AnimationChannel = stage === 'broadcast' ? 'comparison-baseline' : 'comparison-ai'
+  const channel: AnimationChannel = 'comparison-ai'
   const complete = phase === 'complete'
   const paused = phase === 'paused'
   const exploring = phase === 'exploring'
+  const environment = presentationEnvironmentDefinition(environmentPreset)
   const bookmarks: Array<{ stage: PresentationStage; elapsedMs: number }> = [
     { stage: 'normal', elapsedMs: 0 }, { stage: 'accident', elapsedMs: 6_400 },
-    { stage: 'broadcast', elapsedMs: 14_000 }, { stage: 'ai', elapsedMs: 23_400 },
-    { stage: 'summary', elapsedMs: 35_600 },
+    { stage: 'comparison', elapsedMs: 17_000 }, { stage: 'summary', elapsedMs: 35_600 },
   ]
   return (
     <div className="presentation-hud">
@@ -201,12 +261,12 @@ export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVeh
       {notice && elapsedMs < 5_000
         && <p className="presentation-notice" aria-live="polite">{notice}</p>}
 
-      {(stage === 'broadcast' || stage === 'ai') && evidence && <div className="evidence-time-badge">
-        同一事故决策帧 · t={evidence.ai.timestamp.toFixed(1)} s · 车辆位置已冻结
+      {stage === 'comparison' && telemetry && <div className="evidence-time-badge">
+        {environment.shortLabel} · 同一真实决策帧 · 双路同步回放 · 10 Hz累计遥测
       </div>}
 
-      {stage !== 'summary' && <section className={`narrative-card narrative-card--${stage}`}>
-        <p className="hud-kicker">{stage === 'broadcast' ? '基线方法' : stage === 'ai' ? '智能策略' : '事故场景'}</p>
+      {!comparisonMode && stage !== 'summary' && <section className={`narrative-card narrative-card--${stage}`}>
+        <p className="hud-kicker">事故场景 · {environment.label}</p>
         <h2>{STAGE_LABELS[stage]}</h2>
         <p>{DESCRIPTIONS[stage]}</p>
         {stage === 'accident' && <div className="accident-readout">
@@ -214,43 +274,17 @@ export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVeh
           <span>检测到事故<small>{accidentVehicleId}</small></span>
           <AccidentSpeed vehicleId={accidentVehicleId} channel={channel} />
         </div>}
-        {(stage === 'broadcast' || stage === 'ai') && <>
-          <div className="vehicle-state-legend" aria-label="车辆颜色说明">
-            <span><i className="legend-swatch legend-swatch--accident" />事故车辆</span>
-            <span><i className="legend-swatch legend-swatch--notified" />已接收信息</span>
-            {stage === 'ai' && <span><i className="legend-swatch legend-swatch--candidate" />候选未通知</span>}
-            <span><i className="legend-swatch legend-swatch--unrelated" />无关车辆</span>
-          </div>
-        </>}
-        {stage === 'ai' && <>
-          <StrategyActionReadout update={evidence?.ai} />
-          <ReceiverOutcomeSummary update={evidence?.ai} />
-        </>}
       </section>}
 
-      {(stage === 'broadcast' || stage === 'ai') && <section className="metric-rail" aria-label="当前通信指标">
-        <span className={`metric-rail__method metric-rail__method--${stage}`}>
-          {stage === 'broadcast' ? 'BROADCAST' : 'SELECTIVE AI'}
-        </span>
-        {metrics.map((metric) => <div key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong></div>)}
-      </section>}
+      {stage === 'comparison' && telemetry && <LiveTelemetryHud telemetry={telemetry} baseline={baseline} />}
+      {stage === 'comparison' && !telemetry && <div className="telemetry-loading" role="status">正在同步两路当前帧遥测…</div>}
 
-      {visibleCallouts.length > 0 && !exploring && <aside className="relation-callouts" aria-label="AI接收车辆选择解释">
-        <p className="hud-kicker">关系判定</p>
-        {visibleCallouts.map((item, index) => <div key={item.id}
-          className={`relation-callout ${item.selected ? 'relation-callout--selected' : 'relation-callout--rejected'}`}
-          style={{ '--callout-index': index } as React.CSSProperties}>
-          <span>{item.selected ? '优先接收' : '未选择'}</span>
-          <strong>{item.id}</strong>
-          <b>{item.label}</b>
-          <small>{item.detail}</small>
-        </div>)}
-      </aside>}
+      {stage === 'summary' && <FinalComparison pair={evidence} source={source} results={results}
+        baseline={baseline} visibleMetricCount={cue.summaryMetricCount} showTagline={cue.showSummaryTagline}
+        environmentLabel={environment.label} onOpenValidation={onOpenValidation} />}
 
-      {stage === 'summary' && <FinalComparison pair={evidence} source={source}
-        visibleMetricCount={cue.summaryMetricCount} showTagline={cue.showSummaryTagline} />}
-
-      {exploring && stage !== 'summary' && inspectedVehicleId && evidence && <VehicleEvidenceCard
+      {exploring && stage === 'comparison' && inspectedVehicleId
+        && inspectedVehicleId !== accidentVehicleId && evidence && <VehicleEvidenceCard
         pair={evidence} vehicleId={inspectedVehicleId} accidentVehicleId={accidentVehicleId} />}
 
       <div className="playback-controls" aria-label="演示播放控制">
@@ -277,6 +311,7 @@ function VehicleEvidenceCard({ pair, vehicleId, accidentVehicleId }: {
   const [question, setQuestion] = useState<'why' | 'baseline' | 'stress'>('why')
   const ai = evidenceForVehicle(pair.ai, vehicleId)
   const baseline = evidenceForVehicle(pair.baseline, vehicleId)
+  const method = baselineDefinition((pair.baseline.method ?? 'broadcast') as ComparisonBaseline)
   const relation = pair.ai.decision.receiver_relations?.find((item) => item.id === vehicleId)
   if (vehicleId === accidentVehicleId) return <aside className="vehicle-question-card" aria-label="车辆决策追问">
     <p className="hud-kicker">车辆决策追问</p>
@@ -286,10 +321,10 @@ function VehicleEvidenceCard({ pair, vehicleId, accidentVehicleId }: {
   </aside>
   const answer = question === 'baseline'
     ? baseline.selected
-      ? `传统广播向 ${vehicleId} 发送消息，不区分它是否属于高风险接收者。`
+      ? `${method.label}向 ${vehicleId} 发送了消息；可与AI的关系判定逐车核对。`
       : `当前基线在该时刻没有向 ${vehicleId} 发包。`
     : question === 'stress'
-      ? '低带宽结果需要进入“研究实验台”的压力预设或现场实跑验证，这里不生成估计指标。'
+      ? '低带宽结果需要进入“验证实验室”的网络压力预设并现场实跑，这里不生成估计指标。'
       : ai.selected
         ? `${vehicleId} 已进入候选集合并被策略选中。记录理由：${ai.reason}。`
         : ai.candidate
@@ -307,13 +342,13 @@ function VehicleEvidenceCard({ pair, vehicleId, accidentVehicleId }: {
       <span className={ai.selected ? 'is-selected' : ''}>{ai.selected ? 'AI已通知' : 'AI未通知'}</span></div>
     <div className="vehicle-fact-row">
       <span>候选状态<b>{ai.candidate ? '候选集合内' : '范围外'}</b></span>
-      <span>传统广播<b>{baseline.selected ? '仍会通知' : '未通知'}</b></span>
+      <span>{method.label}<b>{baseline.selected ? '会通知' : '未通知'}</b></span>
       <span>事件距离<b>{ai.distanceM === null && !relation ? '—'
         : `${(ai.distanceM ?? relation?.distance_m ?? 0).toFixed(1)} m`}</b></span>
     </div>
     <div className="vehicle-question-actions">
       <button type="button" className={question === 'why' ? 'is-active' : ''} onClick={() => setQuestion('why')}>为什么？</button>
-      <button type="button" className={question === 'baseline' ? 'is-active' : ''} onClick={() => setQuestion('baseline')}>传统方法呢？</button>
+      <button type="button" className={question === 'baseline' ? 'is-active' : ''} onClick={() => setQuestion('baseline')}>所选基线呢？</button>
       <button type="button" className={question === 'stress' ? 'is-active' : ''} onClick={() => setQuestion('stress')}>低带宽会怎样？</button>
     </div>
     <p>{answer}</p>
@@ -321,7 +356,7 @@ function VehicleEvidenceCard({ pair, vehicleId, accidentVehicleId }: {
   </aside>
 }
 
-function ComparisonFootprints({ pair }: { pair: ComparisonPair }) {
+function ComparisonFootprints({ pair, baseline }: { pair: ComparisonPair; baseline: ComparisonBaseline }) {
   const vehicles = pair.ai.vehicles
   const sourceId = pair.ai.events[0]?.source_vehicle_id
   const xs = vehicles.map((vehicle) => vehicle.x)
@@ -332,7 +367,7 @@ function ComparisonFootprints({ pair }: { pair: ComparisonPair }) {
   const projectX = (x: number) => 16 + (x - minX) / span * 408
   const projectY = (y: number) => 20 + Math.max(0, lanes.indexOf(y)) * 26
   const panels = [
-    { key: 'broadcast', title: '传统全量广播', update: pair.baseline, color: '#f0a84b' },
+    { key: baseline, title: baselineDefinition(baseline).label, update: pair.baseline, color: '#f0a84b' },
     { key: 'ai', title: 'AI选择性广播', update: pair.ai, color: '#2dd4a3' },
   ] as const
   return <div className="comparison-footprints" aria-label="同尺度通信覆盖俯视图">
@@ -360,39 +395,98 @@ function ComparisonFootprints({ pair }: { pair: ComparisonPair }) {
   </div>
 }
 
-function FinalComparison({ pair, source, visibleMetricCount, showTagline }: {
+const HELDOUT_METRICS = [
+  { key: 'affected_vehicle_coverage', label: '受影响车辆覆盖率', unit: '%', scale: 100 },
+  { key: 'communication_overhead', label: '消息冗余', unit: '', scale: 1 },
+  { key: 'normalized_channel_cost', label: '归一化信道成本', unit: '', scale: 1 },
+  { key: 'p95_latency_ms', label: 'P95 时延', unit: ' ms', scale: 1 },
+] as const
+
+const METHOD_NAMES: Record<string, string> = {
+  ai: 'Transformer + PPO', broadcast: '全量广播', distance: '固定范围', urgency: '紧急度调度',
+}
+
+function HeldoutMethodTable({ results }: { results: DemoResultsSummary | null }) {
+  if (!results?.ready) return <div className="heldout-pending">
+    <strong>留出集结果正在等待训练流水线</strong><span>{results?.reason ?? '完成后自动显示四方法统一口径结果'}</span>
+  </div>
+  return <section className="all-method-results" aria-labelledby="heldout-heading">
+    <header><div><small>HELD-OUT EVALUATION</small><strong id="heldout-heading">四种方法统一留出集</strong></div>
+      <span>{results.case_count ?? '—'} cases · protocol {results.protocol}</span></header>
+    <div role="table" aria-label="四种方法留出集指标对比">
+      <div className="all-method-results__head" role="row"><b role="columnheader">方法</b>
+        {HELDOUT_METRICS.map((metric) => <b role="columnheader" key={metric.key}>{metric.label}</b>)}</div>
+      {(['ai', 'broadcast', 'distance', 'urgency'] as const).map((method) => <div
+        className={`all-method-results__row ${method === 'ai' ? 'is-ai' : ''}`} role="row" key={method}>
+        <strong role="rowheader">{METHOD_NAMES[method]}</strong>
+        {HELDOUT_METRICS.map((metric) => {
+          const value = results.methods[method]?.[metric.key]
+          return <span role="cell" key={metric.key}><b>{value
+            ? `${(value.mean * metric.scale).toFixed(metric.scale === 100 ? 1 : 2)}${metric.unit}` : '—'}</b>
+            {value && <small>95% CI [{(value.ci95[0] * metric.scale).toFixed(1)}, {(value.ci95[1] * metric.scale).toFixed(1)}]</small>}</span>
+        })}
+      </div>)}
+    </div>
+    <p className="heldout-method-note">固定范围与紧急度采用同一300 m接收集合；后者的差异体现在严重度驱动的优先级、带宽与信道成本。</p>
+  </section>
+}
+
+function resultTagline(pair: ComparisonPair | null): string {
+  if (!pair) return '以同场景实测数据为准'
+  const baselineCount = new Set(pair.baseline.decision.selected_receivers).size
+  const aiCount = new Set(pair.ai.decision.selected_receivers).size
+  const claims = [aiCount < baselineCount ? '更少通知' : '接收规模相当']
+  claims.push(aiCount < baselineCount ? '更低负载' : '负载收益有限')
+  claims.push(pair.ai.metrics.avg_delay_ms < pair.baseline.metrics.avg_delay_ms ? '更优时延' : '时延未占优')
+  return `${claims.join(' · ')} · 结果不作美化`
+}
+
+function FinalComparison({ pair, source, results, baseline, visibleMetricCount, showTagline,
+  environmentLabel, onOpenValidation }: {
   pair: ComparisonPair | null
   source: PresentationSource
+  results: DemoResultsSummary | null
+  baseline: ComparisonBaseline
   visibleMetricCount: number
   showTagline: boolean
+  environmentLabel: string
+  onOpenValidation: () => void
 }) {
   const metrics = comparisonMetrics(pair, source === 'real')
+  const method = baselineDefinition(baseline)
   return (
     <section className="final-comparison" aria-labelledby="comparison-heading">
       <div className="final-heading">
-        <p className="hud-kicker">同一事故 · 同一时间戳</p>
+        <p className="hud-kicker">{environmentLabel} · 同一事故 · 同一时间戳</p>
         <h2 id="comparison-heading">通信策略对比结果</h2>
       </div>
-      {pair && <ComparisonFootprints pair={pair} />}
-      <div className="comparison-method-headings" aria-hidden="true">
-        <span><Satellite />传统全量广播</span><span><ShieldCheck />AI选择性广播</span>
+      <div className="final-comparison__body">
+        <section className="case-comparison">
+          {pair && <ComparisonFootprints pair={pair} baseline={baseline} />}
+          <div className="comparison-method-headings" aria-hidden="true">
+            <span><Satellite />{method.label}</span><span><ShieldCheck />AI选择性广播</span>
+          </div>
+          <div className="comparison-table" role="table" aria-label={`${method.label}与AI选择性广播指标对比`}>
+            {metrics.map((metric, index) => <div
+              className={`comparison-row ${index < visibleMetricCount ? 'comparison-row--visible' : ''}`}
+              role="row" key={metric.label}>
+              <strong role="rowheader">{metric.label}</strong>
+              <span role="cell">{metric.baseline}</span>
+              <span role="cell">{metric.ai}</span>
+              <em>{metric.delta ?? '—'}</em>
+            </div>)}
+          </div>
+          <p className={`final-conclusion ${visibleMetricCount >= 4 ? 'final-conclusion--visible' : ''}`}>
+            {conclusionFor(pair, source === 'real')}
+          </p>
+          <strong className={`final-tagline ${showTagline ? 'final-tagline--visible' : ''}`}>
+            {resultTagline(pair)}
+          </strong>
+          <button type="button" className={`open-validation-action ${showTagline ? 'is-visible' : ''}`}
+            onClick={onOpenValidation}><FlaskConical aria-hidden="true" />深入验证本次结果</button>
+        </section>
+        <HeldoutMethodTable results={results} />
       </div>
-      <div className="comparison-table" role="table" aria-label="传统广播与AI选择性广播指标对比">
-        {metrics.map((metric, index) => <div
-          className={`comparison-row ${index < visibleMetricCount ? 'comparison-row--visible' : ''}`}
-          role="row" key={metric.label}>
-          <strong role="rowheader">{metric.label}</strong>
-          <span role="cell">{metric.baseline}</span>
-          <span role="cell">{metric.ai}</span>
-          <em>{metric.delta ?? '—'}</em>
-        </div>)}
-      </div>
-      <p className={`final-conclusion ${visibleMetricCount >= 4 ? 'final-conclusion--visible' : ''}`}>
-        {conclusionFor(pair, source === 'real')}
-      </p>
-      <strong className={`final-tagline ${showTagline ? 'final-tagline--visible' : ''}`}>
-        更少通知 · 更精准 · 更低负载 · 更优时延
-      </strong>
     </section>
   )
 }
