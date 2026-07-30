@@ -1,10 +1,5 @@
-import { useEffect, useMemo } from 'react'
-import {
-  CanvasTexture,
-  Object3D,
-  RepeatWrapping,
-  SRGBColorSpace,
-} from 'three'
+import { useMemo } from 'react'
+import { Object3D } from 'three'
 
 import { HIGHWAY_LANE_WIDTH, SCENE_SCALE } from './sceneCoordinates'
 import {
@@ -12,61 +7,27 @@ import {
   type PresentationEnvironment,
 } from './environmentPresets'
 import { HighwayEnvironmentVariants3D } from './HighwayEnvironmentVariants3D'
+import { PbrSurfaceMaterial } from './environmentMaterials'
 
 export type SceneLayout = 'highway' | 'urban' | 'custom'
 
 type Road3DProps = {
   layout?: SceneLayout
   environmentPreset?: PresentationEnvironment
+  showInfrastructure?: boolean
 }
 
-function createAsphaltTexture(): CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = 192
-  canvas.height = 192
-  const context = canvas.getContext('2d')
-  if (!context) throw new Error('Unable to create asphalt texture')
-  context.fillStyle = '#3b4145'
-  context.fillRect(0, 0, canvas.width, canvas.height)
-  let seed = 937
-  for (let index = 0; index < 5400; index += 1) {
-    seed = (seed * 16807) % 2147483647
-    const x = seed % canvas.width
-    seed = (seed * 16807) % 2147483647
-    const y = seed % canvas.height
-    const lightness = 42 + seed % 36
-    context.fillStyle = `rgba(${lightness},${lightness + 2},${lightness + 3},${0.12 + (seed % 12) / 100})`
-    context.fillRect(x, y, seed % 5 === 0 ? 2 : 1, 1)
-  }
-  context.strokeStyle = 'rgba(18,21,23,0.2)'
-  context.lineWidth = 1
-  for (let index = 0; index < 8; index += 1) {
-    context.beginPath()
-    context.moveTo(0, index * 27 + 5)
-    context.bezierCurveTo(45, index * 27 + 2, 130, index * 27 + 10, 192, index * 27 + 4)
-    context.stroke()
-  }
-  const texture = new CanvasTexture(canvas)
-  texture.colorSpace = SRGBColorSpace
-  texture.wrapS = RepeatWrapping
-  texture.wrapT = RepeatWrapping
-  texture.repeat.set(150, 2.5)
-  texture.anisotropy = 4
-  texture.needsUpdate = true
-  return texture
-}
-
-function RoadStrip({ x, z, width, depth, texture }: {
+function RoadStrip({ x, z, width, depth }: {
   x: number
   z: number
   width: number
   depth: number
-  texture?: CanvasTexture
 }) {
   return (
     <mesh position={[x, -0.025, z]} receiveShadow>
       <boxGeometry args={[width, 0.1, depth]} />
-      <meshStandardMaterial map={texture} color="#ffffff" roughness={0.93} metalness={0.025} />
+      <PbrSurfaceMaterial surface="asphalt" repeat={[Math.max(1, width / 2.1), Math.max(1, depth / 2.1)]}
+        roughness={0.94} metalness={0.015} normalScale={0.24} />
     </mesh>
   )
 }
@@ -228,19 +189,43 @@ function RoadsideContext({ length, offset }: { length: number; offset: number })
   )
 }
 
+function HighwayGantry({ x, width }: { x: number; width: number }) {
+  return <group position={[x, 0, 0]}>
+    {[-1, 1].map((side) => <mesh key={side} position={[0, 0.64, side * width / 2]}
+      castShadow receiveShadow>
+      <cylinderGeometry args={[0.025, 0.035, 1.28, 10]} />
+      <meshStandardMaterial color="#798389" roughness={0.42} metalness={0.76} />
+    </mesh>)}
+    <mesh position={[0, 1.22, 0]} castShadow receiveShadow>
+      <boxGeometry args={[0.045, 0.055, width]} />
+      <meshStandardMaterial color="#747f85" roughness={0.45} metalness={0.72} />
+    </mesh>
+    {[-0.5, 0.5].map((offset) => <group key={offset} position={[-0.035, 1.03, offset]}>
+      <mesh rotation={[0, Math.PI / 2, 0]} castShadow>
+        <boxGeometry args={[0.045, 0.36, 0.78]} />
+        <meshStandardMaterial color="#1f6658" roughness={0.5} metalness={0.12} />
+      </mesh>
+      {[-0.09, 0.02, 0.13].map((y, index) => <mesh key={y}
+        position={[-0.026, y, 0.08 - index * 0.06]} rotation={[0, Math.PI / 2, 0]}>
+        <boxGeometry args={[0.008, 0.018, 0.48 - index * 0.08]} />
+        <meshBasicMaterial color="#e8f6ed" toneMapped={false} />
+      </mesh>)}
+    </group>)}
+  </group>
+}
+
 export function Road3D({ layout = 'highway',
-  environmentPreset = DEFAULT_PRESENTATION_ENVIRONMENT }: Road3DProps) {
+  environmentPreset = DEFAULT_PRESENTATION_ENVIRONMENT,
+  showInfrastructure = true }: Road3DProps) {
   const length = 5000 * SCENE_SCALE
-  const asphaltTexture = useMemo(() => createAsphaltTexture(), [])
-  useEffect(() => () => asphaltTexture.dispose(), [asphaltTexture])
   if (layout === 'urban') {
     const verticalXs = [1000, 2500, 4000].map((value) => value * SCENE_SCALE)
     const horizontalZ = 500 * SCENE_SCALE
     return (
       <group>
-        <RoadStrip x={length / 2} z={horizontalZ} width={length} depth={0.34} texture={asphaltTexture} />
+        <RoadStrip x={length / 2} z={horizontalZ} width={length} depth={0.34} />
         {verticalXs.map((x) => <RoadStrip key={x} x={x} z={10} width={0.34} depth={20}
-          texture={asphaltTexture} />)}
+          />)}
         {verticalXs.map((x) => (
           <mesh key={`junction-${x}`} position={[x, 0, horizontalZ]}>
             <boxGeometry args={[1.25, 0.025, 1.25]} />
@@ -258,13 +243,16 @@ export function Road3D({ layout = 'highway',
   const guardrailOffset = roadDepth / 2 + 0.14
   return (
     <group>
-      <HighwayEnvironmentVariants3D environment={environmentPreset} length={length} />
+      <HighwayEnvironmentVariants3D environment={environmentPreset} length={length}
+        showInfrastructure={showInfrastructure} />
       <mesh position={[length / 2, -0.075, 0]} receiveShadow>
         <boxGeometry args={[length, 0.14, roadDepth + 0.34]} />
-        <meshStandardMaterial color={environmentPreset === 'tunnel' ? '#676b6d' : '#8b8b87'}
-          roughness={0.96} metalness={0.01} />
+        {environmentPreset === 'open_highway'
+          ? <meshStandardMaterial color="#858b87" roughness={0.97} metalness={0.01} />
+          : <PbrSurfaceMaterial surface="concrete" repeat={[Math.max(1, length / 2), 2]}
+            color={environmentPreset === 'tunnel' ? '#71777a' : '#8f9391'} normalScale={0.18} />}
       </mesh>
-      <RoadStrip x={length / 2} z={0} width={length} depth={roadDepth} texture={asphaltTexture} />
+      <RoadStrip x={length / 2} z={0} width={length} depth={roadDepth} />
       {[-outerBoundary, outerBoundary].map((z) => (
         <LaneLine key={`edge-${z}`} x={length / 2} z={z} width={length} depth={0.032} />
       ))}
@@ -274,9 +262,11 @@ export function Road3D({ layout = 'highway',
       {[-outerBoundary - shoulderDepth * 0.55, outerBoundary + shoulderDepth * 0.55].map((z) => (
         <group key={`rumble-${z}`}><RumbleStrip length={length} z={z} /></group>
       ))}
-      <Guardrail length={length} z={-guardrailOffset} side={-1} />
-      <Guardrail length={length} z={guardrailOffset} side={1} />
-      <RoadsideContext length={length} offset={guardrailOffset} />
+      {showInfrastructure && <><Guardrail length={length} z={-guardrailOffset} side={-1} />
+        <Guardrail length={length} z={guardrailOffset} side={1} />
+        <RoadsideContext length={length} offset={guardrailOffset} />
+        {[62, 188, 326].map((x) => <HighwayGantry key={x} x={x}
+          width={roadDepth + 0.65} />)}</>}
       <instancedMesh args={[undefined, undefined, Math.ceil(length / 12)]} receiveShadow frustumCulled
         onUpdate={(mesh) => {
           const transform = new Object3D()

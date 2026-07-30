@@ -19,10 +19,15 @@ import type { PresentationMode, PresentationPhase, PresentationSource } from '..
 import { evidenceForVehicle } from '../../types/research'
 import { nearestHighwayLaneIndex } from '../ThreeD/sceneCoordinates'
 import {
+  PRESENTATION_ATMOSPHERE_ORDER,
+  PRESENTATION_ATMOSPHERES,
   PRESENTATION_ENVIRONMENT_ORDER,
   PRESENTATION_ENVIRONMENTS,
+  RENDER_PREFERENCES,
   presentationEnvironmentDefinition,
+  type PresentationAtmosphere,
   type PresentationEnvironment,
+  type RenderPreference,
 } from '../ThreeD/environmentPresets'
 import {
   comparisonMetrics,
@@ -42,6 +47,8 @@ type SelectionPanelProps = {
   preparing: boolean
   density: PresentationDensity
   environmentPreset: PresentationEnvironment
+  atmosphere: PresentationAtmosphere
+  renderPreference: RenderPreference
   modelEligible: boolean
   modelReason: string | null
   modelHash: string | null
@@ -49,12 +56,14 @@ type SelectionPanelProps = {
   baseline: ComparisonBaseline
   onDensityChange: (density: PresentationDensity) => void
   onEnvironmentChange: (environment: PresentationEnvironment) => void
+  onAtmosphereChange: (atmosphere: PresentationAtmosphere) => void
+  onRenderPreferenceChange: (preference: RenderPreference) => void
   onVehicleSelect: (vehicleId: string) => void
   onBaselineChange: (baseline: ComparisonBaseline) => void
   onStart: () => void
 }
 
-const HIGHWAY_LANE_LABELS = ['外侧车道', '中间车道', '内侧车道'] as const
+const HIGHWAY_LANE_LABELS = ['Outer Lane', 'Middle Lane', 'Inner Lane'] as const
 
 function vehicleOptionLabel(vehicle: SimulationVehicle): string {
   const lane = HIGHWAY_LANE_LABELS[nearestHighwayLaneIndex(vehicle.y)]
@@ -62,8 +71,9 @@ function vehicleOptionLabel(vehicle: SimulationVehicle): string {
 }
 
 export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicleId, preparing,
-  density, environmentPreset, modelEligible, modelReason, modelHash, notice, baseline,
-  onDensityChange, onEnvironmentChange, onVehicleSelect, onBaselineChange, onStart }: SelectionPanelProps) {
+  density, environmentPreset, atmosphere, renderPreference, modelEligible, modelReason, modelHash,
+  notice, baseline, onDensityChange, onEnvironmentChange, onAtmosphereChange,
+  onRenderPreferenceChange, onVehicleSelect, onBaselineChange, onStart }: SelectionPanelProps) {
   const selected = vehicles.find((vehicle) => vehicle.id === selectedVehicleId)
   const orderedVehicles = useMemo(
     () => [...vehicles].sort((left, right) => right.x - left.x || left.id.localeCompare(right.id)),
@@ -82,18 +92,18 @@ export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicle
   const selectedMethod = baselineDefinition(baseline)
   return <section className="demo-setup-stage" aria-labelledby="selection-heading">
     <header className="demo-setup-heading">
-      <div><p className="hud-kicker">答辩演示配置</p>
-        <h2 id="selection-heading">创建可复现的同步算法对照</h2>
-        <p>先锁定场景、事故源和对照方法，再运行同一随机种子下的真实PPO与确定性基线。</p></div>
-      <span><b>38 s</b><small>四阶段演示</small></span>
+      <div><p className="hud-kicker">PRESENTATION CONFIGURATION</p>
+        <h2 id="selection-heading">Build a Reproducible Synchronized Comparison</h2>
+        <p>Lock the scene, incident source, and comparison method before running production PPO and a deterministic baseline with the same random seed.</p></div>
+      <span><b>38 s</b><small>Four-stage demo</small></span>
     </header>
 
     <div className="demo-setup-grid">
       <section className="setup-section setup-section--scenario">
-        <header><span>01</span><div><strong>事故场景</strong><small>控制交通规模与事故位置</small></div></header>
+        <header><span>01</span><div><strong>Incident Scenario</strong><small>Control traffic scale and incident position</small></div></header>
         <fieldset className="environment-selector" disabled={preparing}
           aria-describedby="environment-selector-help">
-          <legend>道路视觉环境</legend>
+          <legend>Visual Road Environment</legend>
           {PRESENTATION_ENVIRONMENT_ORDER.map((value) => {
             const definition = PRESENTATION_ENVIRONMENTS[value]
             return <button type="button" key={value}
@@ -106,10 +116,23 @@ export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicle
           })}
         </fieldset>
         <p className="environment-selector-help" id="environment-selector-help">
-          仅改变三维材料、光影与路侧环境；车辆轨迹、事故参数、网络输入与PPO决策保持不变。
+          Only 3D materials, lighting, and roadside context change. Vehicle trajectories, incident parameters, network inputs, and PPO decisions remain identical.
         </p>
+        <div className="visual-configuration-row">
+          <label>Atmosphere<select value={atmosphere} disabled={preparing}
+            onChange={(event) => onAtmosphereChange(event.target.value as PresentationAtmosphere)}>
+            {PRESENTATION_ATMOSPHERE_ORDER.map((value) => <option key={value} value={value}>
+              {PRESENTATION_ATMOSPHERES[value].label}
+            </option>)}
+          </select><small>{PRESENTATION_ATMOSPHERES[atmosphere].description}</small></label>
+          <label>Visual Quality<select value={renderPreference} disabled={preparing}
+            onChange={(event) => onRenderPreferenceChange(event.target.value as RenderPreference)}>
+            {(Object.keys(RENDER_PREFERENCES) as RenderPreference[]).map((value) => <option
+              key={value} value={value}>{RENDER_PREFERENCES[value].label}</option>)}
+          </select><small>{RENDER_PREFERENCES[renderPreference].description}</small></label>
+        </div>
         <fieldset className="density-selector" disabled={preparing}>
-          <legend>交通密度</legend>
+          <legend>Traffic Density</legend>
           {(Object.entries(PRESENTATION_DENSITIES) as Array<[
             PresentationDensity, (typeof PRESENTATION_DENSITIES)[PresentationDensity]
           ]>).map(([value, setting]) => <button type="button" key={value}
@@ -118,45 +141,45 @@ export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicle
             <strong>{setting.label}</strong><small>{setting.description}</small>
           </button>)}
         </fieldset>
-        <div className="setup-road-map" aria-label="三车道车辆位置预览">
+        <div className="setup-road-map" aria-label="Three-lane vehicle-position preview">
           {lanes.map((lane, laneIndex) => <div key={lane}>
-            <span>{HIGHWAY_LANE_LABELS[laneIndex] ?? `车道${laneIndex + 1}`}</span>
+            <span>{HIGHWAY_LANE_LABELS[laneIndex] ?? `Lane ${laneIndex + 1}`}</span>
             <i />
           </div>)}
           {vehicles.map((vehicle) => <button type="button" key={vehicle.id}
             className={vehicle.id === selectedVehicleId ? 'is-selected' : ''}
-            aria-label={`选择 ${vehicleOptionLabel(vehicle)} 作为事故车辆`}
+            aria-label={`Select ${vehicleOptionLabel(vehicle)} as the incident vehicle`}
             aria-pressed={vehicle.id === selectedVehicleId} disabled={preparing}
             title={vehicleOptionLabel(vehicle)} onClick={() => onVehicleSelect(vehicle.id)} style={{
               '--vehicle-x': `${3 + (vehicle.x - minX) / spanX * 94}%`,
               '--vehicle-lane': lanes.indexOf(vehicle.y),
             } as React.CSSProperties}><i aria-hidden="true" /></button>)}
         </div>
-        <label htmlFor="incident-vehicle-select">精确选择事故车辆</label>
+        <label htmlFor="incident-vehicle-select">Select Incident Vehicle Precisely</label>
         <select id="incident-vehicle-select" value={selectedVehicleId ?? ''} disabled={preparing}
           onChange={(event) => onVehicleSelect(event.target.value)}>
-          {!selectedVehicleId && <option value="" disabled>请选择车辆</option>}
+          {!selectedVehicleId && <option value="" disabled>Select a vehicle</option>}
           {orderedVehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>
             {vehicleOptionLabel(vehicle)}
           </option>)}
         </select>
         <div className="selected-vehicle-card" aria-live="polite">
-          {selected ? <><span>当前事故车辆 <em>{recommended ? '系统推荐位置' : '自定义事故位置'}</em></span>
-            <strong>{selected.id}</strong><small>{selectedLane} · 路段纵向约{selectedPosition}% · 初始速度{selectedSpeed?.toFixed(0)} km/h</small></>
-            : <span>请选择事故车辆</span>}
+          {selected ? <><span>Current Incident Vehicle <em>{recommended ? 'Recommended position' : 'Custom position'}</em></span>
+            <strong>{selected.id}</strong><small>{selectedLane} · Approximately {selectedPosition}% along the segment · Initial speed {selectedSpeed?.toFixed(0)} km/h</small></>
+            : <span>Select an incident vehicle</span>}
         </div>
       </section>
 
       <section className="setup-section setup-section--methods">
-        <header><span>02</span><div><strong>算法组合</strong><small>AI固定为验收模型，选择左侧对照基线</small></div></header>
+        <header><span>02</span><div><strong>Algorithm Pairing</strong><small>AI is locked to the accepted model; select a deterministic baseline</small></div></header>
         <article className={`locked-model-card ${modelEligible ? 'is-eligible' : ''}`}>
           <Cpu aria-hidden="true" /><div><small>LEARNED POLICY · LOCKED</small>
-            <strong>Transformer + PPO V2</strong><p>方向风险走廊结构动作 · 正式答辩模型</p>
-            <code>{modelHash ? `SHA ${modelHash.slice(0, 12)}…` : '正在核验模型清单'}</code></div>
-          <span>{modelEligible ? <><CheckCircle2 />资格通过</> : <><AlertTriangle />不可用</>}</span>
+            <strong>Transformer + PPO V2</strong><p>Structured directional risk-corridor action · Production presentation model</p>
+            <code>{modelHash ? `SHA ${modelHash.slice(0, 12)}…` : 'Verifying model manifest'}</code></div>
+          <span>{modelEligible ? <><CheckCircle2 />Eligible</> : <><AlertTriangle />Unavailable</>}</span>
         </article>
         <fieldset className="baseline-selector" disabled={preparing}>
-          <legend>选择确定性基线</legend>
+          <legend>Select a Deterministic Baseline</legend>
           {BASELINE_DEFINITIONS.map((method) => {
             const Icon = method.id === 'broadcast' ? RadioTower : method.id === 'distance' ? Ruler : Gauge
             return <button type="button" key={method.id}
@@ -168,19 +191,19 @@ export function SelectionPanel({ vehicles, selectedVehicleId, recommendedVehicle
           })}
         </fieldset>
         {!modelEligible && <div className="model-gate-warning" role="status">
-          <AlertTriangle aria-hidden="true" /><span><strong>AI演示暂不可用</strong>{modelReason ?? '正在核验正式模型资格'}</span>
+          <AlertTriangle aria-hidden="true" /><span><strong>AI demo unavailable</strong>{modelReason ?? 'Verifying production-model eligibility'}</span>
         </div>}
       </section>
     </div>
 
     <footer className="demo-setup-footer">
-      <div><span><small>场景</small><b>{presentationEnvironmentDefinition(environmentPreset).shortLabel} · {vehicles.length}辆</b></span>
-        <span><small>制动</small><b>96 → 18 km/h</b></span>
-        <span><small>事故源</small><b>{selected?.id ?? '未选择'}</b></span>
-        <span><small>同步对照</small><b>{selectedMethod.label} vs AI</b></span></div>
+      <div><span><small>Scene</small><b>{presentationEnvironmentDefinition(environmentPreset).shortLabel} · {PRESENTATION_ATMOSPHERES[atmosphere].label}</b></span>
+        <span><small>Braking</small><b>96 → 18 km/h</b></span>
+        <span><small>Incident Source</small><b>{selected?.id ?? 'Not selected'}</b></span>
+        <span><small>Synchronized Pair</small><b>{selectedMethod.label} vs AI</b></span></div>
       {notice && <p className="selection-notice" role="status">{notice}</p>}
       <button type="button" className="primary-action" disabled={!selected || preparing || !modelEligible} onClick={onStart}>
-        <Play aria-hidden="true" />{preparing ? '正在计算真实对比…' : '确认配置并生成演示'}
+        <Play aria-hidden="true" />{preparing ? 'Computing production comparison…' : 'Confirm and Generate Demo'}
       </button>
     </footer>
   </section>
@@ -200,10 +223,10 @@ function AccidentSpeed({ vehicleId, channel }: { vehicleId: string; channel: Ani
 }
 
 const DESCRIPTIONS: Record<PresentationStage, string> = {
-  normal: '车辆在三车道高速公路上保持正常行驶。',
-  accident: '目标车辆突然急刹，车联网系统立即生成安全警报。',
-  comparison: '两种算法在完全相同的事故状态与时间戳下同步运行。',
-  summary: '同一事故、同一时间戳下的通信结果对比。',
+  normal: 'Vehicles travel normally on the three-lane highway.',
+  accident: 'The target vehicle brakes sharply and the V2X system immediately generates a safety alert.',
+  comparison: 'Both algorithms run on the exact same incident state and timestamp.',
+  summary: 'Communication outcomes for the same incident and timestamp.',
 }
 
 type DemoHudProps = {
@@ -221,6 +244,7 @@ type DemoHudProps = {
   telemetry: LiveComparisonTelemetry | null
   baseline: ComparisonBaseline
   environmentPreset: PresentationEnvironment
+  atmosphere: PresentationAtmosphere
   onTogglePause: () => void
   onReplay: () => void
   onAutoplay: () => void
@@ -230,7 +254,7 @@ type DemoHudProps = {
 }
 
 export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVehicleId, notice,
-  mode, inspectedVehicleId, results, comparisonMode, telemetry, baseline, environmentPreset,
+  mode, inspectedVehicleId, results, comparisonMode, telemetry, baseline, environmentPreset, atmosphere,
   onTogglePause, onReplay, onAutoplay, onSeek, onReset, onOpenValidation }: DemoHudProps) {
   const cue = presentationCueAt(elapsedMs)
   const channel: AnimationChannel = 'comparison-ai'
@@ -244,7 +268,7 @@ export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVeh
   ]
   return (
     <div className="presentation-hud">
-      <div className="stage-strip" aria-label="演示进度">
+      <div className="stage-strip" aria-label="Presentation progress">
         {bookmarks.map(({ stage: value, elapsedMs: bookmarkMs }, index) => {
           const activeIndex = (Object.keys(STAGE_LABELS) as PresentationStage[]).indexOf(stage)
           return <button type="button" key={value} onClick={() => onSeek(bookmarkMs)}
@@ -256,28 +280,28 @@ export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVeh
       </div>
 
       {source === 'rule' && <div className="degraded-badge" role="status">
-        <AlertTriangle aria-hidden="true" />规则演示 · 非PPO输出
+        <AlertTriangle aria-hidden="true" />Rule-based preview · Not PPO output
       </div>}
       {notice && elapsedMs < 5_000
         && <p className="presentation-notice" aria-live="polite">{notice}</p>}
 
       {stage === 'comparison' && telemetry && <div className="evidence-time-badge">
-        {environment.shortLabel} · 同一真实决策帧 · 双路同步回放 · 10 Hz累计遥测
+        {environment.shortLabel} · {PRESENTATION_ATMOSPHERES[atmosphere].label} · Same production decision frame · Dual synchronized replay · 10 Hz cumulative telemetry
       </div>}
 
       {!comparisonMode && stage !== 'summary' && <section className={`narrative-card narrative-card--${stage}`}>
-        <p className="hud-kicker">事故场景 · {environment.label}</p>
+        <p className="hud-kicker">INCIDENT SCENARIO · {environment.label}</p>
         <h2>{STAGE_LABELS[stage]}</h2>
         <p>{DESCRIPTIONS[stage]}</p>
         {stage === 'accident' && <div className="accident-readout">
           <AlertTriangle aria-hidden="true" />
-          <span>检测到事故<small>{accidentVehicleId}</small></span>
+          <span>Incident Detected<small>{accidentVehicleId}</small></span>
           <AccidentSpeed vehicleId={accidentVehicleId} channel={channel} />
         </div>}
       </section>}
 
       {stage === 'comparison' && telemetry && <LiveTelemetryHud telemetry={telemetry} baseline={baseline} />}
-      {stage === 'comparison' && !telemetry && <div className="telemetry-loading" role="status">正在同步两路当前帧遥测…</div>}
+      {stage === 'comparison' && !telemetry && <div className="telemetry-loading" role="status">Synchronizing current-frame telemetry…</div>}
 
       {stage === 'summary' && <FinalComparison pair={evidence} source={source} results={results}
         baseline={baseline} visibleMetricCount={cue.summaryMetricCount} showTagline={cue.showSummaryTagline}
@@ -287,19 +311,19 @@ export function DemoHud({ phase, source, stage, elapsedMs, evidence, accidentVeh
         && inspectedVehicleId !== accidentVehicleId && evidence && <VehicleEvidenceCard
         pair={evidence} vehicleId={inspectedVehicleId} accidentVehicleId={accidentVehicleId} />}
 
-      <div className="playback-controls" aria-label="演示播放控制">
+      <div className="playback-controls" aria-label="Presentation playback controls">
         {!complete && <button type="button" onClick={onTogglePause}>
           {paused || exploring ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
-          {paused || exploring ? '播放' : '暂停'}
+          {paused || exploring ? 'Play' : 'Pause'}
         </button>}
         <button type="button" className={mode === 'autoplay' ? 'is-active' : ''} onClick={onAutoplay}>
-          <Clapperboard aria-hidden="true" />一键答辩回放
+          <Clapperboard aria-hidden="true" />Presentation Autoplay
         </button>
-        <button type="button" onClick={onReplay}><RotateCcw aria-hidden="true" />重新播放</button>
-        <button type="button" onClick={onReset}>重新配置</button>
-        <input type="range" aria-label="演示时间轴" min="0" max={PRESENTATION_DURATION_MS}
+        <button type="button" onClick={onReplay}><RotateCcw aria-hidden="true" />Replay</button>
+        <button type="button" onClick={onReset}>Reconfigure</button>
+        <input type="range" aria-label="Presentation timeline" min="0" max={PRESENTATION_DURATION_MS}
           step="100" value={elapsedMs} onChange={(event) => onSeek(Number(event.target.value))} />
-        <time>{Math.min(38, elapsedMs / 1000).toFixed(1)} / 38.0 秒</time>
+        <time>{Math.min(38, elapsedMs / 1000).toFixed(1)} / 38.0 s</time>
       </div>
     </div>
   )
@@ -313,46 +337,46 @@ function VehicleEvidenceCard({ pair, vehicleId, accidentVehicleId }: {
   const baseline = evidenceForVehicle(pair.baseline, vehicleId)
   const method = baselineDefinition((pair.baseline.method ?? 'broadcast') as ComparisonBaseline)
   const relation = pair.ai.decision.receiver_relations?.find((item) => item.id === vehicleId)
-  if (vehicleId === accidentVehicleId) return <aside className="vehicle-question-card" aria-label="车辆决策追问">
-    <p className="hud-kicker">车辆决策追问</p>
-    <div className="vehicle-question-heading"><strong>{vehicleId}</strong><span className="is-sender">事故发送源</span></div>
-    <p>该车是事故警报的发送方，不属于接收者选择对象。请点击道路中的其他车辆，检查AI为什么通知或忽略它。</p>
-    <small>推荐选择事故车后方同车道车辆，或传统广播通知但AI忽略的远端车辆。</small>
+  if (vehicleId === accidentVehicleId) return <aside className="vehicle-question-card" aria-label="Vehicle decision inquiry">
+    <p className="hud-kicker">VEHICLE DECISION INQUIRY</p>
+    <div className="vehicle-question-heading"><strong>{vehicleId}</strong><span className="is-sender">Incident Sender</span></div>
+    <p>This vehicle sends the incident alert and is not part of the receiver-selection set. Select another vehicle to inspect why AI notified or ignored it.</p>
+    <small>Try a same-lane follower or a distant vehicle notified by the baseline but ignored by AI.</small>
   </aside>
   const answer = question === 'baseline'
     ? baseline.selected
-      ? `${method.label}向 ${vehicleId} 发送了消息；可与AI的关系判定逐车核对。`
-      : `当前基线在该时刻没有向 ${vehicleId} 发包。`
+      ? `${method.label} sent a message to ${vehicleId}; compare it against the AI relation decision for this vehicle.`
+      : `The selected baseline did not send a message to ${vehicleId} at this timestamp.`
     : question === 'stress'
-      ? '低带宽结果需要进入“验证实验室”的网络压力预设并现场实跑，这里不生成估计指标。'
+      ? 'Low-bandwidth outcomes require a live network-stress run in the Validation Lab; this panel does not fabricate estimates.'
       : ai.selected
-        ? `${vehicleId} 已进入候选集合并被策略选中。记录理由：${ai.reason}。`
+        ? `${vehicleId} entered the candidate set and was selected by the policy. Recorded reason: ${ai.reason}.`
         : ai.candidate
-          ? `${vehicleId} 在候选范围内，但没有进入最终接收集合。候选范围不等于最终动作。`
+          ? `${vehicleId} is within the candidate scope but did not enter the final receiver set. Candidate scope is not the final action.`
           : relation?.outcome === 'ahead'
-            ? `${vehicleId} 位于事故车前方，不属于追尾风险传播方向，因此AI没有通知它。`
+            ? `${vehicleId} is ahead of the incident vehicle and outside the rear-end risk direction, so AI did not notify it.`
             : relation?.outcome === 'outside_lane_scope'
-              ? `${vehicleId} 不在本次策略选择的同车道或相邻车道范围内，因此保持灰化。`
+              ? `${vehicleId} is outside the same/adjacent lane scope selected by the policy and remains de-emphasized.`
               : relation?.outcome === 'outside_corridor'
-                ? `${vehicleId} 虽位于事故车后方，但超出本次PPO选择的风险走廊，因此不需要接收警报。`
-                : `${vehicleId} 未进入当前事件候选集合，因此AI没有向它发送警报。`
-  return <aside className="vehicle-question-card" aria-label="车辆决策追问">
-    <p className="hud-kicker">车辆决策追问</p>
+                ? `${vehicleId} is behind the incident vehicle but outside the PPO-selected risk corridor, so it does not require the alert.`
+                : `${vehicleId} did not enter the current incident's candidate set, so AI sent no alert.`
+  return <aside className="vehicle-question-card" aria-label="Vehicle decision inquiry">
+    <p className="hud-kicker">VEHICLE DECISION INQUIRY</p>
     <div className="vehicle-question-heading"><strong>{vehicleId}</strong>
-      <span className={ai.selected ? 'is-selected' : ''}>{ai.selected ? 'AI已通知' : 'AI未通知'}</span></div>
+      <span className={ai.selected ? 'is-selected' : ''}>{ai.selected ? 'AI Notified' : 'AI Did Not Notify'}</span></div>
     <div className="vehicle-fact-row">
-      <span>候选状态<b>{ai.candidate ? '候选集合内' : '范围外'}</b></span>
-      <span>{method.label}<b>{baseline.selected ? '会通知' : '未通知'}</b></span>
-      <span>事件距离<b>{ai.distanceM === null && !relation ? '—'
+      <span>Candidate Status<b>{ai.candidate ? 'Inside candidate set' : 'Outside scope'}</b></span>
+      <span>{method.label}<b>{baseline.selected ? 'Notifies' : 'Does not notify'}</b></span>
+      <span>Incident Distance<b>{ai.distanceM === null && !relation ? '—'
         : `${(ai.distanceM ?? relation?.distance_m ?? 0).toFixed(1)} m`}</b></span>
     </div>
     <div className="vehicle-question-actions">
-      <button type="button" className={question === 'why' ? 'is-active' : ''} onClick={() => setQuestion('why')}>为什么？</button>
-      <button type="button" className={question === 'baseline' ? 'is-active' : ''} onClick={() => setQuestion('baseline')}>所选基线呢？</button>
-      <button type="button" className={question === 'stress' ? 'is-active' : ''} onClick={() => setQuestion('stress')}>低带宽会怎样？</button>
+      <button type="button" className={question === 'why' ? 'is-active' : ''} onClick={() => setQuestion('why')}>Why?</button>
+      <button type="button" className={question === 'baseline' ? 'is-active' : ''} onClick={() => setQuestion('baseline')}>What about the baseline?</button>
+      <button type="button" className={question === 'stress' ? 'is-active' : ''} onClick={() => setQuestion('stress')}>What under low bandwidth?</button>
     </div>
     <p>{answer}</p>
-    <small>观测事实与解释线索分开展示；注意力不代表严格因果关系。</small>
+    <small>Observed facts and interpretive cues are shown separately; attention does not establish causality.</small>
   </aside>
 }
 
@@ -368,15 +392,15 @@ function ComparisonFootprints({ pair, baseline }: { pair: ComparisonPair; baseli
   const projectY = (y: number) => 20 + Math.max(0, lanes.indexOf(y)) * 26
   const panels = [
     { key: baseline, title: baselineDefinition(baseline).label, update: pair.baseline, color: '#f0a84b' },
-    { key: 'ai', title: 'AI选择性广播', update: pair.ai, color: '#2dd4a3' },
+    { key: 'ai', title: 'AI Selective Broadcast', update: pair.ai, color: '#2dd4a3' },
   ] as const
-  return <div className="comparison-footprints" aria-label="同尺度通信覆盖俯视图">
+  return <div className="comparison-footprints" aria-label="Same-scale top-down communication coverage">
     {panels.map((panel) => {
       const selected = new Set(panel.update.decision.selected_receivers)
       return <figure key={panel.key}>
-        <figcaption><strong>{panel.title}</strong><span>{selected.size} 辆接收</span></figcaption>
+        <figcaption><strong>{panel.title}</strong><span>{selected.size} receivers</span></figcaption>
         <svg viewBox="0 0 440 92" role="img"
-          aria-label={`${panel.title}在三车道同尺度路段中的接收车辆分布`}>
+          aria-label={`${panel.title} receiver distribution on the same-scale three-lane segment`}>
           {lanes.map((_, index) => <g key={index}>
             <line x1="10" x2="430" y1={20 + index * 26} y2={20 + index * 26}
               stroke="#52606d" strokeWidth="1" />
@@ -396,25 +420,25 @@ function ComparisonFootprints({ pair, baseline }: { pair: ComparisonPair; baseli
 }
 
 const HELDOUT_METRICS = [
-  { key: 'affected_vehicle_coverage', label: '受影响车辆覆盖率', unit: '%', scale: 100 },
-  { key: 'communication_overhead', label: '消息冗余', unit: '', scale: 1 },
-  { key: 'normalized_channel_cost', label: '归一化信道成本', unit: '', scale: 1 },
-  { key: 'p95_latency_ms', label: 'P95 时延', unit: ' ms', scale: 1 },
+  { key: 'affected_vehicle_coverage', label: 'Affected-Vehicle Coverage', unit: '%', scale: 100 },
+  { key: 'communication_overhead', label: 'Message Overhead', unit: '', scale: 1 },
+  { key: 'normalized_channel_cost', label: 'Normalized Channel Cost', unit: '', scale: 1 },
+  { key: 'p95_latency_ms', label: 'P95 Latency', unit: ' ms', scale: 1 },
 ] as const
 
 const METHOD_NAMES: Record<string, string> = {
-  ai: 'Transformer + PPO', broadcast: '全量广播', distance: '固定范围', urgency: '紧急度调度',
+  ai: 'Transformer + PPO', broadcast: 'Broadcast', distance: 'Fixed Radius', urgency: 'Urgency Scheduling',
 }
 
 function HeldoutMethodTable({ results }: { results: DemoResultsSummary | null }) {
   if (!results?.ready) return <div className="heldout-pending">
-    <strong>留出集结果正在等待训练流水线</strong><span>{results?.reason ?? '完成后自动显示四方法统一口径结果'}</span>
+    <strong>Held-out results are waiting for the training pipeline</strong><span>{results?.reason ?? 'Four-method results will appear automatically when ready'}</span>
   </div>
   return <section className="all-method-results" aria-labelledby="heldout-heading">
-    <header><div><small>HELD-OUT EVALUATION</small><strong id="heldout-heading">四种方法统一留出集</strong></div>
+    <header><div><small>HELD-OUT EVALUATION</small><strong id="heldout-heading">Unified Four-Method Held-Out Set</strong></div>
       <span>{results.case_count ?? '—'} cases · protocol {results.protocol}</span></header>
-    <div role="table" aria-label="四种方法留出集指标对比">
-      <div className="all-method-results__head" role="row"><b role="columnheader">方法</b>
+    <div role="table" aria-label="Four-method held-out metric comparison">
+      <div className="all-method-results__head" role="row"><b role="columnheader">Method</b>
         {HELDOUT_METRICS.map((metric) => <b role="columnheader" key={metric.key}>{metric.label}</b>)}</div>
       {(['ai', 'broadcast', 'distance', 'urgency'] as const).map((method) => <div
         className={`all-method-results__row ${method === 'ai' ? 'is-ai' : ''}`} role="row" key={method}>
@@ -427,18 +451,18 @@ function HeldoutMethodTable({ results }: { results: DemoResultsSummary | null })
         })}
       </div>)}
     </div>
-    <p className="heldout-method-note">固定范围与紧急度采用同一300 m接收集合；后者的差异体现在严重度驱动的优先级、带宽与信道成本。</p>
+    <p className="heldout-method-note">Fixed Radius and Urgency Scheduling use the same 300 m receiver set; the latter differs through severity-driven priority, bandwidth, and channel cost.</p>
   </section>
 }
 
 function resultTagline(pair: ComparisonPair | null): string {
-  if (!pair) return '以同场景实测数据为准'
+  if (!pair) return 'Refer to measured data from the same scenario'
   const baselineCount = new Set(pair.baseline.decision.selected_receivers).size
   const aiCount = new Set(pair.ai.decision.selected_receivers).size
-  const claims = [aiCount < baselineCount ? '更少通知' : '接收规模相当']
-  claims.push(aiCount < baselineCount ? '更低负载' : '负载收益有限')
-  claims.push(pair.ai.metrics.avg_delay_ms < pair.baseline.metrics.avg_delay_ms ? '更优时延' : '时延未占优')
-  return `${claims.join(' · ')} · 结果不作美化`
+  const claims = [aiCount < baselineCount ? 'Fewer notifications' : 'Comparable receiver count']
+  claims.push(aiCount < baselineCount ? 'Lower load' : 'Limited load benefit')
+  claims.push(pair.ai.metrics.avg_delay_ms < pair.baseline.metrics.avg_delay_ms ? 'Better latency' : 'No latency advantage')
+  return `${claims.join(' · ')} · Results shown without embellishment`
 }
 
 function FinalComparison({ pair, source, results, baseline, visibleMetricCount, showTagline,
@@ -457,16 +481,16 @@ function FinalComparison({ pair, source, results, baseline, visibleMetricCount, 
   return (
     <section className="final-comparison" aria-labelledby="comparison-heading">
       <div className="final-heading">
-        <p className="hud-kicker">{environmentLabel} · 同一事故 · 同一时间戳</p>
-        <h2 id="comparison-heading">通信策略对比结果</h2>
+        <p className="hud-kicker">{environmentLabel} · SAME INCIDENT · SAME TIMESTAMP</p>
+        <h2 id="comparison-heading">Communication Strategy Results</h2>
       </div>
       <div className="final-comparison__body">
         <section className="case-comparison">
           {pair && <ComparisonFootprints pair={pair} baseline={baseline} />}
           <div className="comparison-method-headings" aria-hidden="true">
-            <span><Satellite />{method.label}</span><span><ShieldCheck />AI选择性广播</span>
+            <span><Satellite />{method.label}</span><span><ShieldCheck />AI Selective Broadcast</span>
           </div>
-          <div className="comparison-table" role="table" aria-label={`${method.label}与AI选择性广播指标对比`}>
+          <div className="comparison-table" role="table" aria-label={`${method.label} and AI selective broadcast metric comparison`}>
             {metrics.map((metric, index) => <div
               className={`comparison-row ${index < visibleMetricCount ? 'comparison-row--visible' : ''}`}
               role="row" key={metric.label}>
@@ -483,7 +507,7 @@ function FinalComparison({ pair, source, results, baseline, visibleMetricCount, 
             {resultTagline(pair)}
           </strong>
           <button type="button" className={`open-validation-action ${showTagline ? 'is-visible' : ''}`}
-            onClick={onOpenValidation}><FlaskConical aria-hidden="true" />深入验证本次结果</button>
+            onClick={onOpenValidation}><FlaskConical aria-hidden="true" />Validate This Result</button>
         </section>
         <HeldoutMethodTable results={results} />
       </div>

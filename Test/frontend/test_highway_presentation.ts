@@ -17,8 +17,11 @@ import {
 import { buildLiveTelemetry } from '../../FrontEnd/src/hooks/useLiveComparisonTelemetry'
 import {
   aggregateDirectedTransmissions,
+  communicationVisualStyle,
   linkLifecycleAt,
   orderTransmissionsByPriority,
+  packetCountForBandwidth,
+  packetCycleForDelay,
 } from '../../FrontEnd/src/components/ThreeD/communicationLinks'
 import {
   HIGHWAY_LANE_CENTERS_METERS,
@@ -113,16 +116,16 @@ describe('highway comparison evidence', () => {
     const pair: ComparisonPair = { ai: update('ai', 3), baseline: update('broadcast', 8) }
     assert.equal(findIncidentPair([pair]), pair)
     const metrics = comparisonMetrics(pair)
-    assert.equal(metrics[0].delta, '5 辆更少')
+    assert.equal(metrics[0].delta, '5 fewer')
     assert.equal(metrics[2].delta, '+62.5%')
-    assert.match(conclusionFor(pair), /减少了不必要广播/)
+    assert.match(conclusionFor(pair), /reduced unnecessary broadcasts/)
   })
 
   it('hides network estimates for the clearly labelled rule fallback', () => {
     const pair: ComparisonPair = { ai: update('ai', 3), baseline: update('broadcast', 8) }
     const metrics = comparisonMetrics(pair, false)
-    assert.equal(metrics[3].ai, '未计算')
-    assert.match(conclusionFor(pair, false), /规则演示/)
+    assert.equal(metrics[3].ai, 'Not computed')
+    assert.match(conclusionFor(pair, false), /rule-based preview/)
   })
 
   it('derives receiver precision from the existing candidate set', () => {
@@ -140,6 +143,24 @@ describe('highway comparison evidence', () => {
     assert.equal(raw.length, 4)
     assert.equal(visual.length, 2)
     assert.equal(visual.find((message) => message.to === 'v1')?.status, 'timeout')
+  })
+
+  it('maps measured network evidence to restrained academic link encoding', () => {
+    assert.equal(packetCountForBandwidth(0), 1)
+    assert.equal(packetCountForBandwidth(0.4), 2)
+    assert.equal(packetCountForBandwidth(1), 3)
+    assert.equal(packetCycleForDelay(20), 620)
+    assert.equal(packetCycleForDelay(80), 1_440)
+    assert.equal(packetCycleForDelay(200), 1_750)
+    const ai = communicationVisualStyle('ai', 'success', 25, 0.4, 1, 14)
+    const baseline = communicationVisualStyle('baseline', 'success', 25, 1, 1, 14)
+    const timeout = communicationVisualStyle('ai', 'timeout', 120, 0.4, 1, 14)
+    assert.equal(ai.color, '#3de4c2')
+    assert.equal(baseline.color, '#d6a75d')
+    assert.equal(timeout.color, '#ff5669')
+    assert.equal(ai.packetCount, 2)
+    assert.equal(baseline.packetCount, 3)
+    assert(baseline.lateralOffset > ai.lateralOffset)
   })
 })
 
@@ -175,11 +196,11 @@ describe('academic presentation choreography', () => {
     ai.decision.bandwidth_fraction = 0.4
     const steps = decisionPipelineData(ai)
     assert.equal(steps.length, 4)
-    assert.match(steps[0].primary, /严重度 0.85/)
+    assert.match(steps[0].primary, /Severity 0.85/)
     assert.match(steps[1].primary, /v2.*72.0%/)
-    assert.match(steps[2].primary, /300 m.*同车道 \+ 相邻/)
-    assert.match(steps[2].secondary, /40%带宽/)
-    assert.match(steps[3].primary, /3 辆被选/)
+    assert.match(steps[2].primary, /300 m.*same \+ adjacent lanes/)
+    assert.match(steps[2].secondary, /40% bandwidth/)
+    assert.match(steps[3].primary, /3 selected/)
   })
 
   it('builds synchronized live traces from pair timestamps without inventing samples', () => {

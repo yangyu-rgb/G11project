@@ -37,3 +37,4 @@ __pycache__/
 
 # Logs
 *.log
+.ppt-demo.pid

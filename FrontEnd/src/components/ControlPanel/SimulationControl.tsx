@@ -29,30 +29,30 @@ export function SimulationControl({
       <div className="control-summary">
         <div>
           <p className="eyebrow">SIMULATION CONTROL</p>
-          <h2 id="control-heading">仿真控制</h2>
+          <h2 id="control-heading">Simulation Control</h2>
         </div>
         <span className={`run-state run-state--${playing ? 'playing' : 'paused'}`}>
-          {completed ? '本轮已完成' : playing ? '正在播放' : '已暂停'}
+          {completed ? 'Run complete' : playing ? 'Playing' : 'Paused'}
         </span>
       </div>
 
       <div className="control-actions">
         <button type="button" className="primary-button" onClick={onRun} disabled={status === 'connecting'}>
-          {connected ? '重新运行' : status === 'connecting' ? '正在连接…' : '运行仿真'}
+          {connected ? 'Run Again' : status === 'connecting' ? 'Connecting…' : 'Run Simulation'}
         </button>
         <button type="button" onClick={() => onControl('play')} disabled={!connected || playing}>
-          继续
+          Resume
         </button>
         <button type="button" onClick={() => onControl('pause')} disabled={!connected || !playing}>
-          暂停
+          Pause
         </button>
         <button type="button" onClick={() => onControl('reset')} disabled={!connected}>
-          重置
+          Reset
         </button>
       </div>
 
-      <div className="speed-control" aria-label="仿真速度">
-        <span>倍速</span>
+      <div className="speed-control" aria-label="Simulation speed">
+        <span>Speed</span>
         {SPEEDS.map((option) => (
           <button
             type="button"
@@ -67,9 +67,9 @@ export function SimulationControl({
       </div>
 
       <div className="decision-summary" aria-live="polite">
-        <span>PPO优先级：<strong>{decision?.priority ?? '—'}</strong></span>
-        <span>选中接收者：<strong>{decision?.selected_receivers.length ?? 0}</strong></span>
-        <span>带宽分配：<strong>{decision ? decision.bandwidth_allocation.map((value) => value.toFixed(2)).join(' / ') || '—' : '—'}</strong></span>
+        <span>PPO priority: <strong>{decision?.priority ?? '—'}</strong></span>
+        <span>Selected receivers: <strong>{decision?.selected_receivers.length ?? 0}</strong></span>
+        <span>Bandwidth allocation: <strong>{decision ? decision.bandwidth_allocation.map((value) => value.toFixed(2)).join(' / ') || '—' : '—'}</strong></span>
       </div>
     </section>
   )

@@ -9,9 +9,9 @@ const HEIGHT = 122
 const MARGIN = { top: 14, right: 16, bottom: 25, left: 46 }
 
 const panels = [
-  { key: 'avg_delay_ms', label: '平均时延', unit: 'ms', color: '#60a5fa', factor: 1 },
-  { key: 'delivery_rate', label: '消息覆盖率', unit: '%', color: '#34d399', factor: 100 },
-  { key: 'comm_overhead', label: '通信开销', unit: 'x', color: '#fbbf24', factor: 1 },
+  { key: 'avg_delay_ms', label: 'Average Latency', unit: 'ms', color: '#60a5fa', factor: 1 },
+  { key: 'delivery_rate', label: 'Message Delivery Rate', unit: '%', color: '#34d399', factor: 100 },
+  { key: 'comm_overhead', label: 'Communication Overhead', unit: 'x', color: '#fbbf24', factor: 1 },
 ] as const
 
 export function MetricTimeSeries({ history }: MetricTimeSeriesProps) {
@@ -25,9 +25,9 @@ export function MetricTimeSeries({ history }: MetricTimeSeriesProps) {
       <div className="timeseries-heading">
         <div>
           <p className="eyebrow">LAST 30 STEPS</p>
-          <h2 id="timeseries-heading">指标时间序列</h2>
+          <h2 id="timeseries-heading">Metric Time Series</h2>
         </div>
-        <span>同步时间轴 · 最近 {history.length}/30 点</span>
+        <span>Synchronized timeline · Latest {history.length}/30 points</span>
       </div>
       <div className="timeseries-grid">
         {panels.map((panel) => {
@@ -42,9 +42,9 @@ export function MetricTimeSeries({ history }: MetricTimeSeriesProps) {
             <article key={panel.key} className="timeseries-panel">
               <h3>{panel.label}</h3>
               {history.length === 0 ? (
-                <p className="panel-empty">运行仿真后开始记录。</p>
+                <p className="panel-empty">Data recording begins after the simulation starts.</p>
               ) : (
-                <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`${panel.label}最近${history.length}个时间步趋势`}>
+                <svg viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`${panel.label} trend over the latest ${history.length} timesteps`}>
                   <line x1={MARGIN.left} x2={MARGIN.left} y1={MARGIN.top} y2={HEIGHT - MARGIN.bottom} className="chart-axis" />
                   <line x1={MARGIN.left} x2={WIDTH - MARGIN.right} y1={HEIGHT - MARGIN.bottom} y2={HEIGHT - MARGIN.bottom} className="chart-axis" />
                   <text x={MARGIN.left - 7} y={MARGIN.top + 4} textAnchor="end" className="chart-tick">{top.toFixed(panel.key === 'comm_overhead' ? 1 : 0)}</text>

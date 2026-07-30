@@ -13,7 +13,7 @@ export function useDemoResults() {
     fetch('/api/v1/demo/results-summary')
       .then((response) => response.ok ? response.json() as Promise<DemoResultsSummary> : Promise.reject())
       .then(setResults)
-      .catch(() => setError('无法读取留出集结果'))
+      .catch(() => setError('Unable to load held-out results'))
       .finally(() => setLoading(false))
   }, [])
 

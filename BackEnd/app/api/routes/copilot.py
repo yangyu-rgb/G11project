@@ -29,62 +29,66 @@ class CopilotResponse(BaseModel):
     suggested_actions: list[str]
 
 
-def _as_text(value: Any, fallback: str = "暂无") -> str:
+def _as_text(value: Any, fallback: str = "Unavailable") -> str:
     return fallback if value is None else str(value)
 
 
 @router.post("/copilot/respond", response_model=CopilotResponse)
 def copilot_respond(payload: CopilotRequest) -> CopilotResponse:
     data = payload.evidence
-    vehicle = payload.vehicle_id or _as_text(data.get("vehicle_id"), "当前车辆")
+    vehicle = payload.vehicle_id or _as_text(data.get("vehicle_id"), "Current vehicle")
     selected = bool(data.get("selected"))
     candidate = bool(data.get("candidate"))
     distance = data.get("distance_m")
     attention = data.get("attention")
-    reason = _as_text(data.get("reason"), "未提供策略理由")
-    timestamp = _as_text(data.get("timestamp"), "当前时刻")
+    reason = _as_text(data.get("reason"), "No policy reason provided")
+    timestamp = _as_text(data.get("timestamp"), "Current timestamp")
 
     items = [
-        EvidenceItem(label="车辆", value=vehicle, source="simulation.vehicle"),
+        EvidenceItem(label="Vehicle", value=vehicle, source="simulation.vehicle"),
         EvidenceItem(
-            label="候选状态",
-            value="是" if candidate else "否",
+            label="Candidate Status",
+            value="Yes" if candidate else "No",
             source="decision.candidate_vehicles",
         ),
         EvidenceItem(
-            label="最终通知", value="是" if selected else "否", source="decision.selected_receivers"
+            label="Final Notification",
+            value="Yes" if selected else "No",
+            source="decision.selected_receivers",
         ),
-        EvidenceItem(label="策略理由", value=reason, source="decision.selection_reason"),
-        EvidenceItem(label="仿真时间", value=timestamp, source="state_update.timestamp"),
+        EvidenceItem(label="Policy Reason", value=reason, source="decision.selection_reason"),
+        EvidenceItem(label="Simulation Time", value=timestamp, source="state_update.timestamp"),
     ]
     if distance is not None:
         items.append(
             EvidenceItem(
-                label="事件距离", value=f"{float(distance):.1f} m", source="candidate.distance_m"
+                label="Incident Distance",
+                value=f"{float(distance):.1f} m",
+                source="candidate.distance_m",
             )
         )
     if attention is not None:
         items.append(
             EvidenceItem(
-                label="相对注意力",
+                label="Relative Attention",
                 value=f"{float(attention) * 100:.1f}%",
                 source="attention_weights",
             )
         )
 
     if selected:
-        conclusion = f"{vehicle} 被纳入本次选择性广播。直接证据是它进入候选集合并被策略选中，记录理由为“{reason}”。"
+        conclusion = f"{vehicle} was included in this selective broadcast. Direct evidence shows that it entered the candidate set and was selected by the policy, with recorded reason: “{reason}”."
     elif candidate:
-        conclusion = f"{vehicle} 位于候选范围内，但没有进入最终接收集合。这说明候选半径只是第一层过滤，最终动作还会结合当前策略输出。"
+        conclusion = f"{vehicle} is within the candidate scope but did not enter the final receiver set. The candidate radius is only the first filter; the final action also depends on the current policy output."
     else:
-        conclusion = f"{vehicle} 未进入当前事件的候选集合，因此没有被选择性策略通知。传统全量广播仍可能向它发送消息。"
+        conclusion = f"{vehicle} did not enter the current incident's candidate set and was not notified by the selective policy. Conventional broadcast may still send a message to it."
 
     return CopilotResponse(
-        answer=f"{conclusion} 注意力仅用于描述模型内部相对权重，不应单独解释为因果关系。",
+        answer=f"{conclusion} Attention describes relative internal model weight and must not be interpreted alone as a causal relationship.",
         evidence=items,
         suggested_actions=[
-            "在3D场景中定位该车辆",
-            "仅显示与基线不同的消息",
-            "创建低带宽反事实草稿",
+            "Locate this vehicle in the 3D scene",
+            "Show only messages that differ from the baseline",
+            "Create a low-bandwidth counterfactual draft",
         ],
     )

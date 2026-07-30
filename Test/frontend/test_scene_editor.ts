@@ -15,9 +15,14 @@ import {
   parseEditorScenario,
 } from '../../FrontEnd/src/components/SceneEditor/sceneTypes.ts'
 import {
+  DEFAULT_PRESENTATION_ATMOSPHERE,
   DEFAULT_PRESENTATION_ENVIRONMENT,
+  DEFAULT_RENDER_PREFERENCE,
+  DEFAULT_SCENE_LAYERS,
+  PRESENTATION_ATMOSPHERE_ORDER,
   PRESENTATION_ENVIRONMENT_ORDER,
   PRESENTATION_ENVIRONMENTS,
+  RENDER_PREFERENCES,
   presentationEnvironmentVisuals,
 } from '../../FrontEnd/src/components/ThreeD/environmentPresets.ts'
 
@@ -72,7 +77,7 @@ describe('scene data validation', () => {
     assert.equal(parseEditorScenario(structuredClone(PRESET_SCENES[2])).schema_version, 1)
     const invalid = structuredClone(PRESET_SCENES[2])
     invalid.vehicles[1].id = invalid.vehicles[0].id
-    assert.throws(() => parseEditorScenario(invalid), /ID必须各自唯一/)
+    assert.throws(() => parseEditorScenario(invalid), /IDs must each be unique/)
   })
 
   it('keeps environment presets visual-only and outside the simulation scenario', () => {
@@ -84,7 +89,7 @@ describe('scene data validation', () => {
     for (const environment of PRESENTATION_ENVIRONMENT_ORDER) {
       const definition = PRESENTATION_ENVIRONMENTS[environment]
       assert(definition.label.length > 0)
-      assert.match(definition.evidenceNote, /视觉|沿用|仅切换/)
+      assert.match(definition.evidenceNote, /Visual|same|Changes/)
       assert.equal(JSON.stringify(buildHighwayPresentationScenario('dense')), referenceScenario)
       assert.equal('environmentPreset' in buildHighwayPresentationScenario('dense'), false)
     }
@@ -92,5 +97,31 @@ describe('scene data validation', () => {
       (environment) => presentationEnvironmentVisuals(environment).background,
     )).size, PRESENTATION_ENVIRONMENT_ORDER.length)
     assert.equal(presentationEnvironmentVisuals('tunnel').sky, false)
+  })
+
+  it('keeps atmosphere, quality, and evidence layers presentation-only', () => {
+    assert.equal(DEFAULT_PRESENTATION_ATMOSPHERE, 'clear_day')
+    assert.equal(DEFAULT_RENDER_PREFERENCE, 'auto')
+    assert.deepEqual(PRESENTATION_ATMOSPHERE_ORDER, [
+      'clear_day', 'overcast_haze', 'golden_hour',
+    ])
+    assert.deepEqual(DEFAULT_SCENE_LAYERS, {
+      communication: true,
+      riskCorridor: true,
+      vehicleState: true,
+      infrastructure: true,
+    })
+    assert.deepEqual(Object.keys(RENDER_PREFERENCES), ['auto', 'presentation', 'balanced'])
+    const referenceScenario = JSON.stringify(buildHighwayPresentationScenario('dense'))
+    for (const atmosphere of PRESENTATION_ATMOSPHERE_ORDER) {
+      const open = presentationEnvironmentVisuals('open_highway', atmosphere)
+      assert(open.sun[1] > 0)
+      assert(open.fog[2] > open.fog[1])
+      assert.equal(JSON.stringify(buildHighwayPresentationScenario('dense')), referenceScenario)
+    }
+    assert.equal(
+      presentationEnvironmentVisuals('tunnel', 'golden_hour'),
+      presentationEnvironmentVisuals('tunnel', 'clear_day'),
+    )
   })
 })

@@ -25,7 +25,7 @@ const boundaryVehicles = Array.from({ length: 24 }, (_, index) => {
 export const PRESET_SCENES: EditorScenario[] = [
   {
     schema_version: 1,
-    name: '极端拥堵',
+    name: 'Extreme Congestion',
     vehicles: congestionVehicles,
     events: [{
       id: 'event_congestion', type: 'obstacle', x: 1300, y: 440,
@@ -34,7 +34,7 @@ export const PRESET_SCENES: EditorScenario[] = [
   },
   {
     schema_version: 1,
-    name: '多事件冲突',
+    name: 'Multi-Incident Conflict',
     vehicles: multiEventVehicles,
     events: Array.from({ length: 5 }, (_, index) => ({
       id: `event_${index}`,
@@ -47,7 +47,7 @@ export const PRESET_SCENES: EditorScenario[] = [
   },
   {
     schema_version: 1,
-    name: '300米边界测试',
+    name: '300 m Boundary Test',
     vehicles: boundaryVehicles,
     events: [{
       id: 'event_boundary', type: 'emergency_braking', x: 2500, y: 500,
@@ -58,7 +58,7 @@ export const PRESET_SCENES: EditorScenario[] = [
 
 export const DEFAULT_EDITOR_SCENARIO: EditorScenario = {
   schema_version: 1,
-  name: '自定义场景',
+  name: 'Custom Scenario',
   vehicles: [vehicle(0, 1800, -4.8), vehicle(1, 2050, -8)],
   events: [{
     id: 'event_0', type: 'emergency_braking', x: 2000, y: -4.8,
@@ -78,9 +78,9 @@ export const PRESENTATION_DENSITIES: Record<PresentationDensity, {
   vehicleCount: 30 | 36 | 50
   description: string
 }> = {
-  light: { label: '稀疏', vehicleCount: 30, description: '30辆 · 低交通压力' },
-  medium: { label: '中等', vehicleCount: 36, description: '36辆 · 中等交通压力' },
-  dense: { label: '密集', vehicleCount: 50, description: '50辆 · 推荐答辩场景' },
+  light: { label: 'Light', vehicleCount: 30, description: '30 vehicles · Low traffic pressure' },
+  medium: { label: 'Medium', vehicleCount: 36, description: '36 vehicles · Moderate traffic pressure' },
+  dense: { label: 'Dense', vehicleCount: 50, description: '50 vehicles · Recommended for presentation' },
 }
 
 export function buildHighwayPresentationScenario(
@@ -89,7 +89,7 @@ export function buildHighwayPresentationScenario(
   const setting = PRESENTATION_DENSITIES[density]
   return {
     schema_version: 1,
-    name: `高速公路选择性V2X演示-${setting.label}${setting.vehicleCount}辆`,
+    name: `Highway Selective V2X Demo-${setting.label}-${setting.vehicleCount} Vehicles`,
     vehicles: Array.from({ length: setting.vehicleCount }, (_, index) => {
       const lane = index % presentationLanes.length
       const lanePosition = Math.floor(index / presentationLanes.length)
@@ -119,7 +119,7 @@ export function withEmergencyIncident(
   vehicleId: string,
 ): EditorScenario {
   const source = scenario.vehicles.find((vehicleItem) => vehicleItem.id === vehicleId)
-  if (!source) throw new Error('请选择有效的事故车辆')
+  if (!source) throw new Error('Select a valid incident vehicle')
   return {
     ...scenario,
     name: `${scenario.name}-${vehicleId}`,

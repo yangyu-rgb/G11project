@@ -92,7 +92,7 @@ export function evidenceForVehicle(update: StateUpdateMessage, vehicleId: string
     selected: selectedIndex >= 0,
     distanceM: candidate?.distance_m ?? null,
     attention,
-    reason: update.decision.selection_reason?.[vehicleId] ?? (candidate ? '候选未选择' : '候选范围外'),
+    reason: update.decision.selection_reason?.[vehicleId] ?? (candidate ? 'Candidate not selected' : 'Outside candidate scope'),
     bandwidth: selectedIndex >= 0 ? update.decision.bandwidth_allocation[selectedIndex] ?? null : null,
     delivered: message?.status === 'success',
     delayMs: message?.delay_ms ?? null,
@@ -105,7 +105,7 @@ export function configuredScenario(scenario: EditorScenario, vehicleId: string):
   const existing = scenario.events.find((event) => event.source_vehicle_id === source.id)
   return {
     ...scenario,
-    name: `${scenario.name}-研究实验`,
+    name: `${scenario.name}-Research Experiment`,
     events: [existing ?? {
       id: 'event_research_braking',
       type: 'emergency_braking',

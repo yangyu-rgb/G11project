@@ -25,7 +25,7 @@ PRESENTATION_CONFIG = load_yaml("configs/adaptive_demo_training.yaml")
 app = FastAPI(
     title="G11project API",
     version="0.1.0",
-    description="G11project 后端服务",
+    description="G11project backend service",
 )
 app.include_router(api_router, prefix="/api/v1")
 
@@ -254,7 +254,9 @@ async def compare_simulation_websocket(websocket: WebSocket) -> None:
             if not model_status["eligible"]:
                 raise RuntimeError(str(model_status["reason"]))
             if not presentation_inference:
-                raise RuntimeError("临时高速事故场景只能使用通过资格门禁的正式模型")
+                raise RuntimeError(
+                    "Temporary highway incident scenarios require the eligible production model"
+                )
         elif presentation_inference and not model_status["eligible"]:
             raise RuntimeError(str(model_status["reason"]))
         model_path = _resolve_simulation_path(model_query, kind="model")

@@ -96,7 +96,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
         if (!active) return
         try {
           const parsed: unknown = JSON.parse(event.data)
-          if (!isSimulationMessage(parsed)) throw new Error('不支持的WebSocket消息格式')
+          if (!isSimulationMessage(parsed)) throw new Error('Unsupported WebSocket message format')
           setMessage(parsed)
           if (parsed.type === 'state_update') {
             if (parsed.method) {
@@ -131,13 +131,13 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
             setCompleted(true)
           }
         } catch (error) {
-          setErrorMessage(error instanceof Error ? error.message : 'WebSocket消息解析失败')
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to parse WebSocket message')
           setStatus('error')
         }
       }
       socket.onerror = () => {
         animationEngine.setConnected(false)
-        setErrorMessage('无法连接仿真服务，请确认后端、场景和模型均已准备好')
+        setErrorMessage('Unable to connect to the simulation service. Confirm that the backend, scenario, and model are ready.')
         setStatus('error')
       }
       socket.onclose = () => {
@@ -161,7 +161,7 @@ export function useWebSocket(path: string | null = '/ws/simulation', autoReconne
   const sendControl = useCallback((action: ControlAction, speed?: number) => {
     const socket = socketRef.current
     if (!socket || socket.readyState !== WebSocket.OPEN) {
-      setErrorMessage('仿真服务尚未连接')
+      setErrorMessage('The simulation service is not connected')
       return false
     }
     socket.send(JSON.stringify({ type: 'control', action, ...(speed === undefined ? {} : { speed }) }))

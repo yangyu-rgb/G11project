@@ -19,7 +19,7 @@ export function ResourceChart({ decision }: ResourceChartProps) {
     .range([0, chartWidth])
 
   if (allocations.length === 0) {
-    return <p className="panel-empty">当前时间步未分配通信资源。</p>
+    return <p className="panel-empty">No communication resources were allocated at this timestep.</p>
   }
 
   return (
@@ -30,8 +30,8 @@ export function ResourceChart({ decision }: ResourceChartProps) {
         role="img"
         aria-labelledby="resource-chart-title resource-chart-description"
       >
-        <title id="resource-chart-title">接收车辆带宽分配</title>
-        <desc id="resource-chart-description">横条越长表示PPO策略分配的相对通信资源越多。</desc>
+        <title id="resource-chart-title">Receiver Bandwidth Allocation</title>
+        <desc id="resource-chart-description">A longer bar represents a larger relative communication-resource allocation by the PPO policy.</desc>
         {allocations.map((item, index) => {
           const y = index * rowHeight + 4
           return (

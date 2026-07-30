@@ -100,13 +100,19 @@ export function VehicleFleet3D({
   const chassis = useRef<InstancedMesh>(null)
   const roof = useRef<InstancedMesh>(null)
   const wheels = useRef<InstancedMesh>(null)
+  const wheelHubs = useRef<InstancedMesh>(null)
+  const bumpers = useRef<InstancedMesh>(null)
+  const plates = useRef<InstancedMesh>(null)
+  const mirrors = useRef<InstancedMesh>(null)
   const headlights = useRef<InstancedMesh>(null)
   const taillights = useRef<InstancedMesh>(null)
   const statusHalos = useRef<InstancedMesh>(null)
+  const contactShadows = useRef<InstancedMesh>(null)
   const renderedIds = useRef<string[]>([])
   const transform = useMemo(() => new Object3D(), [])
   const detailTransform = useMemo(() => new Object3D(), [])
   const haloTransform = useMemo(() => new Object3D(), [])
+  const shadowTransform = useMemo(() => new Object3D(), [])
   const detailMatrix = useMemo(() => new Matrix4(), [])
   const cabinMatrix = useMemo(() => new Matrix4(), [])
   const chassisMatrix = useMemo(() => new Matrix4(), [])
@@ -122,16 +128,22 @@ export function VehicleFleet3D({
 
   useFrame(() => {
     const meshes = [body.current, cabin.current, chassis.current, roof.current, wheels.current,
-      headlights.current, taillights.current, statusHalos.current]
+      wheelHubs.current, bumpers.current, mirrors.current, headlights.current, taillights.current,
+      plates.current, statusHalos.current, contactShadows.current]
     if (meshes.some((mesh) => !mesh)) return
     const bodyMesh = body.current as InstancedMesh
     const cabinMesh = cabin.current as InstancedMesh
     const chassisMesh = chassis.current as InstancedMesh
     const roofMesh = roof.current as InstancedMesh
     const wheelMesh = wheels.current as InstancedMesh
+    const wheelHubMesh = wheelHubs.current as InstancedMesh
+    const bumperMesh = bumpers.current as InstancedMesh
+    const plateMesh = plates.current as InstancedMesh
+    const mirrorMesh = mirrors.current as InstancedMesh
     const headlightMesh = headlights.current as InstancedMesh
     const taillightMesh = taillights.current as InstancedMesh
     const haloMesh = statusHalos.current as InstancedMesh
+    const shadowMesh = contactShadows.current as InstancedMesh
     const snapshot = fixedVehicles ? null : animation.getSnapshot(animationChannel)
     const rendered = fixedVehicles
       ? fixedVehicles.slice(0, MAX_INSTANCES)
@@ -142,9 +154,14 @@ export function VehicleFleet3D({
     chassisMesh.count = rendered.length
     roofMesh.count = rendered.length
     wheelMesh.count = rendered.length * 4
+    wheelHubMesh.count = rendered.length * 4
+    bumperMesh.count = rendered.length * 2
+    plateMesh.count = rendered.length * 2
+    mirrorMesh.count = rendered.length * 2
     headlightMesh.count = rendered.length * 2
     taillightMesh.count = rendered.length * 2
     haloMesh.count = rendered.length
+    shadowMesh.count = rendered.length
 
     rendered.forEach((vehicle, index) => {
       const [x, , z] = toScenePosition(vehicle.x, laneCenter(vehicle), 'highway')
@@ -181,8 +198,37 @@ export function VehicleFleet3D({
           detailTransform.updateMatrix()
           detailMatrix.multiplyMatrices(transform.matrix, detailTransform.matrix)
           wheelMesh.setMatrixAt(index * 4 + wheelIndex, detailMatrix)
+          wheelHubMesh.setMatrixAt(index * 4 + wheelIndex, detailMatrix)
         },
       )
+
+      ;[-1, 1].forEach((direction, bumperIndex) => {
+        detailTransform.position.set(direction * HIGHWAY_VEHICLE_LENGTH * 0.485,
+          -BODY_HEIGHT * 0.2, 0)
+        detailTransform.rotation.set(0, 0, 0)
+        detailTransform.scale.set(1, 1, 1)
+        detailTransform.updateMatrix()
+        detailMatrix.multiplyMatrices(transform.matrix, detailTransform.matrix)
+        bumperMesh.setMatrixAt(index * 2 + bumperIndex, detailMatrix)
+        detailTransform.position.set(direction * HIGHWAY_VEHICLE_LENGTH * 0.515,
+          -BODY_HEIGHT * 0.04, 0)
+        detailTransform.scale.set(1, 1, 1)
+        detailTransform.updateMatrix()
+        detailMatrix.multiplyMatrices(transform.matrix, detailTransform.matrix)
+        plateMesh.setMatrixAt(index * 2 + bumperIndex, detailMatrix)
+        plateMesh.setColorAt(index * 2 + bumperIndex,
+          new Color(direction > 0 ? '#eef3ee' : '#e3c85f'))
+      })
+
+      ;[-1, 1].forEach((side, mirrorIndex) => {
+        detailTransform.position.set(HIGHWAY_VEHICLE_LENGTH * 0.16, BODY_HEIGHT * 0.46,
+          side * HIGHWAY_VEHICLE_WIDTH * 0.53)
+        detailTransform.rotation.set(0, 0, 0)
+        detailTransform.scale.set(1, 1, 1)
+        detailTransform.updateMatrix()
+        detailMatrix.multiplyMatrices(transform.matrix, detailTransform.matrix)
+        mirrorMesh.setMatrixAt(index * 2 + mirrorIndex, detailMatrix)
+      })
 
       ;[-0.28, 0.28].forEach((side, lightIndex) => {
         detailTransform.position.set(HIGHWAY_VEHICLE_LENGTH * 0.505, 0, HIGHWAY_VEHICLE_WIDTH * side)
@@ -210,6 +256,13 @@ export function VehicleFleet3D({
       haloTransform.updateMatrix()
       haloMesh.setMatrixAt(index, haloTransform.matrix)
       haloMesh.setColorAt(index, color)
+
+      shadowTransform.position.set(x, 0.008, z)
+      shadowTransform.rotation.set(-Math.PI / 2, 0, 0)
+      shadowTransform.scale.set(HIGHWAY_VEHICLE_LENGTH * profileX * 1.15,
+        HIGHWAY_VEHICLE_WIDTH * profileZ * 0.82, 1)
+      shadowTransform.updateMatrix()
+      shadowMesh.setMatrixAt(index, shadowTransform.matrix)
 
     })
 
@@ -260,6 +313,27 @@ export function VehicleFleet3D({
         <cylinderGeometry args={[0.34 * SCENE_SCALE, 0.34 * SCENE_SCALE, 0.28 * SCENE_SCALE, 12]} />
         <meshStandardMaterial color="#111317" roughness={0.92} metalness={0.05} />
       </instancedMesh>
+      <instancedMesh ref={wheelHubs} args={[undefined, undefined, WHEEL_COUNT]} castShadow
+        count={Math.min(vehicles.length * 4, WHEEL_COUNT)} frustumCulled={false}>
+        <cylinderGeometry args={[0.17 * SCENE_SCALE, 0.17 * SCENE_SCALE, 0.295 * SCENE_SCALE, 16]} />
+        <meshStandardMaterial color="#8f989e" roughness={0.32} metalness={0.82} />
+      </instancedMesh>
+      <instancedMesh ref={bumpers} args={[undefined, undefined, LIGHT_COUNT]} castShadow
+        count={Math.min(vehicles.length * 2, LIGHT_COUNT)} frustumCulled={false}>
+        <boxGeometry args={[0.08 * SCENE_SCALE, 0.2 * SCENE_SCALE, HIGHWAY_VEHICLE_WIDTH * 0.78]} />
+        <meshStandardMaterial color="#22282d" roughness={0.5} metalness={0.54} />
+      </instancedMesh>
+      <instancedMesh ref={plates} args={[undefined, undefined, LIGHT_COUNT]}
+        count={Math.min(vehicles.length * 2, LIGHT_COUNT)} frustumCulled={false}>
+        <boxGeometry args={[0.025 * SCENE_SCALE, 0.18 * SCENE_SCALE, 0.48 * SCENE_SCALE]} />
+        <meshStandardMaterial color="#ffffff" roughness={0.46} metalness={0.04} />
+      </instancedMesh>
+      <instancedMesh ref={mirrors} args={[undefined, undefined, LIGHT_COUNT]} castShadow
+        count={Math.min(vehicles.length * 2, LIGHT_COUNT)} frustumCulled={false}>
+        <boxGeometry args={[0.24 * SCENE_SCALE, 0.13 * SCENE_SCALE, 0.13 * SCENE_SCALE]} />
+        <meshPhysicalMaterial color="#2d363e" roughness={0.2} metalness={0.48}
+          clearcoat={0.64} clearcoatRoughness={0.18} />
+      </instancedMesh>
       <instancedMesh ref={headlights} args={[undefined, undefined, LIGHT_COUNT]}
         count={Math.min(vehicles.length * 2, LIGHT_COUNT)} frustumCulled={false}>
         <boxGeometry args={[0.06 * SCENE_SCALE, 0.28 * SCENE_SCALE, 0.34 * SCENE_SCALE]} />
@@ -275,6 +349,13 @@ export function VehicleFleet3D({
         onUpdate={(mesh) => mesh.instanceMatrix.setUsage(DynamicDrawUsage)}>
         <ringGeometry args={[0.72, 1, 40]} />
         <meshBasicMaterial color="#ffffff" transparent opacity={0.62} depthWrite={false} toneMapped={false} />
+      </instancedMesh>
+      <instancedMesh ref={contactShadows} args={[undefined, undefined, MAX_INSTANCES]}
+        count={Math.min(vehicles.length, MAX_INSTANCES)} frustumCulled={false}
+        onUpdate={(mesh) => mesh.instanceMatrix.setUsage(DynamicDrawUsage)}>
+        <circleGeometry args={[0.5, 28]} />
+        <meshBasicMaterial color="#071015" transparent opacity={0.24}
+          depthWrite={false} toneMapped={false} />
       </instancedMesh>
     </group>
   )

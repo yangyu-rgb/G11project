@@ -73,28 +73,28 @@ class ExperimentPreset(BaseModel):
 EXPERIMENT_PRESETS = (
     ExperimentPreset(
         id="normal",
-        title="正常网络",
-        question="标准网络下，AI能否减少冗余通信？",
+        title="Nominal Network",
+        question="Can AI reduce redundant communication under nominal network conditions?",
         network=NetworkOverrides(),
     ),
     ExperimentPreset(
         id="low-bandwidth",
-        title="低带宽 30 Mbps",
-        question="资源收紧后，选择性广播能否维持更低负载？",
+        title="Low Bandwidth · 30 Mbps",
+        question="Can selective broadcast maintain a lower load under constrained resources?",
         network=NetworkOverrides(total_bandwidth_mbps=30),
         out_of_distribution=True,
     ),
     ExperimentPreset(
         id="high-latency",
-        title="高时延 80 ms",
-        question="基础时延上升后，两种策略的响应差距如何变化？",
+        title="High Latency · 80 ms",
+        question="How does the response gap change when base latency increases?",
         network=NetworkOverrides(base_delay_ms=80),
         out_of_distribution=True,
     ),
     ExperimentPreset(
         id="high-loss",
-        title="高丢包 20%",
-        question="链路不稳定时，关键车辆的消息送达是否保持？",
+        title="High Packet Loss · 20%",
+        question="Is message delivery to critical vehicles maintained on unstable links?",
         network=NetworkOverrides(far_packet_loss_rate=0.2),
         out_of_distribution=True,
     ),
@@ -150,11 +150,15 @@ def resolve_experiment(reference: str) -> ExperimentRecord:
 def _warnings(network: NetworkOverrides) -> list[str]:
     warnings: list[str] = []
     if network.total_bandwidth_mbps < 40:
-        warnings.append("低带宽设置可能超出正式演示模型的常见训练分布")
+        warnings.append(
+            "The low-bandwidth setting may be outside the production model's typical training distribution"
+        )
     if network.base_delay_ms > 60 or network.far_packet_loss_rate > 0.2:
-        warnings.append("高时延或高丢包配置应标记为分布外压力测试")
+        warnings.append(
+            "High-latency or high-loss configurations must be marked as out-of-distribution stress tests"
+        )
     if network.critical_radius_m != 300:
-        warnings.append("关键半径已变化，结论需同时报告该配置")
+        warnings.append("The critical radius has changed and must be reported with the conclusion")
     return warnings
 
 
@@ -163,7 +167,7 @@ def preview_experiment(payload: ExperimentPreviewRequest) -> ExperimentPreviewRe
     _cleanup_expired()
     scenario = create_editor_scenario(payload.scenario)
     if not scenario.ai_runnable:
-        raise HTTPException(status_code=422, detail="；".join(scenario.limitations))
+        raise HTTPException(status_code=422, detail="; ".join(scenario.limitations))
     reference = str(uuid.uuid4())
     expires_at = time.time() + EDITOR_SCENARIO_LIFETIME_SECONDS
     record = ExperimentRecord(

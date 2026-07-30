@@ -101,7 +101,7 @@ export function usePresentationDemo(template: EditorScenario) {
       .then((value) => { if (active) setModelStatus(value) })
       .catch(() => { if (active) setModelStatus({
         model: DEFAULT_MODEL, available: false, eligible: false, action_mode: null,
-        reason: '无法读取正式模型资格状态',
+        reason: 'Unable to read production-model eligibility status',
       }) })
     return () => { active = false }
   }, [])
@@ -109,7 +109,7 @@ export function usePresentationDemo(template: EditorScenario) {
   const start = useCallback(async () => {
     if (!selectedVehicleId || phase !== 'selecting') return
     if (!modelStatus?.eligible) {
-      setNotice(modelStatus?.reason ?? '正式AI模型尚未完成资格验收')
+      setNotice(modelStatus?.reason ?? 'The production AI model has not passed eligibility checks')
       return
     }
     const configured = withEmergencyIncident(template, selectedVehicleId)
@@ -123,9 +123,9 @@ export function usePresentationDemo(template: EditorScenario) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(configured),
       })
-      if (!response.ok) throw new Error('后端拒绝了事故场景')
+      if (!response.ok) throw new Error('The backend rejected the incident scenario')
       const result = await response.json() as EditorScenarioResponse
-      if (!result.ai_runnable) throw new Error(result.limitations.join('；'))
+      if (!result.ai_runnable) throw new Error(result.limitations.join('; '))
       startSession({
         scenario: result.scenario_ref,
         model: modelStatus.model,
@@ -136,7 +136,7 @@ export function usePresentationDemo(template: EditorScenario) {
     } catch (error) {
       stopSession()
       setPhase('selecting')
-      setNotice(error instanceof Error ? error.message : '真实模型不可用')
+      setNotice(error instanceof Error ? error.message : 'The production model is unavailable')
     }
   }, [modelStatus, phase, selectedBaseline, selectedVehicleId, startSession, stopSession, template])
 
@@ -145,7 +145,7 @@ export function usePresentationDemo(template: EditorScenario) {
     const timeout = window.setTimeout(() => {
       stopSession()
       setPhase('selecting')
-      setNotice('真实模型准备超过30秒；演示已停止，未使用规则结果替代。')
+      setNotice('Production-model preparation exceeded 30 seconds. The demo stopped without substituting rule-based output.')
     }, PREPARATION_TIMEOUT_MS)
     return () => window.clearTimeout(timeout)
   }, [phase, stopSession])
@@ -154,7 +154,7 @@ export function usePresentationDemo(template: EditorScenario) {
     if (phase !== 'preparing' || !errorMessage) return
     stopSession()
     setPhase('selecting')
-    setNotice(`${errorMessage}；演示已停止，未使用规则结果替代。`)
+    setNotice(`${errorMessage}. The demo stopped without substituting rule-based output.`)
   }, [errorMessage, phase, stopSession])
 
   useEffect(() => {
@@ -163,18 +163,18 @@ export function usePresentationDemo(template: EditorScenario) {
     if (invalidPair) {
       stopSession()
       setPhase('selecting')
-      setNotice('AI与基线证据时间戳不同步；演示已停止，未绘制通信连线。')
+      setNotice('AI and baseline evidence timestamps are not synchronized. The demo stopped and no communication links were drawn.')
       return
     }
     const wrongMethod = comparisonHistory.find((pair) => pair.baseline.method !== selectedBaseline)
     if (wrongMethod) {
       stopSession()
       setPhase('selecting')
-      setNotice('后端返回的基线方法与演示配置不一致；结果已拒绝加载。')
+      setNotice('The baseline returned by the backend does not match the demo configuration. The results were rejected.')
       return
     }
     loadPlayback(comparisonHistory, 'real', 'explore')
-    setNotice('真实PPO与所选基线结果已同步，可自由选择证据书签。')
+    setNotice('Production PPO and the selected baseline are synchronized. Evidence bookmarks are now available.')
   }, [comparisonHistory, completed, loadPlayback, phase, selectedBaseline, stopSession])
 
   useEffect(() => {

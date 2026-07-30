@@ -61,12 +61,12 @@ export function editorEventToSimulation(event: EditorEvent): SimulationEvent {
 export function editorLimitations(scenario: EditorScenario): string[] {
   const limitations: string[] = []
   if (scenario.vehicles.length > EDITOR_MODEL_LIMITS.vehicles) {
-    limitations.push('当前真实模型最多支持50辆车')
+    limitations.push('The production model currently supports up to 50 vehicles')
   }
   if (scenario.events.length > EDITOR_MODEL_LIMITS.events) {
-    limitations.push('当前真实模型最多支持2个事件')
+    limitations.push('The production model currently supports up to two incidents')
   }
-  if (scenario.vehicles.length === 0) limitations.push('至少需要1辆车')
+  if (scenario.vehicles.length === 0) limitations.push('At least one vehicle is required')
   return limitations
 }
 
@@ -84,19 +84,19 @@ function safeId(value: unknown): value is string {
 
 export function parseEditorScenario(value: unknown): EditorScenario {
   if (!isRecord(value) || value.schema_version !== 1 || typeof value.name !== 'string') {
-    throw new Error('JSON不是受支持的场景格式')
+    throw new Error('The JSON does not match a supported scenario format')
   }
   if (!Array.isArray(value.vehicles) || !Array.isArray(value.events)) {
-    throw new Error('场景必须包含vehicles和events数组')
+    throw new Error('The scenario must contain vehicles and events arrays')
   }
   if (value.vehicles.length < 1 || value.vehicles.length > 100 || value.events.length > 5) {
-    throw new Error('车辆数量必须为1–100，事件数量必须为0–5')
+    throw new Error('Vehicle count must be 1–100 and incident count must be 0–5')
   }
   const vehicles = value.vehicles.map((item) => {
     if (!isRecord(item) || !safeId(item.id) || !finiteNumber(item.x) || !finiteNumber(item.y)
       || !finiteNumber(item.speed_kmh) || !finiteNumber(item.heading)
       || item.speed_kmh < 0 || item.speed_kmh > 150 || item.heading < 0 || item.heading >= 360) {
-      throw new Error('车辆字段或数值范围不合法')
+      throw new Error('Vehicle fields or numeric ranges are invalid')
     }
     return item as EditorVehicle
   })
@@ -106,7 +106,7 @@ export function parseEditorScenario(value: unknown): EditorScenario {
       || !finiteNumber(item.x) || !finiteNumber(item.y) || !finiteNumber(item.timestamp)
       || !finiteNumber(item.severity) || item.timestamp < 0 || item.timestamp > 9
       || item.severity < 0 || item.severity > 1) {
-      throw new Error('事件字段或数值范围不合法')
+      throw new Error('Incident fields or numeric ranges are invalid')
     }
     const source = item.source_vehicle_id
     const before = item.pre_brake_speed_kmh
@@ -114,13 +114,13 @@ export function parseEditorScenario(value: unknown): EditorScenario {
     const hasIncidentData = source !== undefined || before !== undefined || after !== undefined
     if (hasIncidentData && (!safeId(source) || !finiteNumber(before) || !finiteNumber(after)
       || before < 0 || before > 150 || after < 0 || after >= before)) {
-      throw new Error('事故车辆或减速参数不合法')
+      throw new Error('Incident vehicle or braking parameters are invalid')
     }
     return item as EditorEvent
   })
   if (new Set(vehicles.map((item) => item.id)).size !== vehicles.length
     || new Set(events.map((item) => item.id)).size !== events.length) {
-    throw new Error('车辆和事件ID必须各自唯一')
+    throw new Error('Vehicle and incident IDs must each be unique')
   }
   return { schema_version: 1, name: value.name.slice(0, 80), vehicles, events }
 }

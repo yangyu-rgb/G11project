@@ -113,13 +113,13 @@ def test_results_summary_waits_when_model_is_not_eligible(
     monkeypatch.setattr(
         demo,
         "presentation_model_status",
-        lambda: {"eligible": False, "reason": "模型哈希不一致"},
+        lambda: {"eligible": False, "reason": "Model hash mismatch"},
     )
 
     result = TestClient(app).get("/api/v1/demo/results-summary").json()
 
     assert result["status"] == "pending"
-    assert result["reason"] == "模型哈希不一致"
+    assert result["reason"] == "Model hash mismatch"
     assert result["methods"] == {}
 
 

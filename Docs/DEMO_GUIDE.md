@@ -11,6 +11,9 @@ The demonstration should make one defensible claim: under the locked simulated h
 1. Start with `./start.sh` and confirm backend health.
 2. Confirm the UI reports an eligible `directional-v2` model rather than a rule fallback.
 3. Select environment, incident type, accident vehicle, and baseline at the entry screen.
+   The atmosphere and visual-quality selectors only alter rendering. Use **Clear Day + Auto** for
+   the safest classroom default, **Golden Hour + Presentation** for a high-end display, and
+   **Tunnel + Balanced** when the laptop is driving a projector.
 4. Prefer an incident vehicle with enough traffic behind and across multiple lanes to expose method differences.
 5. Rehearse camera orbit, zoom, pan, and “follow accident vehicle” reset.
 6. Keep a static held-out result slide ready in case the live browser fails.
@@ -53,6 +56,13 @@ The panel should expose incident-relative geometry, lane eligibility, affected/r
 - **Transformer-PPO:** adapts four action dimensions inside the legal corridor.
 
 During the live presentation, compare AI against one baseline to keep the scene legible. Use the held-out five-method table when asked about the other methods.
+
+The compact **Evidence Layers** control is intentionally collapsed by default. Expand it to isolate
+communication links, the learned risk corridor, vehicle-state colouring, or roadside infrastructure.
+The line legend is evidence-driven: cyan/green is the learned path, amber is the selected baseline,
+red indicates timeout, and the receiver ring indicates delivery acknowledgement. Packet count and
+motion are derived from the synchronized bandwidth and latency fields; they are not decorative random
+effects.
 
 ## 7. Claims and limits
 

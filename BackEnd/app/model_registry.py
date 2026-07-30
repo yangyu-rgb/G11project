@@ -33,12 +33,12 @@ def _validated_status(model_mtime_ns: int, manifest_mtime_ns: int) -> dict[str, 
         "available": False,
         "eligible": False,
         "action_mode": None,
-        "reason": "新的方向风险走廊模型尚未完成训练和验收",
+        "reason": "The new directional risk-corridor model has not completed training and acceptance",
     }
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {**base, "reason": "模型清单无法读取"}
+        return {**base, "reason": "The model manifest could not be read"}
     action_mode = manifest.get("action_mode")
     schema_version = manifest.get("observation_schema_version")
     acceptance = manifest.get("acceptance", {})
@@ -48,21 +48,21 @@ def _validated_status(model_mtime_ns: int, manifest_mtime_ns: int) -> dict[str, 
             **base,
             "available": True,
             "action_mode": action_mode,
-            "reason": "模型动作空间或观察结构与当前演示不兼容",
+            "reason": "The model action space or observation schema is incompatible with this demo",
         }
     if not eligible:
         return {
             **base,
             "available": True,
             "action_mode": action_mode,
-            "reason": "模型没有通过独立留出集资格门禁",
+            "reason": "The model did not pass the independent held-out eligibility gate",
         }
     if manifest.get("model_sha256") != _sha256(model_path):
         return {
             **base,
             "available": True,
             "action_mode": action_mode,
-            "reason": "模型文件哈希与资格清单不一致",
+            "reason": "The model-file hash does not match the eligibility manifest",
         }
     return {
         **base,
@@ -85,6 +85,6 @@ def presentation_model_status() -> dict[str, Any]:
             "available": False,
             "eligible": False,
             "action_mode": None,
-            "reason": "新的方向风险走廊模型尚未完成训练和验收",
+            "reason": "The new directional risk-corridor model has not completed training and acceptance",
         }
     return _validated_status(model_path.stat().st_mtime_ns, manifest_path.stat().st_mtime_ns)

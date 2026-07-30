@@ -81,10 +81,10 @@ export function presentationCueAt(elapsedMs: number): PresentationCue {
 }
 
 export const STAGE_LABELS: Record<PresentationStage, string> = {
-  normal: '正常车流',
-  accident: '事故发生',
-  comparison: '同步算法对比',
-  summary: '结果对比',
+  normal: 'Normal Traffic',
+  accident: 'Incident Onset',
+  comparison: 'Synchronized Comparison',
+  summary: 'Result Comparison',
 }
 
 export function findIncidentPair(history: readonly ComparisonPair[]): ComparisonPair | null {
@@ -95,10 +95,10 @@ export function findIncidentPair(history: readonly ComparisonPair[]): Comparison
 }
 
 function percentChange(baseline: number, ai: number, inverse = false): string {
-  if (baseline === 0) return '不适用'
+  if (baseline === 0) return 'N/A'
   const raw = ((ai - baseline) / baseline) * 100
   const value = inverse ? -raw : raw
-  if (Math.abs(value) < 0.05) return '持平'
+  if (Math.abs(value) < 0.05) return 'No change'
   return `${value > 0 ? '+' : ''}${value.toFixed(1)}%`
 }
 
@@ -113,10 +113,10 @@ function metricValue(value: number, suffix = ''): string {
 export function comparisonMetrics(pair: ComparisonPair | null, networkMetricsAvailable = true): ComparisonMetric[] {
   if (!pair) {
     return [
-      { label: '通知车辆数', baseline: '未计算', ai: '未计算' },
-      { label: '相关接收占比', baseline: '未计算', ai: '未计算' },
-      { label: '通信负载', baseline: '未计算', ai: '未计算' },
-      { label: '平均时延', baseline: '未计算', ai: '未计算' },
+      { label: 'Notified Vehicles', baseline: 'Not computed', ai: 'Not computed' },
+      { label: 'Relevant-Receiver Precision', baseline: 'Not computed', ai: 'Not computed' },
+      { label: 'Communication Load', baseline: 'Not computed', ai: 'Not computed' },
+      { label: 'Average Latency', baseline: 'Not computed', ai: 'Not computed' },
     ]
   }
   const baselineCount = pair.baseline.messages.length
@@ -125,29 +125,29 @@ export function comparisonMetrics(pair: ComparisonPair | null, networkMetricsAva
   const aiPrecision = selectionPrecision(pair.ai)
   return [
     {
-      label: '通知车辆数',
+      label: 'Notified Vehicles',
       baseline: String(notified(pair.baseline)),
       ai: String(notified(pair.ai)),
-      delta: `${Math.max(0, notified(pair.baseline) - notified(pair.ai))} 辆更少`,
+      delta: `${Math.max(0, notified(pair.baseline) - notified(pair.ai))} fewer`,
     },
     {
-      label: '相关接收占比',
-      baseline: baselinePrecision === null ? '不适用' : `${baselinePrecision.toFixed(1)}%`,
-      ai: aiPrecision === null ? '不适用' : `${aiPrecision.toFixed(1)}%`,
+      label: 'Relevant-Receiver Precision',
+      baseline: baselinePrecision === null ? 'N/A' : `${baselinePrecision.toFixed(1)}%`,
+      ai: aiPrecision === null ? 'N/A' : `${aiPrecision.toFixed(1)}%`,
       delta: baselinePrecision !== null && aiPrecision !== null
-        ? `${aiPrecision >= baselinePrecision ? '+' : ''}${(aiPrecision - baselinePrecision).toFixed(1)} 个百分点`
+        ? `${aiPrecision >= baselinePrecision ? '+' : ''}${(aiPrecision - baselinePrecision).toFixed(1)} pp`
         : undefined,
     },
     {
-      label: '通信负载',
-      baseline: `${baselineCount} 次发送`,
-      ai: `${aiCount} 次发送`,
+      label: 'Communication Load',
+      baseline: `${baselineCount} transmissions`,
+      ai: `${aiCount} transmissions`,
       delta: percentChange(baselineCount, aiCount, true),
     },
     {
-      label: '平均时延',
-      baseline: networkMetricsAvailable ? metricValue(pair.baseline.metrics.avg_delay_ms, ' ms') : '未计算',
-      ai: networkMetricsAvailable ? metricValue(pair.ai.metrics.avg_delay_ms, ' ms') : '未计算',
+      label: 'Average Latency',
+      baseline: networkMetricsAvailable ? metricValue(pair.baseline.metrics.avg_delay_ms, ' ms') : 'Not computed',
+      ai: networkMetricsAvailable ? metricValue(pair.ai.metrics.avg_delay_ms, ' ms') : 'Not computed',
       delta: networkMetricsAvailable
         ? percentChange(pair.baseline.metrics.avg_delay_ms, pair.ai.metrics.avg_delay_ms, true) : undefined,
     },
@@ -172,19 +172,19 @@ export function stageMetrics(
     ? Math.ceil(new Set(update.decision.selected_receivers).size * progress) : 0
   const precision = update ? selectionPrecision(update) : null
   return [
-    { label: '通知车辆', value: String(notifiedVehicles) },
-    { label: '相关接收占比', value: progress < 0.35 || precision === null ? '—' : `${precision.toFixed(1)}%` },
-    { label: '通信负载', value: update ? `${Math.ceil(update.messages.length * progress)} 次` : '0 次' },
-    { label: '平均时延', value: update && networkMetricsAvailable && progress >= 0.55
-      ? `${update.metrics.avg_delay_ms.toFixed(1)} ms` : '未计算' },
+    { label: 'Notified Vehicles', value: String(notifiedVehicles) },
+    { label: 'Relevant-Receiver Precision', value: progress < 0.35 || precision === null ? '—' : `${precision.toFixed(1)}%` },
+    { label: 'Communication Load', value: update ? `${Math.ceil(update.messages.length * progress)} transmissions` : '0 transmissions' },
+    { label: 'Average Latency', value: update && networkMetricsAvailable && progress >= 0.55
+      ? `${update.metrics.avg_delay_ms.toFixed(1)} ms` : 'Not computed' },
   ]
 }
 
 export function conclusionFor(pair: ComparisonPair | null, networkMetricsAvailable = true): string {
-  if (!pair || !networkMetricsAvailable) return '当前为规则演示，时延和送达率需要真实模型运行后确认。'
+  if (!pair || !networkMetricsAvailable) return 'This is a rule-based preview. Latency and delivery rate require a production-model run.'
   const fewer = notified(pair.ai) < notified(pair.baseline)
   const faster = pair.ai.metrics.avg_delay_ms < pair.baseline.metrics.avg_delay_ms
-  if (fewer && faster) return '本场景中，AI选择性V2X减少了不必要广播，并降低了估算通信时延。'
-  if (fewer) return '本场景中，AI减少了不必要广播；时延收益请以对比数据为准。'
-  return '本场景展示了AI与全量广播的接收者选择差异，具体收益以实测指标为准。'
+  if (fewer && faster) return 'In this scenario, selective AI V2X reduced unnecessary broadcasts and estimated communication latency.'
+  if (fewer) return 'In this scenario, AI reduced unnecessary broadcasts; refer to the comparison data for latency effects.'
+  return 'This scenario shows how AI and broadcast choose different receivers; quantitative benefits are reported by measured metrics.'
 }

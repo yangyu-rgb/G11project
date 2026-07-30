@@ -10,7 +10,9 @@ import type { EditorScenario } from '../SceneEditor/sceneTypes'
 import { Scene3D } from '../ThreeD/Scene3D'
 import {
   presentationEnvironmentDefinition,
+  type PresentationAtmosphere,
   type PresentationEnvironment,
+  type RenderPreference,
 } from '../ThreeD/environmentPresets'
 import { DEFAULT_MODEL, useSimulationSession } from '../../hooks/useSimulationSession'
 import type { ComparisonPair, SimulationTransmission, StateUpdateMessage } from '../../types/simulation'
@@ -34,6 +36,8 @@ type ResearchWorkspaceProps = {
   modelReason: string | null
   initialTask?: ValidationTask
   environmentPreset: PresentationEnvironment
+  atmosphere: PresentationAtmosphere
+  renderPreference: RenderPreference
 }
 
 export type ValidationTask = 'decision' | 'stress' | 'evidence'
@@ -70,10 +74,10 @@ function MetricCard({ label, ai, baseline, unit = '', aiLabel = 'AI' }: {
   const improvement = baseline === 0 ? 0 : (baseline - ai) / baseline
   return <article className="research-metric-card">
     <span>{label}</span>
-    <div><strong>{ai.toFixed(label === '通知车辆' ? 0 : 1)}{unit}</strong><small>{aiLabel}</small></div>
-    <div><b>{baseline.toFixed(label === '通知车辆' ? 0 : 1)}{unit}</b><small>传统</small></div>
+    <div><strong>{ai.toFixed(label === 'Notified Vehicles' ? 0 : 1)}{unit}</strong><small>{aiLabel}</small></div>
+    <div><b>{baseline.toFixed(label === 'Notified Vehicles' ? 0 : 1)}{unit}</b><small>Baseline</small></div>
     <em className={improvement > 0 ? 'is-improved' : improvement < 0 ? 'is-degraded' : ''}>
-      {improvement > 0 ? `改善 ${(improvement * 100).toFixed(0)}%` : improvement < 0 ? '有所下降' : '基本不变'}
+      {improvement > 0 ? `${(improvement * 100).toFixed(0)}% improvement` : improvement < 0 ? 'Degraded' : 'No material change'}
     </em>
   </article>
 }
@@ -90,30 +94,30 @@ function EvidencePanel({ update, vehicleId, accidentVehicleId, source, selective
   const speed = vehicle ? Math.hypot(vehicle.vx, vehicle.vy) * 3.6 : 0
   if (vehicleId === accidentVehicleId) return <div className="research-panel-content">
     <div className="evidence-identity evidence-identity--sender">
-      <CarFront aria-hidden="true" /><div><span>事故消息发送源</span><strong>{vehicleId}</strong></div><b className="status-chip">发送方</b>
+      <CarFront aria-hidden="true" /><div><span>Incident Message Source</span><strong>{vehicleId}</strong></div><b className="status-chip">Sender</b>
     </div>
-    <section className="evidence-reason"><span>如何验证选择策略</span><p>事故车是消息发送方，不属于接收者集合。请点击道路中的其他车辆，逐车核对传统广播与{selectiveLabel}选择结果。</p></section>
+    <section className="evidence-reason"><span>How to Validate the Selection Policy</span><p>The incident vehicle is the message sender and is not part of the receiver set. Select another vehicle to compare the baseline and {selectiveLabel} decisions vehicle by vehicle.</p></section>
   </div>
   return <div className="research-panel-content">
     <div className="evidence-identity">
       <CarFront aria-hidden="true" />
-      <div><span>当前检查对象</span><strong>{vehicleId}</strong></div>
+      <div><span>Current Inspection Target</span><strong>{vehicleId}</strong></div>
       <b className={evidence.selected ? 'status-chip status-chip--selected' : 'status-chip'}>
-        {evidence.selected ? '已通知' : evidence.candidate ? '候选未选' : '无关车辆'}
+        {evidence.selected ? 'Notified' : evidence.candidate ? 'Candidate Not Selected' : 'Irrelevant Vehicle'}
       </b>
     </div>
     <dl className="evidence-grid">
-      <div><dt>实时速度</dt><dd>{speed.toFixed(0)} km/h</dd></div>
-      <div><dt>事件距离</dt><dd>{evidence.distanceM === null ? '范围外' : `${evidence.distanceM.toFixed(1)} m`}</dd></div>
-      <div><dt>{source === 'real' ? '相对注意力' : '规则评分'}</dt><dd>{evidence.attention === null ? '未提供' : formatPercent(evidence.attention)}</dd></div>
-      <div><dt>分配带宽</dt><dd>{evidence.bandwidth === null ? '—' : formatPercent(evidence.bandwidth)}</dd></div>
-      <div><dt>消息结果</dt><dd>{evidence.delayMs === null ? '未发送' : evidence.delivered ? '成功送达' : '超时'}</dd></div>
-      <div><dt>通信时延</dt><dd>{evidence.delayMs === null ? '—' : `${evidence.delayMs.toFixed(1)} ms`}</dd></div>
+      <div><dt>Live Speed</dt><dd>{speed.toFixed(0)} km/h</dd></div>
+      <div><dt>Incident Distance</dt><dd>{evidence.distanceM === null ? 'Outside scope' : `${evidence.distanceM.toFixed(1)} m`}</dd></div>
+      <div><dt>{source === 'real' ? 'Relative Attention' : 'Rule Score'}</dt><dd>{evidence.attention === null ? 'Not provided' : formatPercent(evidence.attention)}</dd></div>
+      <div><dt>Allocated Bandwidth</dt><dd>{evidence.bandwidth === null ? '—' : formatPercent(evidence.bandwidth)}</dd></div>
+      <div><dt>Message Outcome</dt><dd>{evidence.delayMs === null ? 'Not sent' : evidence.delivered ? 'Delivered' : 'Timeout'}</dd></div>
+      <div><dt>Communication Latency</dt><dd>{evidence.delayMs === null ? '—' : `${evidence.delayMs.toFixed(1)} ms`}</dd></div>
     </dl>
-    <section className="evidence-reason"><span>策略记录</span><p>{evidence.reason}</p></section>
+    <section className="evidence-reason"><span>Policy Record</span><p>{evidence.reason}</p></section>
     <p className="research-disclaimer">{source === 'real'
-      ? '注意力表示模型输入中的相对权重，仅作为选择线索，不代表严格因果关系。'
-      : '当前为规则结构预览，不包含模型注意力或 PPO 推理证据。'}</p>
+      ? 'Attention represents relative weight within the model input. It is a selection cue, not a strict causal explanation.'
+      : 'This is a structured rule preview and contains no model-attention or PPO-inference evidence.'}</p>
   </div>
 }
 
@@ -130,16 +134,16 @@ function RelationsPanel({ update, onSelect }: {
   const maximum = Math.max(0.001, ...candidates.map((item) => weights.get(item.id) ?? 0))
   return <div className="research-panel-content relation-explorer">
     <div className="relation-legend">
-      <span><i className="relation-dot relation-dot--selected" />最终选择</span>
-      <span><i className="relation-dot relation-dot--candidate" />候选集合</span>
+      <span><i className="relation-dot relation-dot--selected" />Final Selection</span>
+      <span><i className="relation-dot relation-dot--candidate" />Candidate Set</span>
     </div>
-    {candidates.length === 0 ? <p className="research-empty">当前时刻没有候选关系。</p> : candidates.map((candidate) => {
+    {candidates.length === 0 ? <p className="research-empty">No candidate relations exist at this timestamp.</p> : candidates.map((candidate) => {
       const weight = weights.get(candidate.id) ?? 0
       return <button type="button" key={candidate.id} className="relation-row" onClick={() => onSelect(candidate.id)}>
         <span><strong>{candidate.id}</strong><small>{candidate.distance_m.toFixed(0)} m</small></span>
         <i><b style={{ width: `${Math.max(4, weight / maximum * 100)}%` }} /></i>
         <em className={selected.has(candidate.id) ? 'is-selected' : ''}>
-          {selected.has(candidate.id) ? '已选' : '候选'}
+          {selected.has(candidate.id) ? 'Selected' : 'Candidate'}
         </em>
       </button>
     })}
@@ -152,7 +156,7 @@ function CopilotPanel({ update, vehicleId, onLocate, onOpenExperiment }: {
   onLocate: () => void
   onOpenExperiment: () => void
 }) {
-  const [answer, setAnswer] = useState('选择一个快捷问题，系统会只基于当前仿真证据作答。')
+  const [answer, setAnswer] = useState('Select a quick question. The system will answer only from current simulation evidence.')
   const [items, setItems] = useState<{ label: string; value: string; source: string }[]>([])
   const [loading, setLoading] = useState(false)
   const ask = async (query: string) => {
@@ -170,28 +174,28 @@ function CopilotPanel({ update, vehicleId, onLocate, onOpenExperiment }: {
           },
         }),
       })
-      if (!response.ok) throw new Error('本地解释服务不可用')
+      if (!response.ok) throw new Error('Local explanation service unavailable')
       const result = await response.json() as { answer: string; evidence: typeof items }
       setAnswer(result.answer)
       setItems(result.evidence)
     } catch {
       setAnswer(evidence.selected
-        ? `${vehicleId} 已进入最终接收集合。当前为离线解释，建议结合距离、策略理由和消息结果共同判断。`
-        : `${vehicleId} 未被最终选择。当前为离线解释，不将注意力权重表述为因果结论。`)
+        ? `${vehicleId} entered the final receiver set. This offline explanation should be evaluated together with distance, policy reason, and message outcome.`
+        : `${vehicleId} was not selected. This offline explanation does not present attention weight as a causal conclusion.`)
       setItems([])
     } finally {
       setLoading(false)
     }
   }
   return <div className="research-panel-content copilot-panel">
-    <div className="copilot-state"><Bot aria-hidden="true" /><span><strong>本地证据解释</strong><small>受当前证据约束 · 不修改仿真</small></span></div>
+    <div className="copilot-state"><Bot aria-hidden="true" /><span><strong>Local Evidence Explanation</strong><small>Bound to current evidence · Does not modify simulation</small></span></div>
     <div className="copilot-quick-actions">
-      <button type="button" onClick={() => void ask(`为什么选择或不选择 ${vehicleId}`)}>为什么选择它？</button>
-      <button type="button" onClick={() => void ask(`${vehicleId} 与传统广播有什么差异`)}>与基线有何差异？</button>
-      <button type="button" onClick={onOpenExperiment}>设计低带宽实验</button>
+      <button type="button" onClick={() => void ask(`Why was ${vehicleId} selected or not selected?`)}>Why this decision?</button>
+      <button type="button" onClick={() => void ask(`How does ${vehicleId} differ from broadcast?`)}>How does it differ from baseline?</button>
+      <button type="button" onClick={onOpenExperiment}>Design a Low-Bandwidth Experiment</button>
     </div>
     <div className="copilot-answer" aria-live="polite">
-      {loading ? <span className="copilot-loading">正在核对证据…</span> : <p>{answer}</p>}
+      {loading ? <span className="copilot-loading">Checking evidence…</span> : <p>{answer}</p>}
     </div>
     {items.length > 0 && <div className="copilot-evidence-list">
       {items.map((item) => <button type="button" key={`${item.label}-${item.source}`} onClick={onLocate}>
@@ -207,16 +211,16 @@ function MessageTrace({ pair, strategy, onlyDifferences, onToggleDifferences, ai
   const messages = differenceMessages(pair, strategy, onlyDifferences)
   return <div className="trace-panel">
     <div className="trace-toolbar">
-      <span>{strategy === 'ai' ? `${aiLabel}选择性广播` : '传统广播'} · {messages.length} 条消息</span>
+      <span>{strategy === 'ai' ? `${aiLabel} Selective Broadcast` : 'Conventional Broadcast'} · {messages.length} messages</span>
       <button type="button" className={onlyDifferences ? 'is-active' : ''} onClick={onToggleDifferences}>
-        <ListFilter aria-hidden="true" />仅看差异
+        <ListFilter aria-hidden="true" />Differences Only
       </button>
     </div>
-    <div className="trace-table" role="table" aria-label="通信消息追踪">
-      <div className="trace-row trace-row--heading" role="row"><span>发送方</span><span>接收方</span><span>结果</span><span>时延</span></div>
-      {messages.length === 0 ? <p className="research-empty">当前筛选条件下没有消息。</p> : messages.map((message: SimulationTransmission, index) => <div className="trace-row" role="row" key={`${message.from}-${message.to}-${index}`}>
+    <div className="trace-table" role="table" aria-label="Communication message trace">
+      <div className="trace-row trace-row--heading" role="row"><span>Sender</span><span>Receiver</span><span>Outcome</span><span>Latency</span></div>
+      {messages.length === 0 ? <p className="research-empty">No messages match the current filter.</p> : messages.map((message: SimulationTransmission, index) => <div className="trace-row" role="row" key={`${message.from}-${message.to}-${index}`}>
         <span>{message.from}</span><strong>{message.to}</strong>
-        <em className={message.status === 'success' ? 'is-success' : 'is-timeout'}>{message.status === 'success' ? '送达' : '超时'}</em>
+        <em className={message.status === 'success' ? 'is-success' : 'is-timeout'}>{message.status === 'success' ? 'Delivered' : 'Timeout'}</em>
         <b>{message.delay_ms.toFixed(1)} ms</b>
       </div>)}
     </div>
@@ -259,57 +263,57 @@ function ExperimentBuilder({ scenario, incidentVehicleId, pair, source, session,
       if (!response.ok) throw new Error(await response.text())
       setPreview(await response.json() as ExperimentPreview)
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '实验预览失败')
+      setMessage(error instanceof Error ? error.message : 'Experiment preview failed')
     } finally { setLoading(false) }
   }
   const run = () => {
     if (!preview || !modelEligible) return
     session.start({ experimentRef: preview.experiment_ref, model: DEFAULT_MODEL, speed: 2, mode: 'comparison', baseline: 'broadcast' })
-    setMessage('实验已确认，正在运行同步AI/基线对比。')
+    setMessage('Experiment confirmed. Running the synchronized AI/baseline comparison.')
   }
   const selectPreset = (preset: ExperimentPreset) => {
     setActivePreset(preset.id)
     setNetwork(preset.network)
     setPreview(null)
-    setMessage(preset.out_of_distribution ? '该压力配置可能超出训练分布，结论将带分布外标记。' : null)
+    setMessage(preset.out_of_distribution ? 'This stress configuration may be outside the training distribution; conclusions will be marked as out of distribution.' : null)
   }
   return <div className="experiment-builder">
     <div className="experiment-hypothesis">
-      <FlaskConical aria-hidden="true" /><span><strong>反事实假设</strong><p>降低网络资源后，选择性广播应比传统全量广播保持更低负载与更稳定时延。</p></span>
+      <FlaskConical aria-hidden="true" /><span><strong>Counterfactual Hypothesis</strong><p>Under constrained network resources, selective broadcast should retain lower load and more stable latency than conventional broadcast.</p></span>
     </div>
-    <div className="experiment-presets" aria-label="网络压力测试预设">
-      {presets.length === 0 ? <span>预设服务不可用，可继续手动调整参数。</span> : presets.map((preset) => <button
+    <div className="experiment-presets" aria-label="Network stress-test presets">
+      {presets.length === 0 ? <span>Preset service unavailable. Parameters can still be adjusted manually.</span> : presets.map((preset) => <button
         type="button" key={preset.id} className={activePreset === preset.id ? 'is-active' : ''}
         onClick={() => selectPreset(preset)}>
         <strong>{preset.title}</strong><small>{preset.question}</small>
       </button>)}
     </div>
     <div className="parameter-grid">
-      <label>关键半径 <output>{network.critical_radius_m} m</output><input type="range" min="100" max="500" step="25" value={network.critical_radius_m} onChange={(event) => update('critical_radius_m', Number(event.target.value))} /></label>
-      <label>总带宽 <output>{network.total_bandwidth_mbps} Mbps</output><input type="range" min="10" max="200" step="10" value={network.total_bandwidth_mbps} onChange={(event) => update('total_bandwidth_mbps', Number(event.target.value))} /></label>
-      <label>基础时延 <output>{network.base_delay_ms} ms</output><input type="range" min="0" max="100" step="5" value={network.base_delay_ms} onChange={(event) => update('base_delay_ms', Number(event.target.value))} /></label>
-      <label>远端丢包 <output>{formatPercent(network.far_packet_loss_rate)}</output><input type="range" min="0" max="0.3" step="0.01" value={network.far_packet_loss_rate} onChange={(event) => update('far_packet_loss_rate', Number(event.target.value))} /></label>
-      <label>网络模型<select value={network.network_mode} onChange={(event) => update('network_mode', event.target.value as NetworkOverrides['network_mode'])}><option value="simple">简化网络</option><option value="3gpp">3GPP传播</option></select></label>
-      <label>安全时限 <output>{network.safety_window_ms} ms</output><input type="range" min="20" max="300" step="10" value={network.safety_window_ms} onChange={(event) => update('safety_window_ms', Number(event.target.value))} /></label>
+      <label>Critical Radius <output>{network.critical_radius_m} m</output><input type="range" min="100" max="500" step="25" value={network.critical_radius_m} onChange={(event) => update('critical_radius_m', Number(event.target.value))} /></label>
+      <label>Total Bandwidth <output>{network.total_bandwidth_mbps} Mbps</output><input type="range" min="10" max="200" step="10" value={network.total_bandwidth_mbps} onChange={(event) => update('total_bandwidth_mbps', Number(event.target.value))} /></label>
+      <label>Base Latency <output>{network.base_delay_ms} ms</output><input type="range" min="0" max="100" step="5" value={network.base_delay_ms} onChange={(event) => update('base_delay_ms', Number(event.target.value))} /></label>
+      <label>Far-Link Packet Loss <output>{formatPercent(network.far_packet_loss_rate)}</output><input type="range" min="0" max="0.3" step="0.01" value={network.far_packet_loss_rate} onChange={(event) => update('far_packet_loss_rate', Number(event.target.value))} /></label>
+      <label>Network Model<select value={network.network_mode} onChange={(event) => update('network_mode', event.target.value as NetworkOverrides['network_mode'])}><option value="simple">Simplified Network</option><option value="3gpp">3GPP Propagation</option></select></label>
+      <label>Safety Deadline <output>{network.safety_window_ms} ms</output><input type="range" min="20" max="300" step="10" value={network.safety_window_ms} onChange={(event) => update('safety_window_ms', Number(event.target.value))} /></label>
     </div>
     {preview && <div className="experiment-preview-card">
-      <span><CheckCircle2 aria-hidden="true" />参数已验证 · 种子 {preview.seed}</span>
-      <strong>实验引用 {preview.experiment_ref.slice(0, 8)}</strong>
+      <span><CheckCircle2 aria-hidden="true" />Parameters validated · Seed {preview.seed}</span>
+      <strong>Experiment reference {preview.experiment_ref.slice(0, 8)}</strong>
       {preview.warnings.map((warning) => <p key={warning}>{warning}</p>)}
     </div>}
     {message && <p className="experiment-message" aria-live="polite">{message}</p>}
     {session.errorMessage && <p className="experiment-error">{session.errorMessage}</p>}
     <div className="experiment-actions">
-      <button type="button" onClick={() => void createPreview()} disabled={loading}>{loading ? '正在验证…' : '预览参数差异'}</button>
-      <button type="button" className="primary-action" onClick={run} disabled={!preview || !modelEligible || session.status === 'connecting'}><Play aria-hidden="true" />确认并运行</button>
+      <button type="button" onClick={() => void createPreview()} disabled={loading}>{loading ? 'Validating…' : 'Preview Parameter Changes'}</button>
+      <button type="button" className="primary-action" onClick={run} disabled={!preview || !modelEligible || session.status === 'connecting'}><Play aria-hidden="true" />Confirm and Run</button>
     </div>
-    {!modelEligible && <p className="experiment-error">{modelReason ?? '正式AI模型尚未通过资格门禁，实验运行已禁用。'}</p>}
-    <small className="experiment-footnote">运行前必须确认；模型、奖励函数与特征结构不会被修改。当前证据来源：{source === 'real' ? '真实PPO对比' : '规则结构预览'}，{source === 'real' ? 'AI' : '规则'} {pair.ai.decision.selected_receivers.length} / 传统 {pair.baseline.decision.selected_receivers.length} 辆。</small>
+    {!modelEligible && <p className="experiment-error">{modelReason ?? 'The production AI model has not passed the eligibility gate; experiment execution is disabled.'}</p>}
+    <small className="experiment-footnote">Confirmation is required before execution. The model, reward function, and feature structure are unchanged. Current evidence source: {source === 'real' ? 'production PPO comparison' : 'structured rule preview'}, {source === 'real' ? 'AI' : 'Rule'} {pair.ai.decision.selected_receivers.length} / Baseline {pair.baseline.decision.selected_receivers.length} vehicles.</small>
   </div>
 }
 
 export function ResearchWorkspace({ scenario, presentationPairs, presentationSource, modelEligible, modelReason,
-  initialTask = 'decision', environmentPreset }: ResearchWorkspaceProps) {
+  initialTask = 'decision', environmentPreset, atmosphere, renderPreference }: ResearchWorkspaceProps) {
   const incidentVehicleId = scenario.events.find((event) => event.source_vehicle_id)?.source_vehicle_id
     ?? scenario.vehicles[Math.floor(scenario.vehicles.length / 2)]?.id ?? scenario.vehicles[0].id
   const fallbackPairs = useMemo(() => buildFallbackComparison(configuredScenario(scenario, incidentVehicleId), incidentVehicleId), [incidentVehicleId, scenario])
@@ -317,7 +321,7 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
   const pairs = session.comparisonHistory.length > 0 ? session.comparisonHistory
     : presentationPairs.length > 0 ? presentationPairs : fallbackPairs
   const source: 'real' | 'rule' = session.comparisonHistory.length > 0 ? 'real' : presentationSource ?? 'rule'
-  const selectiveLabel = source === 'real' ? 'AI' : '规则'
+  const selectiveLabel = source === 'real' ? 'AI' : 'Rule'
   const [frameIndex, setFrameIndex] = useState(() => evidenceFrameIndex(pairs))
   const [strategy, setStrategy] = useState<Strategy>('ai')
   const [selectedVehicleId, setSelectedVehicleId] = useState(incidentVehicleId)
@@ -346,7 +350,7 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
     ?? selectedVehicleId
   const saveNotebook = () => {
     const entry: ExperimentNotebookEntry = {
-      id: crypto.randomUUID(), createdAt: new Date().toISOString(), hypothesis: `${selectiveLabel}选择性广播在同一事故下减少冗余接收者与通信负载`,
+      id: crypto.randomUUID(), createdAt: new Date().toISOString(), hypothesis: `${selectiveLabel} selective broadcast reduces redundant receivers and communication load for the same incident`,
       scenarioName: scenario.name, vehicleId: incidentVehicleId, network: DEFAULT_NETWORK_OVERRIDES,
       result: { aiReceivers: pair.ai.decision.selected_receivers.length, baselineReceivers: pair.baseline.decision.selected_receivers.length, aiDelayMs: pair.ai.metrics.avg_delay_ms, baselineDelayMs: pair.baseline.metrics.avg_delay_ms },
       source,
@@ -374,7 +378,7 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
     }
   }
 
-  return <section className={`research-workspace research-workspace--${task}${drawerCollapsed ? ' research-workspace--drawer-collapsed' : ''}`} aria-label="V2X验证实验室">
+  return <section className={`research-workspace research-workspace--${task}${drawerCollapsed ? ' research-workspace--drawer-collapsed' : ''}`} aria-label="V2X Validation Lab">
     <div className="research-stage">
       <Scene3D vehicles={update.vehicles} events={update.events} messages={visibleMessages}
         animationChannel={strategy === 'ai' ? 'comparison-ai' : 'comparison-baseline'}
@@ -382,47 +386,48 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
         notifiedIds={notifiedIds} selectedVehicleId={selectedVehicleId} accidentVehicleId={incidentVehicleId}
         stage="comparison" elapsedMs={18_000} strategyRole={strategy === 'ai' ? 'ai' : 'baseline'}
         freezeEvidenceFrame={RESEARCH_EVIDENCE_FRAME_FROZEN}
-        environmentPreset={environmentPreset}
+        environmentPreset={environmentPreset} atmosphere={atmosphere}
+        renderPreference={renderPreference} bandwidthFraction={update.decision.bandwidth_fraction}
         priorityByVehicle={priorities} interactive onVehicleSelect={(id) => { setSelectedVehicleId(id); setSideView('evidence') }} />
 
       <div className="research-environment-badge">
-        {presentationEnvironmentDefinition(environmentPreset).label} · 视觉环境沿用演示配置
+        {presentationEnvironmentDefinition(environmentPreset).label} · Visual environment inherited from the presentation configuration
       </div>
 
-      <nav className="validation-task-nav" aria-label="验证实验室任务">
+      <nav className="validation-task-nav" aria-label="Validation Lab tasks">
         <button type="button" aria-pressed={task === 'decision'} className={task === 'decision' ? 'is-active' : ''} onClick={() => selectTask('decision')}>
-          <CarFront aria-hidden="true" /><span><strong>逐车决策验证</strong><small>为什么通知或忽略这辆车？</small></span>
+          <CarFront aria-hidden="true" /><span><strong>Per-Vehicle Decision Audit</strong><small>Why was this vehicle notified or ignored?</small></span>
         </button>
         <button type="button" aria-pressed={task === 'stress'} className={task === 'stress' ? 'is-active' : ''} onClick={() => selectTask('stress')}>
-          <FlaskConical aria-hidden="true" /><span><strong>网络压力实验</strong><small>低带宽、高时延下是否仍有效？</small></span>
+          <FlaskConical aria-hidden="true" /><span><strong>Network Stress Experiment</strong><small>Does the policy remain effective under low bandwidth and high latency?</small></span>
         </button>
         <button type="button" aria-pressed={task === 'evidence'} className={task === 'evidence' ? 'is-active' : ''} onClick={() => selectTask('evidence')}>
-          <BookOpen aria-hidden="true" /><span><strong>证据记录与导出</strong><small>如何复现并提交本次结果？</small></span>
+          <BookOpen aria-hidden="true" /><span><strong>Evidence Log and Export</strong><small>How can this result be reproduced and submitted?</small></span>
         </button>
       </nav>
 
       <div className="research-toolbar research-toolbar--compact">
-        <div className="strategy-switch" aria-label="通信策略">
-          <button type="button" className={strategy === 'ai' ? 'is-active' : ''} onClick={() => setStrategy('ai')}><Radio aria-hidden="true" />{selectiveLabel}选择性</button>
-          <button type="button" className={strategy === 'baseline' ? 'is-active' : ''} onClick={() => setStrategy('baseline')}><Network aria-hidden="true" />传统广播</button>
+        <div className="strategy-switch" aria-label="Communication strategy">
+          <button type="button" className={strategy === 'ai' ? 'is-active' : ''} onClick={() => setStrategy('ai')}><Radio aria-hidden="true" />{selectiveLabel} Selective</button>
+          <button type="button" className={strategy === 'baseline' ? 'is-active' : ''} onClick={() => setStrategy('baseline')}><Network aria-hidden="true" />Conventional Broadcast</button>
         </div>
-        <span className={`source-badge source-badge--${source}`}>{source === 'real' ? '真实模型证据' : '规则回退证据'}</span>
-        <button type="button" onClick={saveNotebook}><Save aria-hidden="true" />保存证据</button>
+        <span className={`source-badge source-badge--${source}`}>{source === 'real' ? 'Production Model Evidence' : 'Rule Fallback Evidence'}</span>
+        <button type="button" onClick={saveNotebook}><Save aria-hidden="true" />Save Evidence</button>
       </div>
 
       <div className="research-kpi-strip">
-        <span><small>当前策略</small><strong>{strategy === 'ai' ? source === 'real' ? 'SELECTIVE AI' : 'RULE PREVIEW' : 'BROADCAST'}</strong></span>
-        <span><small>接收车辆</small><strong>{update.decision.selected_receivers.length}</strong></span>
-        <span><small>平均时延</small><strong>{update.metrics.avg_delay_ms.toFixed(1)} ms</strong></span>
-        <span><small>通信负载</small><strong>{update.metrics.comm_overhead.toFixed(2)}</strong></span>
-        <span><small>送达率</small><strong>{formatPercent(update.metrics.delivery_rate)}</strong></span>
+        <span><small>Current Strategy</small><strong>{strategy === 'ai' ? source === 'real' ? 'SELECTIVE AI' : 'RULE PREVIEW' : 'BROADCAST'}</strong></span>
+        <span><small>Receiving Vehicles</small><strong>{update.decision.selected_receivers.length}</strong></span>
+        <span><small>Average Latency</small><strong>{update.metrics.avg_delay_ms.toFixed(1)} ms</strong></span>
+        <span><small>Communication Load</small><strong>{update.metrics.comm_overhead.toFixed(2)}</strong></span>
+        <span><small>Delivery Rate</small><strong>{formatPercent(update.metrics.delivery_rate)}</strong></span>
       </div>
 
-      {task === 'decision' && <aside className="research-side-panel" aria-label="上下文分析面板">
+      {task === 'decision' && <aside className="research-side-panel" aria-label="Context analysis panel">
         <nav>
-          <button type="button" className={sideView === 'evidence' ? 'is-active' : ''} onClick={() => setSideView('evidence')}><CarFront aria-hidden="true" />证据</button>
-          <button type="button" className={sideView === 'relations' ? 'is-active' : ''} onClick={() => setSideView('relations')}><Network aria-hidden="true" />关系</button>
-          <button type="button" className={sideView === 'copilot' ? 'is-active' : ''} onClick={() => setSideView('copilot')}><Bot aria-hidden="true" />解释</button>
+          <button type="button" className={sideView === 'evidence' ? 'is-active' : ''} onClick={() => setSideView('evidence')}><CarFront aria-hidden="true" />Evidence</button>
+          <button type="button" className={sideView === 'relations' ? 'is-active' : ''} onClick={() => setSideView('relations')}><Network aria-hidden="true" />Relations</button>
+          <button type="button" className={sideView === 'copilot' ? 'is-active' : ''} onClick={() => setSideView('copilot')}><Bot aria-hidden="true" />Explain</button>
         </nav>
         {sideView === 'evidence' && <EvidencePanel update={update} vehicleId={selectedVehicleId}
           accidentVehicleId={incidentVehicleId} source={source} selectiveLabel={selectiveLabel} />}
@@ -432,40 +437,40 @@ export function ResearchWorkspace({ scenario, presentationPairs, presentationSou
       </aside>}
     </div>
 
-    <section className="research-drawer" aria-label="实验数据抽屉">
+    <section className="research-drawer" aria-label="Experiment data drawer">
       <div className="drawer-heading">
         <nav>
-          {task === 'decision' && <><button type="button" className={drawerView === 'trace' ? 'is-active' : ''} onClick={() => openDrawer('trace')}><Radio aria-hidden="true" />消息追踪</button>
-            <button type="button" className={drawerView === 'compare' ? 'is-active' : ''} onClick={() => openDrawer('compare')}><GitCompareArrows aria-hidden="true" />同步指标</button></>}
-          {task === 'stress' && <button type="button" className="is-active"><SlidersHorizontal aria-hidden="true" />网络压力实验 · 结果仅保留在实验室</button>}
-          {task === 'evidence' && <button type="button" className="is-active"><BookOpen aria-hidden="true" />可复现实验记录</button>}
+          {task === 'decision' && <><button type="button" className={drawerView === 'trace' ? 'is-active' : ''} onClick={() => openDrawer('trace')}><Radio aria-hidden="true" />Message Trace</button>
+            <button type="button" className={drawerView === 'compare' ? 'is-active' : ''} onClick={() => openDrawer('compare')}><GitCompareArrows aria-hidden="true" />Synchronized Metrics</button></>}
+          {task === 'stress' && <button type="button" className="is-active"><SlidersHorizontal aria-hidden="true" />Network Stress Experiment · Results remain in the lab</button>}
+          {task === 'evidence' && <button type="button" className="is-active"><BookOpen aria-hidden="true" />Reproducible Experiment Log</button>}
         </nav>
-        {task === 'decision' && <button type="button" className="drawer-collapse" aria-label={drawerCollapsed ? '展开实验抽屉' : '折叠实验抽屉'}
+        {task === 'decision' && <button type="button" className="drawer-collapse" aria-label={drawerCollapsed ? 'Expand experiment drawer' : 'Collapse experiment drawer'}
           aria-expanded={!drawerCollapsed} onClick={() => setDrawerCollapsed((value) => !value)}><ChevronDown aria-hidden="true" /></button>
         }
       </div>
       {!drawerCollapsed && <><div className="drawer-body">
         {drawerView === 'trace' && <MessageTrace pair={pair} strategy={strategy} onlyDifferences={onlyDifferences} onToggleDifferences={() => setOnlyDifferences((value) => !value)} aiLabel={selectiveLabel} />}
         {drawerView === 'compare' && <div className="comparison-board">
-          <MetricCard label="通知车辆" ai={pair.ai.decision.selected_receivers.length} baseline={pair.baseline.decision.selected_receivers.length} aiLabel={selectiveLabel} />
-          <MetricCard label="平均时延" ai={pair.ai.metrics.avg_delay_ms} baseline={pair.baseline.metrics.avg_delay_ms} unit=" ms" aiLabel={selectiveLabel} />
-          <MetricCard label="通信负载" ai={pair.ai.metrics.comm_overhead} baseline={pair.baseline.metrics.comm_overhead} aiLabel={selectiveLabel} />
-          <MetricCard label="未送达率" ai={1 - pair.ai.metrics.delivery_rate} baseline={1 - pair.baseline.metrics.delivery_rate} aiLabel={selectiveLabel} />
+          <MetricCard label="Notified Vehicles" ai={pair.ai.decision.selected_receivers.length} baseline={pair.baseline.decision.selected_receivers.length} aiLabel={selectiveLabel} />
+          <MetricCard label="Average Latency" ai={pair.ai.metrics.avg_delay_ms} baseline={pair.baseline.metrics.avg_delay_ms} unit=" ms" aiLabel={selectiveLabel} />
+          <MetricCard label="Communication Load" ai={pair.ai.metrics.comm_overhead} baseline={pair.baseline.metrics.comm_overhead} aiLabel={selectiveLabel} />
+          <MetricCard label="Non-Delivery Rate" ai={1 - pair.ai.metrics.delivery_rate} baseline={1 - pair.baseline.metrics.delivery_rate} aiLabel={selectiveLabel} />
         </div>}
           {drawerView === 'experiment' && <ExperimentBuilder scenario={scenario} incidentVehicleId={incidentVehicleId} pair={pair} source={source} session={session} modelEligible={modelEligible} modelReason={modelReason} />}
         {drawerView === 'notebook' && <div className="notebook-panel">
-          <div className="notebook-toolbar"><span>{notebook.length} 条可复现实验记录</span><button type="button" onClick={exportNotebook} disabled={notebook.length === 0}><Download aria-hidden="true" />导出 JSON</button></div>
-          {notebook.length === 0 ? <p className="research-empty">点击场景上方的“保存证据”，记录当前对比结果。</p> : notebook.map((entry) => <article key={entry.id}>
-            <span><strong>{entry.scenarioName}</strong><small>{new Date(entry.createdAt).toLocaleString('zh-CN')}</small></span>
-            <p>{entry.hypothesis}</p><b>{entry.source === 'real' ? 'AI' : '规则'} {entry.result.aiReceivers} 辆 / 传统 {entry.result.baselineReceivers} 辆</b>
+          <div className="notebook-toolbar"><span>{notebook.length} reproducible experiment records</span><button type="button" onClick={exportNotebook} disabled={notebook.length === 0}><Download aria-hidden="true" />Export JSON</button></div>
+          {notebook.length === 0 ? <p className="research-empty">Select “Save Evidence” above the scene to record the current comparison.</p> : notebook.map((entry) => <article key={entry.id}>
+            <span><strong>{entry.scenarioName}</strong><small>{new Date(entry.createdAt).toLocaleString('en-US')}</small></span>
+            <p>{entry.hypothesis}</p><b>{entry.source === 'real' ? 'AI' : 'Rule'} {entry.result.aiReceivers} vehicles / Baseline {entry.result.baselineReceivers} vehicles</b>
           </article>)}
         </div>}
       </div>
       <div className="research-timeline">
         <button type="button" onClick={() => session.control(session.playing ? 'pause' : 'play')} disabled={session.status !== 'connected'}>{session.playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}</button>
         <Gauge aria-hidden="true" /><span>{pair.ai.timestamp.toFixed(1)} s</span>
-        <input aria-label="同步实验时间轴" type="range" min="0" max={Math.max(0, pairs.length - 1)} value={Math.min(frameIndex, pairs.length - 1)} onChange={(event) => setFrameIndex(Number(event.target.value))} />
-        <small>事件 → 决策 → 发包 → 送达</small>
+        <input aria-label="Synchronized experiment timeline" type="range" min="0" max={Math.max(0, pairs.length - 1)} value={Math.min(frameIndex, pairs.length - 1)} onChange={(event) => setFrameIndex(Number(event.target.value))} />
+        <small>Incident → Decision → Transmission → Delivery</small>
       </div></>}
     </section>
   </section>

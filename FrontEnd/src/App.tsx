@@ -14,8 +14,13 @@ import { useDemoResults } from './hooks/useDemoResults'
 import { useLiveComparisonTelemetry } from './hooks/useLiveComparisonTelemetry'
 import type { ValidationTask } from './components/Research/ResearchWorkspace'
 import {
+  DEFAULT_PRESENTATION_ATMOSPHERE,
   DEFAULT_PRESENTATION_ENVIRONMENT,
+  DEFAULT_RENDER_PREFERENCE,
+  DEFAULT_SCENE_LAYERS,
+  type PresentationAtmosphere,
   type PresentationEnvironment,
+  type RenderPreference,
 } from './components/ThreeD/environmentPresets'
 
 const Scene3D = lazy(() => import('./components/ThreeD/Scene3D').then((module) => ({
@@ -31,12 +36,18 @@ const ResearchWorkspace = lazy(() => import('./components/Research/ResearchWorks
 type HealthResponse = { status: string; service: string }
 
 export default function App() {
-  const [health, setHealth] = useState('正在连接后端')
+  const [health, setHealth] = useState('Connecting to backend')
   const [workspace, setWorkspace] = useState<'presentation' | 'research'>('presentation')
   const [validationTask, setValidationTask] = useState<ValidationTask>('decision')
   const [density, setDensity] = useState<PresentationDensity>('dense')
   const [environmentPreset, setEnvironmentPreset] = useState<PresentationEnvironment>(
     DEFAULT_PRESENTATION_ENVIRONMENT,
+  )
+  const [atmosphere, setAtmosphere] = useState<PresentationAtmosphere>(
+    DEFAULT_PRESENTATION_ATMOSPHERE,
+  )
+  const [renderPreference, setRenderPreference] = useState<RenderPreference>(
+    DEFAULT_RENDER_PREFERENCE,
   )
   const presentationScenario = useMemo(() => buildHighwayPresentationScenario(density), [density])
   const demo = usePresentationDemo(presentationScenario)
@@ -54,7 +65,7 @@ export default function App() {
     fetch('/api/v1/health')
       .then((response) => response.ok ? response.json() as Promise<HealthResponse> : Promise.reject())
       .then((data) => setHealth(`${data.service} · ${data.status}`))
-      .catch(() => setHealth('后端尚未连接'))
+      .catch(() => setHealth('Backend unavailable'))
   }, [])
 
   const evidence = demo.evidence
@@ -85,8 +96,8 @@ export default function App() {
   const channel = 'comparison-ai' as const
   const selectingVehicle = demo.phase === 'selecting'
   const recommendedVehicleId = recommendedIncidentVehicleId(presentationScenario)
-  const connectionLabel = demo.phase === 'complete' ? '结果已就绪'
-    : demo.phase === 'selecting' ? '待机' : demo.connectionStatus
+  const connectionLabel = demo.phase === 'complete' ? 'Results ready'
+    : demo.phase === 'selecting' ? 'Standby' : demo.connectionStatus
   const comparisonVisible = presentationActive && Boolean(evidence)
     && (demo.stage === 'comparison' || demo.stage === 'summary')
   const comparisonPair = evidence
@@ -97,23 +108,23 @@ export default function App() {
   }
 
   return (
-    <main className={`presentation-app presentation-app--${workspace}`}>
+    <main className={`presentation-app presentation-app--${workspace} presentation-app--${environmentPreset} presentation-app--${atmosphere}`}>
       <header className="presentation-header">
         <div className="brand-lockup">
           <RadioTower aria-hidden="true" />
           <div>
-            <p>6G自主驾驶网络</p>
-            <h1>AI赋能的选择性V2X通信</h1>
+            <p>6G Autonomous Mobility Network</p>
+            <h1>AI-Assisted Selective V2X Communication</h1>
           </div>
         </div>
-        <nav className="workspace-switch" aria-label="工作模式">
+        <nav className="workspace-switch" aria-label="Workspace">
           <button type="button" className={workspace === 'presentation' ? 'is-active' : ''}
             onClick={() => setWorkspace('presentation')}>
-            <Presentation aria-hidden="true" />答辩演示
+            <Presentation aria-hidden="true" />Presentation Demo
           </button>
           <button type="button" className={workspace === 'research' ? 'is-active' : ''}
             onClick={() => openValidation('decision')}>
-            <FlaskConical aria-hidden="true" />验证实验室
+            <FlaskConical aria-hidden="true" />Validation Lab
           </button>
         </nav>
         <div className="system-status" aria-live="polite">
@@ -123,15 +134,17 @@ export default function App() {
         </div>
       </header>
 
-      {workspace === 'presentation' ? <section className="scene-shell" aria-label="V2X三维演示工作区">
+      {workspace === 'presentation' ? <section className="scene-shell" aria-label="3D V2X presentation workspace">
         {selectingVehicle || demo.phase === 'preparing' ? <div
-          className={`setup-stage-backdrop setup-stage-backdrop--${environmentPreset}`}
+          className={`setup-stage-backdrop setup-stage-backdrop--${environmentPreset} setup-stage-backdrop--${atmosphere}`}
           aria-hidden="true"><i /><i /><i /></div>
-          : <Suspense fallback={<div className="scene-loading" role="status">正在加载3D场景…</div>}>{comparisonVisible && comparisonPair && demo.selectedVehicleId
+          : <Suspense fallback={<div className="scene-loading" role="status">Loading 3D scene…</div>}>{comparisonVisible && comparisonPair && demo.selectedVehicleId
           ? <ComparisonScene3D pair={comparisonPair} accidentVehicleId={demo.selectedVehicleId}
             selectedVehicleId={demo.inspectedVehicleId} priorityByVehicle={priorityByVehicle}
             elapsedMs={demo.elapsedMs} stage={demo.stage}
             baseline={demo.selectedBaseline} environmentPreset={environmentPreset}
+            atmosphere={atmosphere} renderPreference={renderPreference}
+            layers={DEFAULT_SCENE_LAYERS}
             onVehicleSelect={demo.setInspectedVehicleId} />
           : <Scene3D
           vehicles={vehicles}
@@ -148,7 +161,11 @@ export default function App() {
           corridorRadiusM={currentAI?.decision.corridor_radius_m}
           corridorLaneScope={currentAI?.decision.corridor_lane_scope}
           priorityByVehicle={priorityByVehicle}
+          bandwidthFraction={currentAI?.decision.bandwidth_fraction}
           environmentPreset={environmentPreset}
+          atmosphere={atmosphere}
+          renderPreference={renderPreference}
+          layers={DEFAULT_SCENE_LAYERS}
           interactive={selectingVehicle || presentationActive}
           onVehicleSelect={selectingVehicle ? demo.setSelectedVehicleId
             : presentationActive ? demo.setInspectedVehicleId : undefined}
@@ -161,6 +178,8 @@ export default function App() {
           preparing={demo.phase === 'preparing'}
           density={density}
           environmentPreset={environmentPreset}
+          atmosphere={atmosphere}
+          renderPreference={renderPreference}
           modelEligible={demo.modelStatus?.eligible ?? false}
           modelReason={demo.modelStatus?.reason ?? null}
           modelHash={demoResults.results?.provenance?.model_sha256 ?? null}
@@ -168,6 +187,8 @@ export default function App() {
           baseline={demo.selectedBaseline}
           onDensityChange={setDensity}
           onEnvironmentChange={setEnvironmentPreset}
+          onAtmosphereChange={setAtmosphere}
+          onRenderPreferenceChange={setRenderPreference}
           onVehicleSelect={demo.setSelectedVehicleId}
           onBaselineChange={demo.setSelectedBaseline}
           onStart={() => void demo.start()}
@@ -175,9 +196,9 @@ export default function App() {
 
         {demo.phase === 'preparing' && <div className="preparing-overlay" role="status">
           <span className="loading-orbit" aria-hidden="true" />
-          <strong>正在计算正式AI与{demo.selectedBaseline === 'broadcast' ? '全量广播'
-            : demo.selectedBaseline === 'distance' ? '固定范围' : '紧急度调度'}的同步结果</strong>
-          <small>同一场景、同一随机种子、同一仿真时间戳</small>
+          <strong>Computing synchronized production AI and {demo.selectedBaseline === 'broadcast' ? 'Broadcast'
+            : demo.selectedBaseline === 'distance' ? 'Fixed Radius' : 'Urgency Scheduling'} results</strong>
+          <small>Same scenario, random seed, and simulation timestamp</small>
         </div>}
 
         {presentationActive && demo.selectedVehicleId && <DemoHud
@@ -195,6 +216,7 @@ export default function App() {
           telemetry={live.telemetry}
           baseline={demo.selectedBaseline}
           environmentPreset={environmentPreset}
+          atmosphere={atmosphere}
           onTogglePause={demo.togglePause}
           onReplay={demo.replay}
           onAutoplay={demo.startAutoplay}
@@ -202,11 +224,12 @@ export default function App() {
           onReset={demo.reset}
           onOpenValidation={() => openValidation('decision')}
         />}
-      </section> : <Suspense fallback={<div className="scene-loading research-loading" role="status">正在加载验证实验室…</div>}>
+      </section> : <Suspense fallback={<div className="scene-loading research-loading" role="status">Loading Validation Lab…</div>}>
         <ResearchWorkspace scenario={demo.scenario} presentationPairs={demo.pairs}
           presentationSource={demo.source} modelEligible={demo.modelStatus?.eligible ?? false}
           modelReason={demo.modelStatus?.reason ?? null} initialTask={validationTask}
-          environmentPreset={environmentPreset} />
+          environmentPreset={environmentPreset} atmosphere={atmosphere}
+          renderPreference={renderPreference} />
       </Suspense>}
     </main>
   )

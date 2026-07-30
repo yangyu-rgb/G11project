@@ -90,7 +90,7 @@ function update(
         status: selectedIds.includes(vehicle.id) ? 'selected' : 'candidate',
       })),
       selection_reason: Object.fromEntries(selectedIds.map((id) => [id, method === 'ai'
-        ? '规则筛选' : '全量广播'])),
+        ? 'rule_filter' : 'broadcast'])),
     },
   }
 }

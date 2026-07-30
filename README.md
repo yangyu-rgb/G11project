@@ -188,16 +188,24 @@ not establish real-road performance.
 
 ## Demo Gallery
 
-| Synchronized comparison | Held-out summary |
+| Guided configuration | Synchronized comparison |
 |---|---|
-| ![Synchronized baseline and learned policy](Docs/assets/demo/synchronized-comparison.webp) | ![Held-out results in the final presentation stage](Docs/assets/demo/results-summary.webp) |
+| ![Guided setup for environment, traffic and comparison baseline](Docs/assets/demo/entry-configuration.webp) | ![Synchronized baseline and learned policy](Docs/assets/demo/synchronized-comparison.webp) |
 
-| Validation laboratory |
-|---|
-| ![Frozen-frame evidence and receiver audit](Docs/assets/demo/validation-lab.webp) |
+| Held-out summary | Validation laboratory |
+|---|---|
+| ![Held-out results in the final presentation stage](Docs/assets/demo/results-summary.webp) | ![Frozen-frame evidence and receiver audit](Docs/assets/demo/validation-lab.webp) |
 
 The 38-second presentation contains four stages: normal traffic, incident onset, synchronized
 algorithm comparison, and result summary. Camera control remains available during comparison.
+The runtime UI is fully English. Open-road, elevated-city, and tunnel presets share the same
+simulation state while changing only PBR materials, lighting, roadside geometry, and tone mapping;
+clear-day, overcast-haze, and golden-hour atmosphere profiles are also presentation-only. Auto,
+Presentation, and Balanced render modes control pixel density and shadow resolution without changing
+the evidence frame. Directional links encode actual delivery status, priority, latency, and bandwidth:
+AI paths are cyan/green, baseline paths are amber, timeouts are red, moving packet density reflects
+the current bandwidth action, and acknowledgements appear as receiver rings. Evidence layers can be
+expanded only when needed so the synchronized road views remain readable.
 
 演示不是预渲染视频：事故车、对照方法和场景可在入口配置，结果来自同步后端推理与基线计算。
 
@@ -211,11 +219,34 @@ algorithm comparison, and result summary. Camera control remains available durin
 
 ### Start the application
 
+macOS / Linux:
+
 ```bash
 git clone https://github.com/yangyu-rgb/G11project.git
 cd G11project
 ./start.sh
 ```
+
+Windows 10/11 (CMD or double-click):
+
+```bat
+git clone https://github.com/yangyu-rgb/G11project.git
+cd G11project
+start.cmd
+```
+
+Windows PowerShell users may run the native launcher directly:
+
+```powershell
+git clone https://github.com/yangyu-rgb/G11project.git
+Set-Location G11project
+powershell -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+The Windows launcher automatically uses `BackEnd\.venv\Scripts\python.exe`, runs `npm ci` on
+the first launch, creates the Python virtual environment when needed, and stops both child process
+trees when the launcher exits. Install 64-bit Python 3.11/3.12 and Node.js 22 LTS before the first
+run. `start.sh` remains the launcher for Bash-based systems and WSL.
 
 The script creates `BackEnd/.venv`, installs missing frontend packages, and starts:
 

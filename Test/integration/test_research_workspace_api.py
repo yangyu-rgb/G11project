@@ -79,7 +79,7 @@ def test_local_copilot_cites_structured_evidence() -> None:
     response = TestClient(app).post(
         "/api/v1/copilot/respond",
         json={
-            "query": "为什么选择这辆车？",
+            "query": "Why was this vehicle selected?",
             "vehicle_id": "vehicle_002",
             "evidence": {
                 "candidate": True,

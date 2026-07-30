@@ -15,8 +15,8 @@ BACKEND_ROOT = Path(__file__).resolve().parents[3]
 PRESETS = (
     {
         "id": "highway-braking",
-        "title": "高速急刹",
-        "description": "比较AI调度与全量广播的通信过程。",
+        "title": "Highway Emergency Braking",
+        "description": "Compare AI scheduling with broadcast communication.",
         "scenario": "experiments/test_scenario",
         "model": "experiments/highway_corridor/champion/model_best.zip",
         "mode": "comparison",
@@ -24,8 +24,8 @@ PRESETS = (
     },
     {
         "id": "urban-occlusion",
-        "title": "城市交叉口遮挡",
-        "description": "比较AI调度与距离筛选策略。",
+        "title": "Urban Intersection Occlusion",
+        "description": "Compare AI scheduling with fixed-radius filtering.",
         "scenario": "experiments/test_urban",
         "model": "experiments/urban_training/champion/model.zip",
         "mode": "comparison",
@@ -33,8 +33,8 @@ PRESETS = (
     },
     {
         "id": "multi-event",
-        "title": "复杂多事件",
-        "description": "展示模型面对连续事件的泛化流程。",
+        "title": "Complex Multi-Incident Scenario",
+        "description": "Demonstrate the model's generalization process under sequential incidents.",
         "scenario": "experiments/generalization/multi_event",
         "model": "experiments/generalization/champion/model.zip",
         "mode": "single",
@@ -92,38 +92,52 @@ def _validated_results_summary() -> dict[str, object]:
     """Return only allowlisted, mutually consistent and accepted result artifacts."""
     model_status = presentation_model_status()
     if not model_status.get("eligible"):
-        return _pending_results(str(model_status.get("reason") or "正式模型尚未通过资格门禁"))
+        return _pending_results(
+            str(
+                model_status.get("reason")
+                or "The production model has not passed the eligibility gate"
+            )
+        )
 
     summary = _read_json(BACKEND_ROOT / RESULTS_SUMMARY)
     presentation = _read_json(BACKEND_ROOT / RESULTS_MANIFEST)
     model = _read_json(BACKEND_ROOT / MODEL_MANIFEST)
     if summary is None or presentation is None or model is None:
-        return _pending_results("留出集结果仍在生成，暂不展示统计结论")
+        return _pending_results(
+            "Held-out results are still being generated; statistical conclusions are unavailable"
+        )
 
     manifests = (summary, presentation)
     if any(item.get("protocol") != EXPECTED_RESULTS_PROTOCOL for item in manifests):
-        return _pending_results("实验协议与当前演示不一致", "invalid")
+        return _pending_results(
+            "The experiment protocol does not match the current demo", "invalid"
+        )
     if any(
         item.get("metric_schema_version") != EXPECTED_METRIC_SCHEMA for item in (*manifests, model)
     ):
-        return _pending_results("指标结构版本不一致", "invalid")
+        return _pending_results("The metric schema versions do not match", "invalid")
     acceptance = summary.get("acceptance")
     if (
         not isinstance(acceptance, dict)
         or not bool(acceptance.get("passed"))
         or summary.get("failures")
     ):
-        return _pending_results("留出集实验没有通过验收门禁", "invalid")
+        return _pending_results(
+            "The held-out experiment did not pass the acceptance gate", "invalid"
+        )
     if summary.get("completed_result_rows") != summary.get("expected_result_rows"):
-        return _pending_results("留出集实验结果不完整", "invalid")
+        return _pending_results("The held-out experiment results are incomplete", "invalid")
     if presentation.get("completed_result_rows") != summary.get("completed_result_rows"):
-        return _pending_results("展示清单与统计汇总行数不一致", "invalid")
+        return _pending_results(
+            "The presentation manifest and statistical summary contain different row counts",
+            "invalid",
+        )
 
     raw_methods = summary.get("methods")
     if not isinstance(raw_methods, dict) or any(
         name not in raw_methods for name in REQUIRED_RESULT_METHODS
     ):
-        return _pending_results("实验方法集合不完整", "invalid")
+        return _pending_results("The experiment method set is incomplete", "invalid")
     methods: dict[str, object] = {}
     for method_name, raw_metrics in raw_methods.items():
         if not isinstance(method_name, str) or not isinstance(raw_metrics, dict):
@@ -136,13 +150,15 @@ def _validated_results_summary() -> dict[str, object]:
         if metrics:
             methods[method_name] = metrics
     if any(name not in methods for name in REQUIRED_RESULT_METHODS):
-        return _pending_results("实验指标包含无效数值", "invalid")
+        return _pending_results("The experiment metrics contain invalid values", "invalid")
 
     training_run = model.get("training_run") if isinstance(model.get("training_run"), dict) else {}
     presentation_git = presentation.get("git") if isinstance(presentation.get("git"), dict) else {}
     commit = training_run.get("commit") or presentation_git.get("commit")
     if training_run.get("commit") and presentation_git.get("commit") != training_run.get("commit"):
-        return _pending_results("模型与展示结果的代码版本不一致", "invalid")
+        return _pending_results(
+            "The model and presentation results use different code revisions", "invalid"
+        )
 
     significance = summary.get("paired_wilcoxon_holm")
     return {

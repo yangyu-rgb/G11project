@@ -5,13 +5,13 @@ type RealtimeMetricsProps = { metrics: SimulationMetrics; history?: MetricHistor
 
 export function RealtimeMetrics({ metrics, history = [] }: RealtimeMetricsProps) {
   const values = [
-    { label: '当前平均时延', value: `${metrics.avg_delay_ms.toFixed(1)} ms`, tone: 'blue' },
-    { label: '消息送达率', value: `${(metrics.delivery_rate * 100).toFixed(1)}%`, tone: 'green' },
-    { label: '通信开销', value: `${metrics.comm_overhead.toFixed(2)}x`, tone: 'orange' },
+    { label: 'Current Average Latency', value: `${metrics.avg_delay_ms.toFixed(1)} ms`, tone: 'blue' },
+    { label: 'Message Delivery Rate', value: `${(metrics.delivery_rate * 100).toFixed(1)}%`, tone: 'green' },
+    { label: 'Communication Overhead', value: `${metrics.comm_overhead.toFixed(2)}x`, tone: 'orange' },
   ]
   return (
     <div className="metrics-panel">
-      <section className="metrics-grid" aria-label="实时通信指标">
+      <section className="metrics-grid" aria-label="Real-time communication metrics">
         {values.map((metric) => (
           <article key={metric.label} className={`metric-card metric-card--${metric.tone}`}>
             <p>{metric.label}</p><strong>{metric.value}</strong>

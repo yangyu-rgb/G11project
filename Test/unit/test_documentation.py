@@ -22,12 +22,14 @@ PUBLIC_DOCUMENTS = (
 )
 REQUIRED_ASSETS = (
     "Docs/assets/architecture/system-overview.svg",
+    "Docs/assets/demo/entry-configuration.webp",
     "Docs/assets/demo/synchronized-comparison.webp",
     "Docs/assets/demo/results-summary.webp",
     "Docs/assets/demo/validation-lab.webp",
     "Docs/assets/results/directional-v2-summary.json",
     "Docs/assets/results/heldout-metrics.svg",
     "Docs/assets/results/safety-efficiency-tradeoff.png",
+    "FrontEnd/public/assets/environment/ASSET_PROVENANCE.md",
 )
 MARKDOWN_LINK = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 

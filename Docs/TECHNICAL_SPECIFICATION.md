@@ -99,6 +99,12 @@ The currently referenced accepted checkpoint hash is `b4119963acd28d87283ca5d910
 
 FastAPI owns model eligibility, scenario/session state, synchronized AI/baseline computation, and WebSocket evidence. React owns user input and presentation state. Three.js renders vehicles, road environment, directional communication links, highlights, camera control, and evidence panels. Continuous visual interpolation may occur between backend keyframes; inference and metric truth may not be fabricated client-side.
 
+The visual environment, atmosphere profile, render-quality preference, and evidence-layer toggles are
+strictly presentation state. They are not serialized into the simulation scenario and cannot alter
+trajectories, legal receiver geometry, PPO actions, network outcomes, or metrics. Communication-line
+colour, packet count, animation cycle, and endpoint acknowledgement are deterministic mappings from
+transmission status, bandwidth fraction, delay, and receiver priority.
+
 ## 9. Evaluation semantics
 
 For affected set \(A\) and receiver set \(R\):

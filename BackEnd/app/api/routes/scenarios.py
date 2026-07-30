@@ -61,7 +61,7 @@ class EditorEvent(BaseModel):
 
 class EditorScenarioRequest(BaseModel):
     schema_version: Literal[1] = 1
-    name: str = Field(default="自定义场景", min_length=1, max_length=80)
+    name: str = Field(default="Custom Scenario", min_length=1, max_length=80)
     vehicles: list[EditorVehicle] = Field(min_length=1, max_length=100)
     events: list[EditorEvent] = Field(default_factory=list, max_length=5)
 
@@ -246,9 +246,9 @@ def create_editor_scenario(payload: EditorScenarioRequest) -> EditorScenarioResp
 
     limitations = []
     if len(payload.vehicles) > CURRENT_MODEL_MAX_VEHICLES:
-        limitations.append("当前正式演示模型最多支持50辆车")
+        limitations.append("The production presentation model supports up to 50 vehicles")
     if len(payload.events) > CURRENT_MODEL_MAX_EVENTS:
-        limitations.append("当前正式演示模型最多支持2个事件")
+        limitations.append("The production presentation model supports up to two incidents")
     return EditorScenarioResponse(
         scenario_ref=f"editor:{scenario_id}",
         vehicle_count=len(payload.vehicles),

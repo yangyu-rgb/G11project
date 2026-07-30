@@ -11,24 +11,24 @@ export type BaselineDefinition = {
 export const BASELINE_DEFINITIONS: readonly BaselineDefinition[] = [
   {
     id: 'broadcast',
-    label: '全量广播',
+    label: 'Broadcast',
     shortLabel: 'BROADCAST',
-    description: '向通信域内全部非事故车辆发送消息，覆盖范围最大。',
-    rule: '全部非发送车辆',
+    description: 'Sends the message to every non-incident vehicle in the communication domain.',
+    rule: 'All non-sender vehicles',
   },
   {
     id: 'distance',
-    label: '固定范围',
+    label: 'Fixed Radius',
     shortLabel: 'DISTANCE · 300 m',
-    description: '通知事故点300米内全部车辆，固定高优先级并使用100%总带宽。',
-    rule: '欧氏距离 ≤ 300 m · 固定资源',
+    description: 'Notifies every vehicle within 300 m using fixed high priority and 100% total bandwidth.',
+    rule: 'Euclidean distance ≤ 300 m · Fixed resources',
   },
   {
     id: 'urgency',
-    label: '紧急度调度',
+    label: 'Urgency Scheduling',
     shortLabel: 'URGENCY',
-    description: '接收集合仍为300米范围，依据事件严重度调整优先级与总带宽比例。',
-    rule: '同一距离筛选 · 严重度调度资源',
+    description: 'Uses the same 300 m receiver set while adapting priority and bandwidth to incident severity.',
+    rule: 'Same distance filter · Severity-based resources',
   },
 ] as const
 

@@ -14,7 +14,7 @@ export function DecisionSidebar({ decision }: DecisionSidebarProps) {
       <div className="decision-sidebar-header">
         <div>
           <p className="eyebrow">PPO DECISION</p>
-          <h2 id="decision-heading">决策过程</h2>
+          <h2 id="decision-heading">Decision Process</h2>
         </div>
         <button
           type="button"
@@ -23,20 +23,20 @@ export function DecisionSidebar({ decision }: DecisionSidebarProps) {
           aria-controls="decision-sidebar-content"
           onClick={() => setExpanded((value) => !value)}
         >
-          {expanded ? '收起' : '展开'}
+          {expanded ? 'Collapse' : 'Expand'}
         </button>
       </div>
       <div id="decision-sidebar-content" hidden={!expanded}>
         <section className="decision-section" aria-labelledby="candidate-heading">
-          <h3 id="candidate-heading">300米内候选车辆</h3>
+          <h3 id="candidate-heading">Candidates Within 300 m</h3>
           <CandidateList decision={decision} />
         </section>
         <section className="decision-section" aria-labelledby="resource-heading">
-          <h3 id="resource-heading">资源分配</h3>
+          <h3 id="resource-heading">Resource Allocation</h3>
           <ResourceChart decision={decision} />
         </section>
         <p className="decision-explainer">
-          “相对注意力”表示模型在当前输入中给予的相对权重，用于解释选择线索，不代表因果关系。
+          “Relative attention” indicates the model's relative weighting of the current input. It is an interpretive cue, not a causal claim.
         </p>
       </div>
     </aside>

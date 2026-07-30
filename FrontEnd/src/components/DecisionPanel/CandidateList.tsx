@@ -3,19 +3,19 @@ import type { SimulationDecision } from '../../types/simulation'
 type CandidateListProps = { decision: SimulationDecision | null }
 
 const reasonLabels: Record<string, string> = {
-  high_attention: '高注意力',
-  critical_distance: '关键距离',
-  policy_selected: '策略选择',
-  broadcast: '广播基线',
-  urgency_priority: '紧急度优先',
+  high_attention: 'High attention',
+  critical_distance: 'Critical distance',
+  policy_selected: 'Policy selected',
+  broadcast: 'Broadcast baseline',
+  urgency_priority: 'Urgency priority',
 }
 
 const statusLabels: Record<string, string> = {
-  candidate: '候选',
-  normal: '候选',
-  selected: '已选择',
-  sending: '发送中',
-  receiving: '接收中',
+  candidate: 'Candidate',
+  normal: 'Candidate',
+  selected: 'Selected',
+  sending: 'Sending',
+  receiving: 'Receiving',
 }
 
 export function CandidateList({ decision }: CandidateListProps) {
@@ -26,11 +26,11 @@ export function CandidateList({ decision }: CandidateListProps) {
   const reasons = decision?.selection_reason ?? {}
 
   if (candidates.length === 0) {
-    return <p className="panel-empty">当前事件300米范围内没有候选车辆。</p>
+    return <p className="panel-empty">No candidate vehicles are within 300 m of the current incident.</p>
   }
 
   return (
-    <ul className="candidate-list" aria-label="候选车辆列表">
+    <ul className="candidate-list" aria-label="Candidate vehicle list">
       {candidates.map((candidate) => {
         const candidateId = String(candidate.id)
         const isSelected = selected.has(candidateId)
@@ -43,7 +43,7 @@ export function CandidateList({ decision }: CandidateListProps) {
             </div>
             <div className="candidate-state">
               <span className={`candidate-badge${isSelected ? ' candidate-badge--selected' : ''}`}>
-                {isSelected ? '已选择' : statusLabels[candidate.status] ?? candidate.status}
+                {isSelected ? 'Selected' : statusLabels[candidate.status] ?? candidate.status}
               </span>
               {reason && <small>{reasonLabels[reason] ?? reason}</small>}
             </div>

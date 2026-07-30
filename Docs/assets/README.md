@@ -8,9 +8,10 @@ experiment artifacts are committed here. No generative image is used as experime
 | Asset | Source | Protocol / state |
 |---|---|---|
 | `architecture/system-overview.svg` | Implemented modules in `BackEnd/app`, `BackEnd/src`, and `FrontEnd/src` | Architecture snapshot, 2026-07-30 |
-| `demo/synchronized-comparison.webp` | Local live run, 50 vehicles, broadcast vs learned policy | Champion SHA `b4119963acd2…` |
-| `demo/results-summary.webp` | Local held-out result panel | `directional-v2`, schema v2 |
-| `demo/validation-lab.webp` | Local validation workspace, confirmed 30 Mbps network stress run | Seed 42, real PPO comparison session |
+| `demo/entry-configuration.webp` | Local frontend capture of the guided demonstration setup | English adaptive-glass UI, 1462 × 750 |
+| `demo/synchronized-comparison.webp` | Local live run, 50 vehicles, broadcast vs learned policy | Champion SHA `b4119963acd2…`, English PBR scene |
+| `demo/results-summary.webp` | Local held-out result panel | `directional-v2`, schema v2, English UI |
+| `demo/validation-lab.webp` | Local validation workspace with synchronized receiver evidence | Real PPO comparison session, English UI |
 | `results/directional-v2-summary.json` | Curated machine-readable values from the accepted experiment summary | 72 cases, schema v2 |
 | `results/heldout-metrics.svg` | Deterministic rendering of the curated JSON values | Metric-specific valid n |
 | `results/safety-efficiency-tradeoff.png` | Curated copy of `presentation_results/fig_safety_efficiency_tradeoff.png` | Accepted highway-corridor result bundle |
